@@ -1,0 +1,88 @@
+# Example scene config — She-Proves, Intimate Terrorism, Tier B
+# This is a reference example. Copy and modify for new scenes.
+# All field names and valid values are defined in docs/spec.md.
+
+scene_id: SP_IT_B_0001
+project: she_proves                         # she_proves | elephant_in_the_room
+language: he                                # he (Hebrew) only for now
+violence_typology: IT                       # SV | IT | NEG | NEU
+tier: B                                     # A (clean) | B (acoustic augmentation) | C (confusor)
+random_seed: 42                             # Fixed seed for reproducibility
+
+# --- Speakers ---
+# Speaker IDs must be from configs/speakers/ (see examples there).
+# A scene may have 2–4 speakers. Assign exactly one role each.
+# No speaker_id may appear in more than one dataset split.
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG                               # AGG | VIC | BYS | UNK
+  - speaker_id: VIC_F_25-40_002
+    role: VIC
+  - speaker_id: BYS_F_6-10_001
+    role: BYS                               # Child bystander
+
+# --- Script ---
+script_template: avdp/script/templates/she_proves/intimate_terror_coercive_control.j2
+script_slots:
+  relationship: spouse                      # Template-specific: fills {{relationship}} slot
+  setting: apartment_kitchen
+  grievance: going_out_without_permission   # Trigger for the episode
+  bystander_enters_at_phase: peak           # When child enters the scene
+
+# --- Intensity arc ---
+# One entry per scene segment (roughly 30–60 s each).
+# Values: 1 (calm) → 5 (extreme). Must start at 1 or 2 and peak before end.
+intensity_arc: [1, 2, 3, 4, 5, 4, 3]
+
+# She-Proves specific: incident window timing (as fraction of total scene)
+# The model must learn to detect the window, not just the peak.
+she_proves:
+  incident_window_start_fraction: 0.35     # Incident begins ~35% into scene
+  pre_incident_phases: [baseline, tension] # Phases before incident_window_start
+  incident_phases: [escalation, peak]
+  post_incident_phases: [aftermath, de-escalation]
+
+# --- Duration ---
+target_duration_minutes: 4.5              # Total scene length (3–6 min for She-Proves)
+min_pre_incident_seconds: 90              # Enforce ≥ 90 s of baseline/tension before violence
+
+# --- Acoustic scene (Tier B only; ignored for Tier A) ---
+acoustic_scene:
+  room_type: apartment_kitchen            # See configs/acoustic_scenes/ for valid values
+  device: phone_in_pocket                 # phone_in_pocket | phone_in_hand | phone_on_table
+  speaker_distance_meters: 2.5           # Aggressor distance from device at scene start
+  victim_distance_meters: 1.8
+  ir_source: pyroomacoustics              # pyroomacoustics | path/to/ir_file.wav
+  room_dimensions_range:                  # Randomized within these bounds
+    min: [3.0, 2.5, 2.4]                  # [length_m, width_m, height_m]
+    max: [5.0, 4.0, 2.8]
+  rt60_range: [0.25, 0.45]               # Reverberation time range (seconds)
+  background_events:
+    - type: tv_ambient                    # TV on in adjacent room
+      onset_seconds: 0.0
+      level_db: -32
+      loop: true
+    - type: ACOU_BREAK                    # Glass breaks during peak
+      onset_at_phase: peak
+      onset_offset_seconds: 5.0          # 5 s into peak phase
+      asset_path: null                    # null = select randomly from assets/sfx/physical/
+  snr_target_db: 18                       # Target SNR after augmentation
+
+# --- TTS prosody bounds ---
+# Applied per speaker, randomized within these bounds on each render.
+prosody:
+  AGG:
+    rate_range: [1.05, 1.25]             # Speaking rate multiplier
+    pitch_shift_range: [-2, +3]          # Semitones
+    volume_range: [0, +6]                # dB relative to baseline (louder at high intensity)
+  VIC:
+    rate_range: [0.85, 1.0]             # Slower, more hesitant
+    pitch_shift_range: [+1, +5]          # Higher pitch under fear
+    volume_range: [-6, 0]
+  BYS:
+    rate_range: [1.0, 1.3]
+    pitch_shift_range: [+4, +8]          # Child voice, higher
+    volume_range: [-8, -2]
+
+# --- Output ---
+output_dir: data/he                       # Relative to repo root; pipeline appends speaker_id/

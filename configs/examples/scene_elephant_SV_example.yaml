@@ -1,0 +1,81 @@
+# Example scene config — Elephant in the Room, Situational Violence, Tier B
+# This is a reference example. Copy and modify for new scenes.
+# All field names and valid values are defined in docs/spec.md.
+
+scene_id: EL_SV_B_0001
+project: elephant_in_the_room             # she_proves | elephant_in_the_room
+language: he
+violence_typology: SV                     # SV | IT | NEG | NEU
+tier: B
+random_seed: 17
+
+# --- Speakers ---
+speakers:
+  - speaker_id: BEN_M_40-55_003           # Beneficiary (fills aggressor role in this scene)
+    role: AGG
+  - speaker_id: SW_F_30-45_001            # Social worker (victim)
+    role: VIC
+
+# --- Script ---
+script_template: avdp/script/templates/elephant/benefits_dispute_escalation.j2
+script_slots:
+  scene_type: benefits_dispute            # intake_interview | benefits_dispute | crisis_visit | routine_followup
+  dispute_subject: housing_assistance     # What the beneficiary is upset about
+  office_setting: small_clinic_room
+  trigger: application_denied            # What pushes the scene past the threshold
+
+# --- Intensity arc ---
+# Elephant scenes are shorter; escalation should be faster.
+# Alert should trigger in the final 40% of the scene.
+intensity_arc: [1, 2, 3, 4, 5]
+
+# Elephant in the Room specific
+elephant:
+  scene_type: benefits_dispute            # Stored in clip metadata
+  alert_triggered: true
+  alert_at_phase: peak                    # Which phase triggers the security alert
+  alert_onset_fraction: 0.65             # Alert occurs at ~65% of scene duration
+  attack_type: PHYS_HARD                 # The type of attack that occurs at peak
+
+# --- Duration ---
+target_duration_minutes: 2.5             # 1–4 min for Elephant scenes
+min_pre_alert_seconds: 60               # Enforce ≥ 60 s before alert
+
+# --- Acoustic scene (Tier B) ---
+acoustic_scene:
+  room_type: clinic_office               # clinic_office | welfare_office | open_office_corridor
+  device: pi_budget_mic                  # Fixed device type for Elephant
+  speaker_distance_meters: 1.2          # Closer — smaller room
+  victim_distance_meters: 0.8
+  ir_source: pyroomacoustics
+  room_dimensions_range:
+    min: [2.5, 2.0, 2.4]
+    max: [4.0, 3.5, 2.8]
+  rt60_range: [0.15, 0.30]             # More damped than home environments
+  background_events:
+    - type: hvac_hum                    # HVAC background noise (common in clinics)
+      onset_seconds: 0.0
+      level_db: -40
+      loop: true
+    - type: distant_phone_ring          # Office ambience
+      onset_seconds: 30.0
+      level_db: -45
+    - type: ACOU_SLAM                   # Fist on desk during escalation
+      onset_at_phase: escalation
+      onset_offset_seconds: 8.0
+      asset_path: null
+  snr_target_db: 22                     # Slightly cleaner than home (controlled environment)
+
+# --- TTS prosody bounds ---
+prosody:
+  AGG:
+    rate_range: [1.0, 1.3]
+    pitch_shift_range: [-1, +2]
+    volume_range: [0, +8]               # Beneficiary gets louder as they escalate
+  VIC:
+    rate_range: [0.9, 1.0]
+    pitch_shift_range: [0, +3]
+    volume_range: [-4, 0]
+
+# --- Output ---
+output_dir: data/he

@@ -1,0 +1,66 @@
+# Speaker persona — Male aggressor, age 30–45, instance 001
+# Used in She-Proves scenes (domestic violence context).
+#
+# Speaker personas define the TTS rendering parameters for a consistent
+# "character" across multiple clips. Speaker IDs must be assigned to exactly
+# one dataset split (train/val/test) at generation time — never shared across splits.
+
+speaker_id: AGG_M_30-45_001
+role: AGG                           # AGG | VIC | BYS | NEU
+gender: male
+age_range: "30-45"
+context: she_proves                 # she_proves | elephant_in_the_room | both
+
+# --- Azure TTS voice ---
+# Primary voice. Must be a supported he-IL neural voice.
+tts_voice_id: he-IL-AvriNeural
+tts_provider: azure                 # azure | google
+
+# --- Baseline prosody ---
+# These are the neutral/baseline parameters. Scene configs apply
+# additional per-segment variation on top of these values.
+prosody_baseline:
+  rate: 1.05                        # Slightly fast baseline (common in tense speakers)
+  pitch_hz: 115                     # Lower male fundamental (Hz); Azure uses relative adjustments
+  volume_db: 0                      # Baseline volume (dB relative to TTS default)
+
+# --- Style / emotional range ---
+# Maps intensity levels (1–5) to Azure mstts:express-as style + prosody adjustments.
+# Claude Code: use these when building SSML per segment.
+style_map:
+  1:                                # Low tension — calm surface, controlled
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0               # semitones
+    volume_delta_db: 0
+  2:                                # Moderate — slight edge, clipped responses
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: +1
+    volume_delta_db: +2
+  3:                                # Active conflict — raised voice, contemptuous
+    style: "angry"
+    rate_multiplier: 1.15
+    pitch_delta_st: +2
+    volume_delta_db: +5
+  4:                                # Escalated — aggressive, loud
+    style: "angry"
+    rate_multiplier: 1.20
+    pitch_delta_st: +3
+    volume_delta_db: +8
+  5:                                # Extreme — shouting, near-clipping
+    style: "angry"
+    rate_multiplier: 1.25
+    pitch_delta_st: +4
+    volume_delta_db: +10
+
+# --- Disfluency profile ---
+# Probabilities for injecting realism markers into rendered speech.
+disfluency:
+  filled_pause_prob: 0.04           # P(אממ / אה before turn) — low; aggressor speaks deliberately
+  false_start_prob: 0.02
+  truncation_prob: 0.01             # Interrupted mid-word
+
+# --- Split assignment ---
+# Set at dataset generation time. Do not change after clips are generated.
+split: train                        # train | val | test_synth

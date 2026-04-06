@@ -1,0 +1,259 @@
+# AVDP Label Taxonomy
+# Version: 0.1.0
+# Source: docs/spec.md §4
+#
+# This is the single source of truth for all label codes used in the pipeline.
+# Import this file in application code; do not hardcode label strings.
+#
+# Three levels:
+#   1. violence_typology  — applied once per scene/clip
+#   2. tier1_category     — applied per detected event
+#   3. tier2_subtype      — applied per detected event (more specific than tier1)
+
+violence_typology:
+  SV:
+    label: "Situational Violence"
+    description: "Episodic aggression arising from a specific conflict; not part of a chronic control pattern"
+  IT:
+    label: "Intimate Terrorism"
+    description: "Chronic coercive control; pattern of domination, intimidation, and systematic suppression"
+  NEG:
+    label: "Negative / Confusor"
+    description: "Acoustically intense but non-violent; used for hard-negative (Tier C) clips"
+  NEU:
+    label: "Neutral"
+    description: "Everyday interaction with no aggression; control clips"
+
+tier1_category:
+  PHYS:
+    label: "Physical violence"
+    description: "Any physical contact or weapon use"
+  VERB:
+    label: "Verbal aggression"
+    description: "Speech-based aggression, threats, humiliation"
+  DIST:
+    label: "Distress signal"
+    description: "Victim or bystander distress vocalizations"
+  ACOU:
+    label: "Acoustic event"
+    description: "Non-speech sounds associated with violence"
+  EMOT:
+    label: "Emotional / coercive control"
+    description: "Controlling speech patterns; gaslighting; manipulation"
+  NONE:
+    label: "No violence"
+    description: "Background, neutral speech, or confusor events"
+
+tier2_subtype:
+
+  # PHYS — Physical violence
+  PHYS_SOFT:
+    parent: PHYS
+    label: "Soft physical contact"
+    description: "Slap, push, grab"
+    script_marker: "[מגע פיזי רך - סטירה/דחיפה]"
+  PHYS_HARD:
+    parent: PHYS
+    label: "Hard physical contact"
+    description: "Kick, punch, strike"
+    script_marker: "[מגע פיזי קשה - בעיטה/אגרוף]"
+  PHYS_WEAP:
+    parent: PHYS
+    label: "Weapon / object use"
+    description: "Object thrown or used as weapon"
+    script_marker: "[שימוש בחפץ/נשק]"
+  PHYS_MOVE:
+    parent: PHYS
+    label: "Forced movement"
+    description: "Dragging, restraining"
+    script_marker: null
+
+  # VERB — Verbal aggression
+  VERB_HUMIL:
+    parent: VERB
+    label: "Taunting / humiliation"
+    description: "Insults, degradation, mocking"
+    script_marker: "[קנטור/השפלה]"
+  VERB_THREAT:
+    parent: VERB
+    label: "Explicit threat"
+    description: "Direct threats of harm"
+    script_marker: "[איום מפורש]"
+  VERB_SHOUT:
+    parent: VERB
+    label: "Shouting / rage"
+    description: "Elevated volume without specific threat content"
+    script_marker: "[צעקות/סערת רגשות]"
+  VERB_COER:
+    parent: VERB
+    label: "Coercive demand"
+    description: "Commanding or prohibiting with implicit power"
+    script_marker: null
+
+  # DIST — Distress signal
+  DIST_SCREAM:
+    parent: DIST
+    label: "Panic scream"
+    description: "High-intensity fear vocalization"
+    script_marker: "[צרחת פאניקה]"
+  DIST_PLEAD:
+    parent: DIST
+    label: "Pleading / submission"
+    description: "Capitulation language, begging"
+    script_marker: "[תחנונים/כניעה]"
+  DIST_CRY:
+    parent: DIST
+    label: "Crying / sobbing"
+    description: "Audible distress crying"
+    script_marker: "[בכי/התייפחות]"
+  DIST_BREATH:
+    parent: DIST
+    label: "Stressed breathing"
+    description: "Hyperventilation, audible fear breathing"
+    script_marker: null
+  DIST_CHILD:
+    parent: DIST
+    label: "Child distress"
+    description: "Child crying or screaming in scene"
+    script_marker: null
+
+  # ACOU — Acoustic event
+  ACOU_BREAK:
+    parent: ACOU
+    label: "Breaking / shattering"
+    description: "Glass, crockery, object breaking"
+    script_marker: "[שבירת זכוכית]"
+  ACOU_SLAM:
+    parent: ACOU
+    label: "Slam / impact"
+    description: "Door slam, fist on surface"
+    script_marker: "[טריקת דלת]"
+  ACOU_THROW:
+    parent: ACOU
+    label: "Object thrown"
+    description: "Distinct throw-and-land sound"
+    script_marker: null
+  ACOU_FOOT:
+    parent: ACOU
+    label: "Rapid footsteps"
+    description: "Running, stamping"
+    script_marker: null
+  ACOU_FALL:
+    parent: ACOU
+    label: "Body / object fall"
+    description: "Person or large object falling"
+    script_marker: null
+
+  # EMOT — Emotional / coercive control
+  EMOT_GASLIT:
+    parent: EMOT
+    label: "Gaslighting"
+    description: "Reality denial: 'that never happened'"
+    script_marker: null
+  EMOT_ISOL:
+    parent: EMOT
+    label: "Isolation / control"
+    description: "Prohibiting contact, monitoring behavior"
+    script_marker: null
+  EMOT_ECON:
+    parent: EMOT
+    label: "Economic control"
+    description: "Financial threats, deprivation language"
+    script_marker: null
+  EMOT_LEGAL:
+    parent: EMOT
+    label: "Legal threat"
+    description: "Threatening custody, police, deportation"
+    script_marker: null
+
+  # NONE — Non-violent / confusor
+  NONE_ARGU:
+    parent: NONE
+    label: "De-escalating argument"
+    description: "Heated but non-violent exchange that ends calmly"
+    script_marker: null
+  NONE_SPORT:
+    parent: NONE
+    label: "Sports / entertainment yelling"
+    description: "TV, sports, excited vocal outburst"
+    script_marker: null
+  NONE_CHILD:
+    parent: NONE
+    label: "Child play noise"
+    description: "Loud children, non-distress"
+    script_marker: null
+  NONE_CRY_SAFE:
+    parent: NONE
+    label: "Non-violence crying"
+    description: "Crying from grief, frustration, or joy"
+    script_marker: null
+  NONE_LAUGH:
+    parent: NONE
+    label: "Laughter / excitement"
+    description: "Acoustically similar to distress but non-violent"
+    script_marker: null
+  NONE_CLINIC:
+    parent: NONE
+    label: "Animated clinic interaction"
+    description: "Social worker + client, agitated but not violent"
+    script_marker: null
+  NONE_AMBIENT:
+    parent: NONE
+    label: "Background ambience"
+    description: "TV, traffic, appliances, conversation"
+    script_marker: null
+
+# Intensity scale (1–5)
+intensity:
+  1:
+    label: "Low tension"
+    description: "Calm conversation, mild undercurrent of tension"
+  2:
+    label: "Moderate tension"
+    description: "Noticeable friction, raised voices without aggression"
+  3:
+    label: "Active conflict"
+    description: "Clear verbal aggression or intimidation"
+  4:
+    label: "Escalated violence"
+    description: "Physical or high-intensity verbal violence"
+  5:
+    label: "Extreme / life-threatening"
+    description: "Severe physical violence, panic, imminent danger"
+
+# Speaker roles
+speaker_roles:
+  AGG:
+    label: "Aggressor"
+    description: "The party initiating or sustaining the violence"
+  VIC:
+    label: "Victim"
+    description: "The party against whom violence is directed"
+  BYS:
+    label: "Bystander"
+    description: "Third party present (child, neighbor, colleague)"
+  UNK:
+    label: "Unknown"
+    description: "Speaker cannot be attributed with confidence"
+
+# Emotional state tags (per speaker turn)
+emotional_states:
+  - anger
+  - fear
+  - panic
+  - distress
+  - neutral
+  - contempt
+  - submission
+  - grief
+  - confusion
+  - defiance
+
+# Scene phase tags (She-Proves escalation arc)
+scene_phases:
+  - baseline
+  - tension
+  - escalation
+  - peak
+  - aftermath
+  - de-escalation

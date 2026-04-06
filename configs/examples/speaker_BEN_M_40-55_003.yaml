@@ -1,0 +1,51 @@
+# Speaker persona — Male beneficiary (aggressor), age 40–55, instance 003
+# Used in Elephant in the Room scenes.
+# Beneficiary starts as an agitated client and escalates to attacker.
+
+speaker_id: BEN_M_40-55_003
+role: AGG
+gender: male
+age_range: "40-55"
+context: elephant_in_the_room
+
+tts_voice_id: he-IL-AvriNeural
+tts_provider: azure
+
+prosody_baseline:
+  rate: 1.0
+  pitch_hz: 105                     # Slightly lower (older male voice)
+  volume_db: 0
+
+style_map:
+  1:                                # Routine — somewhat guarded, transactional
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0
+    volume_delta_db: 0
+  2:                                # Frustrated — clipped, short answers
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: +1
+    volume_delta_db: +3
+  3:                                # Agitated — loud, accusatory, interrupting
+    style: "angry"
+    rate_multiplier: 1.15
+    pitch_delta_st: +2
+    volume_delta_db: +6
+  4:                                # Pre-attack — threatening, pacing energy
+    style: "angry"
+    rate_multiplier: 1.20
+    pitch_delta_st: +3
+    volume_delta_db: +9
+  5:                                # Attack — shouting, physical sounds added by augmenter
+    style: "angry"
+    rate_multiplier: 1.30
+    pitch_delta_st: +4
+    volume_delta_db: +11
+
+disfluency:
+  filled_pause_prob: 0.05
+  false_start_prob: 0.04
+  truncation_prob: 0.02
+
+split: train

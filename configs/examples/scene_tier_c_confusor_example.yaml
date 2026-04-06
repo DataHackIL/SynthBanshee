@@ -1,0 +1,59 @@
+# Example scene config — Tier C Hard Negative (Confusor)
+# Acoustically intense but NOT violent. Used to train against false positives.
+# The model must learn NOT to alert on scenes like this.
+
+scene_id: SP_NEG_C_0001
+project: she_proves
+language: he
+violence_typology: NEG                    # NEG = negative/confusor
+tier: C
+random_seed: 99
+
+speakers:
+  - speaker_id: NEU_M_35-50_004
+    role: NEU
+  - speaker_id: NEU_F_30-45_005
+    role: NEU
+
+# --- Script ---
+# This template generates a heated argument that DE-ESCALATES — no violence occurs.
+script_template: avdp/script/templates/confusors/argument_deescalates.j2
+script_slots:
+  topic: weekend_plans                   # What the argument is about (mundane)
+  resolution: mutual_concession          # How it ends
+
+# --- Intensity arc: peaks then comes back down ---
+# This is what makes it a good confusor: high acoustic intensity but no violence.
+intensity_arc: [1, 2, 3, 3, 2, 1]
+
+# No she_proves or elephant block — this is a confusor for both projects.
+# Confusor annotation: document WHY this is not violence.
+confusor_note: "Couple argument about weekend plans. Voices raised to intensity 3. No threats, no physical contact, resolves with mutual concession. Acoustic profile similar to early escalation phases in IT scenes."
+
+# --- Duration ---
+target_duration_minutes: 3.0
+
+# --- Acoustic scene ---
+acoustic_scene:
+  room_type: apartment_living_room
+  device: phone_on_table
+  speaker_distance_meters: 2.0
+  ir_source: pyroomacoustics
+  room_dimensions_range:
+    min: [4.0, 3.5, 2.4]
+    max: [6.0, 5.0, 2.8]
+  rt60_range: [0.30, 0.50]
+  background_events:
+    - type: tv_ambient
+      onset_seconds: 0.0
+      level_db: -28
+      loop: true
+  snr_target_db: 16
+
+prosody:
+  NEU:
+    rate_range: [1.0, 1.2]
+    pitch_shift_range: [0, +3]
+    volume_range: [0, +4]               # Gets louder at peak, then quieter
+
+output_dir: data/he

@@ -1,0 +1,54 @@
+# Speaker persona — Female child bystander, age 6–10, instance 001
+# Used in She-Proves scenes where a child is present during a domestic incident.
+# Child voices require higher pitch offsets; disfluency is naturally higher.
+#
+# NOTE: Azure he-IL does not have a dedicated child voice. Approximate with
+# HilaNeural + significant pitch-up offset. Evaluate output carefully.
+
+speaker_id: BYS_F_6-10_001
+role: BYS
+gender: female
+age_range: "6-10"
+context: she_proves
+
+tts_voice_id: he-IL-HilaNeural     # Closest available; apply pitch shift to approximate child
+tts_provider: azure
+
+prosody_baseline:
+  rate: 1.10                        # Children speak faster
+  pitch_hz: 280                     # Higher fundamental for child voice
+  volume_db: -4                     # Quieter than adults in scene
+
+style_map:
+  1:                                # Background play — not directly in scene
+    style: "General"
+    rate_multiplier: 1.1
+    pitch_delta_st: +6              # Significant upward shift for child approximation
+    volume_delta_db: -6
+  2:                                # Aware of tension — quieter, shorter utterances
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: +6
+    volume_delta_db: -8
+  3:                                # Scared — asking what's happening
+    style: "sad"
+    rate_multiplier: 0.95
+    pitch_delta_st: +7
+    volume_delta_db: -4
+  4:                                # Distressed — crying, calling for parent
+    style: "sad"
+    rate_multiplier: 1.05
+    pitch_delta_st: +8
+    volume_delta_db: 0
+  5:                                # Panic — screaming
+    style: "sad"
+    rate_multiplier: 1.20
+    pitch_delta_st: +9
+    volume_delta_db: +3
+
+disfluency:
+  filled_pause_prob: 0.12           # Children have higher natural disfluency
+  false_start_prob: 0.10
+  truncation_prob: 0.06
+
+split: train
