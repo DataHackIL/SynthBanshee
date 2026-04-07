@@ -173,3 +173,191 @@ class TestValidateCommand:
         result = runner.invoke(cli, ["validate", str(wav_path)])
         assert result.exit_code != 0
         assert "INVALID" in result.output
+
+
+# ---------------------------------------------------------------------------
+# generate-batch command
+# ---------------------------------------------------------------------------
+
+_BATCH_RUN_CONFIG_TEMPLATE = """\
+run_id: test_batch_run
+project: she_proves
+tier: A
+language: he
+random_seed: 42
+output_dir: {output_dir}
+scene_configs_dir: {scene_configs_dir}
+targets:
+  - violence_typology: NEU
+    count: 2
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+max_retries: 1
+fail_fast: false
+"""
+
+
+class TestGenerateBatchCommand:
+    def test_dry_run_with_missing_scene_configs_dir(self, tmp_path):
+        """--dry-run exits non-zero when scene_configs_dir does not exist."""
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(tmp_path / "no_such_dir"),
+            ),
+            encoding="utf-8",
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate-batch", "--run-config", str(run_cfg_path), "--dry-run"]
+        )
+        assert result.exit_code != 0
+
+    def test_dry_run_with_empty_scene_configs_dir(self, tmp_path):
+        """--dry-run passes cleanly when scene_configs_dir exists but is empty."""
+        scene_dir = tmp_path / "scenes"
+        scene_dir.mkdir()
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scene_dir),
+            ),
+            encoding="utf-8",
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate-batch", "--run-config", str(run_cfg_path), "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "Dry run" in result.output
+
+    def test_dry_run_shows_selection_summary(self, tmp_path):
+        """--dry-run prints the number of selected scene configs."""
+        scene_dir = tmp_path / "scenes"
+        scene_dir.mkdir()
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scene_dir),
+            ),
+            encoding="utf-8",
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["generate-batch", "--run-config", str(run_cfg_path), "--dry-run"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "selected" in result.output
+
+    def test_full_batch_with_mocked_tts(self, tmp_path):
+        """Full generate-batch renders each scene config and writes a manifest CSV."""
+        import yaml as _yaml
+
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+
+        # Write two minimal Tier A NEU scene configs pointing at the example speaker
+        for i in range(2):
+            scene = {
+                "scene_id": f"SP_NEU_A_000{i}",
+                "project": "she_proves",
+                "language": "he",
+                "violence_typology": "NEU",
+                "tier": "A",
+                "random_seed": i,
+                "speakers": [{"speaker_id": "AGG_M_30-45_001", "role": "AGG"}],
+                "script_template": "synthbanshee/script/templates/she_proves/neutral_domestic_routine.j2",
+                "script_slots": {},
+                "intensity_arc": [1, 1, 1],
+                "target_duration_minutes": 3.0,
+                "output_dir": str(tmp_path / "out"),
+            }
+            (scenes_dir / f"scene_{i:03d}.yaml").write_text(_yaml.dump(scene), encoding="utf-8")
+
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        def _fake_render_to_file(text, speaker, output_path, intensity=1):
+            Path(output_path).write_bytes(_make_wav_bytes())
+            return Path(output_path)
+
+        manifest_path = tmp_path / "manifest.csv"
+        runner = CliRunner()
+        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
+            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render_to_file
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg_path),
+                    "--manifest-out",
+                    str(manifest_path),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Manifest written" in result.output
+        # Manifest CSV must exist with at least a header row
+        assert manifest_path.exists()
+
+
+# ---------------------------------------------------------------------------
+# qa-report command
+# ---------------------------------------------------------------------------
+
+
+class TestQAReportCommand:
+    def test_empty_dir_passes(self, tmp_path):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["qa-report", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert "QA PASSED" in result.output
+
+    def test_valid_clip_passes(self, tmp_path):
+        _write_valid_clip(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["qa-report", str(tmp_path)])
+        assert result.exit_code == 0, result.output
+        assert "QA PASSED" in result.output
+
+    def test_invalid_clip_fails_report(self, tmp_path):
+        """A single invalid clip exceeds the 0% failure budget → exit 1."""
+        bad_dir = tmp_path / "spk"
+        bad_dir.mkdir()
+        (bad_dir / "bad_clip_00.wav").write_bytes(b"garbage")
+        (bad_dir / "bad_clip_00.txt").write_text("x", encoding="utf-8")
+        (bad_dir / "bad_clip_00.json").write_text("{}", encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["qa-report", str(tmp_path), "--max-failure-rate", "0.0"])
+        assert result.exit_code != 0
+        assert "QA FAILED" in result.output
+
+    def test_json_output_written(self, tmp_path):
+        """--output writes a JSON report file."""
+        _write_valid_clip(tmp_path)
+        out_json = tmp_path / "report.json"
+        runner = CliRunner()
+        result = runner.invoke(cli, ["qa-report", str(tmp_path), "--output", str(out_json)])
+        assert result.exit_code == 0, result.output
+        assert out_json.exists()
+        report = json.loads(out_json.read_text(encoding="utf-8"))
+        assert "stats" in report
+        assert "passed" in report
+        assert report["passed"] is True

@@ -1,0 +1,33 @@
+# Phase 1 — Tier A generation run: She-Proves project
+# Target: 500 clean (no acoustic augmentation) clips.
+# Scene configs must exist in scene_configs_dir before running.
+# See docs/implementation_plan.md §1.4 for scale targets.
+
+run_id: tier_a_500_she_proves
+project: she_proves
+tier: A
+language: he
+random_seed: 42
+output_dir: data/he
+scene_configs_dir: configs/scenes/she_proves
+
+# --- Per-typology clip count targets (total: 500) ---
+targets:
+  - violence_typology: IT    # Intimate Terrorism
+    count: 150
+  - violence_typology: SV    # Situational Violence
+    count: 150
+  - violence_typology: NEG   # Negative / Confusor
+    count: 150
+  - violence_typology: NEU   # Neutral / ambient
+    count: 50
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false             # Continue batch even if individual clips fail

@@ -1,0 +1,36 @@
+# Phase 1 — Tier A generation run: Elephant in the Room project
+# Target: 500 clean (no acoustic augmentation) clips.
+# Scene configs must exist in scene_configs_dir before running.
+# See docs/implementation_plan.md §1.4 for scale targets.
+#
+# Elephant scenes are shorter (1–4 min) and use pi_budget_mic device profile.
+# The alert must trigger in the final 40% of each scene.
+
+run_id: tier_a_500_elephant
+project: elephant_in_the_room
+tier: A
+language: he
+random_seed: 17
+output_dir: data/he
+scene_configs_dir: configs/scenes/elephant
+
+# --- Per-typology clip count targets (total: 500) ---
+targets:
+  - violence_typology: SV    # Situational Violence (client attacks worker)
+    count: 150
+  - violence_typology: IT    # Intimidation / verbal threat escalation
+    count: 150
+  - violence_typology: NEG   # Negative / animated-but-non-violent confusor
+    count: 150
+  - violence_typology: NEU   # Neutral / routine intake sessions
+    count: 50
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false
