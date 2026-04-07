@@ -84,3 +84,20 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["avdp"]
+branch = true
+relative_files = true
+
+[tool.coverage.paths]
+source = [
+    "avdp",
+    "/home/runner/work/SynthBanshee/SynthBanshee/avdp",
+]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
