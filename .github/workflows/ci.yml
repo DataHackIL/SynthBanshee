@@ -23,22 +23,20 @@ jobs:
         with:
           version: "latest"
           enable-cache: true
-
-      - name: Set up Python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
-          uv pip install --system \
+          uv pip install \
             pydantic pyyaml jinja2 soundfile numpy scipy \
             click rich jsonlines \
             pytest pytest-asyncio
 
       - name: Install package
-        run: uv pip install --system --no-deps -e .
+        run: uv pip install --no-deps -e .
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short
 
   lint:
     name: "Lint & type-check"
@@ -52,21 +50,19 @@ jobs:
         with:
           version: "latest"
           enable-cache: true
-
-      - name: Set up Python
-        run: uv python install 3.12
+          python-version: "3.12"
 
       - name: Install lint dependencies
-        run: uv pip install --system ruff mypy pydantic types-PyYAML
+        run: uv pip install ruff mypy pydantic types-PyYAML
 
       - name: Install package
-        run: uv pip install --system --no-deps -e .
+        run: uv pip install --no-deps -e .
 
       - name: ruff check
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: ruff format (check only)
-        run: ruff format --check .
+        run: uv run ruff format --check .
 
       - name: mypy
-        run: mypy avdp/ --ignore-missing-imports
+        run: uv run mypy avdp/ --ignore-missing-imports
