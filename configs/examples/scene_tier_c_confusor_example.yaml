@@ -19,8 +19,7 @@ speakers:
 # This template generates a heated argument that DE-ESCALATES — no violence occurs.
 script_template: synthbanshee/script/templates/she_proves/negative_argument_deescalation.j2
 script_slots:
-  topic: weekend_plans                   # What the argument is about (mundane)
-  resolution: mutual_concession          # How it ends
+  argument_topic: weekend_plans          # What the argument is about (mundane)
 
 # --- Intensity arc: peaks then comes back down ---
 # This is what makes it a good confusor: high acoustic intensity but no violence.
