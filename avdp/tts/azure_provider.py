@@ -89,7 +89,7 @@ class AzureProvider:
                 pass  # Mock mode — assume success
 
         audio_data = result.audio_data if hasattr(result, "audio_data") else result
-        if not isinstance(audio_data, (bytes, bytearray)):
+        if not isinstance(audio_data, bytes | bytearray):
             raise RuntimeError(f"Unexpected audio_data type: {type(audio_data)}")
         return bytes(audio_data)
 

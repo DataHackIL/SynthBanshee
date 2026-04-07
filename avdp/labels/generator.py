@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
+from typing import Literal
 
 import jsonlines
 
@@ -95,7 +96,7 @@ class LabelGenerator:
         clip_id: str,
         project: str,
         violence_typology: str,
-        tier: str,
+        tier: Literal["A", "B", "C"],
         duration_seconds: float,
         events: list[EventLabel],
         speakers: list[SpeakerInfo] | None = None,

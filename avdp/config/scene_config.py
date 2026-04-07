@@ -1,9 +1,7 @@
 """Pydantic models for scene configuration (the primary pipeline input)."""
 
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal, Self
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -16,7 +14,6 @@ from avdp.config.taxonomy import (
 )
 
 _VALID_PROJECTS = {"she_proves", "elephant_in_the_room"}
-_VALID_TIERS = {"A", "B", "C"}
 
 
 class SpeakerRef(BaseModel):
@@ -46,7 +43,7 @@ class ProsodyBounds(BaseModel):
     )
 
     @model_validator(mode="after")
-    def ranges_ordered(self) -> ProsodyBounds:
+    def ranges_ordered(self) -> Self:
         for name, rng in [
             ("rate_range", self.rate_range),
             ("pitch_shift_range", self.pitch_shift_range),
@@ -86,7 +83,7 @@ class SceneConfig(BaseModel):
     project: str
     language: str = "he"
     violence_typology: str
-    tier: str
+    tier: Literal["A", "B", "C"]
     random_seed: int = 0
     speakers: list[SpeakerRef] = Field(min_length=1)
     script_template: str
@@ -116,13 +113,6 @@ class SceneConfig(BaseModel):
             raise ValueError(f"violence_typology {v!r} not in taxonomy. Valid: {sorted(valid)}")
         return v
 
-    @field_validator("tier")
-    @classmethod
-    def valid_tier(cls, v: str) -> str:
-        if v not in _VALID_TIERS:
-            raise ValueError(f"tier {v!r} not in {sorted(_VALID_TIERS)}")
-        return v
-
     @field_validator("intensity_arc")
     @classmethod
     def valid_intensity_arc(cls, v: list[int]) -> list[int]:
@@ -132,7 +122,7 @@ class SceneConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def project_specific_config_present(self) -> SceneConfig:
+    def project_specific_config_present(self) -> Self:
         if self.project == "she_proves" and self.she_proves is None:
             # Allow missing she_proves for minimal/test configs
             pass
@@ -144,6 +134,6 @@ class SceneConfig(BaseModel):
         return self
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> SceneConfig:
+    def from_yaml(cls, path: str | Path) -> Self:
         with Path(path).open("r", encoding="utf-8") as fh:
             return cls.model_validate(yaml.safe_load(fh))
