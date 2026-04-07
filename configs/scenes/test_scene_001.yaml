@@ -1,0 +1,34 @@
+# Minimal Tier A test scene config for Phase 0 happy-path test.
+# Tier A = clean (no acoustic augmentation required).
+
+scene_id: SP_IT_A_0001
+project: she_proves
+language: he
+violence_typology: IT
+tier: A
+random_seed: 42
+
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+  - speaker_id: VIC_F_25-40_002
+    role: VIC
+
+script_template: avdp/script/templates/she_proves/intimate_terror_coercive_control.j2
+script_slots:
+  relationship: spouse
+  setting: apartment_kitchen
+  grievance: going_out_without_permission
+
+intensity_arc: [1, 2, 3, 4, 5]
+
+she_proves:
+  incident_window_start_fraction: 0.35
+  pre_incident_phases: [baseline, tension]
+  incident_phases: [escalation, peak]
+  post_incident_phases: [aftermath]
+
+target_duration_minutes: 3.0
+min_pre_incident_seconds: 60
+
+output_dir: data/he

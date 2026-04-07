@@ -1,0 +1,2 @@
+- [SynthBanshee local uv venv](project_venv.md) — always use `.venv` with uv; prefix all python/pytest/ruff commands with `source .venv/bin/activate &&`
+- [Phase 0 implementation status](project_phase0_status.md) — Phase 0 complete as of 2026-04-06, all 80 tests pass, ruff clean; next is Phase 1.1 script templates

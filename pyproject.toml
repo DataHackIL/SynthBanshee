@@ -65,6 +65,9 @@ dev = [
 [project.scripts]
 avdp = "avdp.cli:cli"
 
+[tool.hatch.build.targets.wheel]
+packages = ["avdp"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
