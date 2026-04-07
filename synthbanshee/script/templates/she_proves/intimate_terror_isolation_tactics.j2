@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Intimate terror — social isolation: cutting victim off from family and friends.
+   Typology: IT  Slots: relationship, setting, isolation_target
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Intimate Terror / Social Isolation
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Isolation target:  {{ script_slots.get('isolation_target', 'victim_mother') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = subtle criticism, 5 = explicit prohibition)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Isolation scenes show the perpetrator systematically severing the victim's support network:
+  1. Trigger — victim mentions a planned visit, call, or message to the isolation target.
+  2. Criticism — perpetrator begins with mild criticism of the person (they're toxic, interfering).
+  3. Reframing — frames the victim's relationship with the person as harmful or disloyal to the couple.
+  4. Blame transfer — implies the victim prefers that person over their partner.
+  5. Prohibition — forbids or strongly pressures victim to cancel the contact.
+The perpetrator never explicitly says "I forbid you" early on — the control emerges gradually.
+
+{{ common_rules(target_duration_minutes, [
+  "Show the perpetrator using loving language early ('I'm only thinking of us') that gradually hardens.",
+  "The victim should express genuine conflict — they love both the perpetrator and the isolated person.",
+  "Avoid caricature; real abusers rarely sound overtly controlling in early turns."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Sexual violence — explicit verbal threat of sexual violence, preceded by triggering argument.
+   Typology: SV  Slots: relationship, setting, argument_trigger
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Sexual Violence / Verbal Threat Escalation
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Argument trigger:  {{ script_slots.get('argument_trigger', 'return_home_late') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = simmering anger, 5 = explicit sexual threat)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The scene moves from a general argument into a sexual-violence threat:
+  1. Argument — perpetrator is angry about the trigger event; victim defends themselves.
+  2. Escalation — general verbal abuse; victim is criticised, demeaned, put down.
+  3. Pivot — perpetrator shifts into sexualised control language.
+  4. Explicit threat — perpetrator makes a verbal threat involving sexual coercion or punishment.
+  5. Victim's response — fear or shocked silence; perhaps a plea to stop.
+The threat should be unambiguous to a listener even without visual context.
+
+{{ common_rules(target_duration_minutes, [
+  "The pivot from general argument to sexual threat should feel abrupt — it often is.",
+  "Depict the victim's shock; this is typically not the first time but is still frightening.",
+  "Keep explicit language to what is necessary to classify the event; no gratuitous detail."
+]) }}
+{{ output_format() }}

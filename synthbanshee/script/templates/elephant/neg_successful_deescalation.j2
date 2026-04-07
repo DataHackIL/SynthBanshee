@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Negative / hard negative — worker successfully de-escalates an agitated client.
+   Typology: NEG  Slots: scene_type, client_issue, deescalation_technique
+   Purpose: confusor — high initial emotional intensity that resolves WITHOUT violence.
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Negative / Successful De-escalation
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'housing_benefit_delay') }}
+De-escalation:     {{ script_slots.get('deescalation_technique', 'validation_and_alternative') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (peaks in the middle then falls — no violence)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This is a hard-negative confusor where professional de-escalation succeeds:
+  1. Agitated arrival — client is already upset; presents their issue loudly.
+  2. Escalation attempt — client raises voice, makes accusations.
+  3. Worker validation — worker acknowledges the client's frustration empathically.
+  4. Problem-solving offer — worker identifies something concrete they CAN do.
+  5. Client calms — frustration reduces; the session ends with partial resolution.
+IMPORTANT: no threat, no physical danger. This challenges classifiers that rely on emotional intensity.
+
+{{ common_rules(target_duration_minutes, [
+  "The de-escalation must feel earned — show the specific worker technique that works.",
+  "Client's final emotional state should be frustrated-but-calm, not hostile.",
+  "Include natural pauses (silence, slower speech cues) as client calms down."
+]) }}
+{{ output_format() }}

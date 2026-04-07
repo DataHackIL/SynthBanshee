@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# SV — client makes explicit physical threat to a social worker or clinician.
+   Typology: SV  Slots: scene_type, client_issue, escalation_trigger
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Physical Threat to Worker
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'welfare_claim_denied') }}
+Trigger:           {{ script_slots.get('escalation_trigger', 'second_denial') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = frustrated client, 5 = explicit physical threat)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+  1. Normal session — client presents their issue; worker responds professionally.
+  2. Frustration — client's request is denied or delayed; frustration mounts.
+  3. Verbal escalation — client raises voice, uses accusatory language.
+  4. Pre-threat — worker attempts de-escalation; client rejects it, intensifies.
+  5. Explicit physical threat — client makes an unambiguous verbal threat of physical harm to the worker.
+The alert trigger is the physical threat in step 5, occurring in the final 40% of the clip.
+
+{{ common_rules(target_duration_minutes, [
+  "The physical threat must be explicit and audible — a classifier should be able to detect it.",
+  "The worker's de-escalation attempts should be professional and calm.",
+  "Include realistic office sounds cues in dialogue (references to documents, waiting room, desk)."
+]) }}
+{{ output_format() }}

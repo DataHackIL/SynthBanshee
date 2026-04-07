@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Emotional abuse — systematic degradation, name-calling, and humiliation.
+   Typology: IT  Slots: relationship, setting, degradation_theme
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Emotional Abuse / Degradation
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Degradation theme: {{ script_slots.get('degradation_theme', 'intelligence_and_competence') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = mild criticism, 5 = systematic humiliation)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Emotional degradation involves sustained attacks on the victim's sense of self:
+  1. Opening criticism — a minor failure is used as the entry point (burnt food, forgotten task).
+  2. Generalisation — the specific failure is expanded to a personality verdict ("you're always like this").
+  3. Comparison — victim is compared unfavourably to others (perpetrator's family, ex-partner).
+  4. Mockery — perpetrator uses sarcasm, laughter, or contempt to humiliate.
+  5. Collapse — victim shuts down or breaks; perpetrator may briefly soften (to re-establish control).
+
+{{ common_rules(target_duration_minutes, [
+  "Degradation language should feel believable — not cartoonishly cruel.",
+  "Include at least one moment where the victim tries to defend themselves, then fails.",
+  "Avoid physical violence cues — this is pure psychological abuse."
+]) }}
+{{ output_format() }}

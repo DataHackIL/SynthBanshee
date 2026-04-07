@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Neutral / ambient — routine first-meeting intake session with no tension.
+   Typology: NEU  Slots: scene_type, intake_topic
+   Purpose: true baseline for office acoustic environment.
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Neutral / Routine Intake Session
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Intake topic:      {{ script_slots.get('intake_topic', 'new_benefits_application') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (flat; all 1–2)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A standard first intake appointment — professional and calm:
+  1. Welcome — worker greets client; introductions and purpose of meeting.
+  2. Information gathering — worker asks structured questions; client answers cooperatively.
+  3. Documentation — worker explains what forms or evidence will be needed.
+  4. Client questions — client asks practical questions about timelines, next steps.
+  5. Wrap-up — worker summarises and schedules follow-up; polite farewell.
+No frustration, no tension. This is a true acoustic baseline for the office.
+
+{{ common_rules(target_duration_minutes, [
+  "Keep intensity at 1 for all turns.",
+  "Include realistic office references: שם מלא, תעודת זהות, טופס, מועד.",
+  "Make the conversation feel naturalistic — not a checklist of questions."
+]) }}
+{{ output_format() }}

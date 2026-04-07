@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Physical violence — threat/assault with children audibly present in the home.
+   Typology: SV  Slots: relationship, setting, children_ages
+   Note: children are heard (crying, calling out) but are not speakers in the script.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Physical Violence / Children Present
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Children ages:     {{ script_slots.get('children_ages', 'toddler_and_school_age') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = tense argument, 5 = assault with children reacting)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Children's presence amplifies danger and changes the dialogue:
+  1. Opening tension — argument begins; both adults are aware children are nearby.
+  2. Escalation — perpetrator's control slips; volume rises despite children.
+  3. Child cue — a child cries or calls out; victim asks perpetrator to stop for the children.
+  4. Perpetrator reacts — either ignores the children or uses them as leverage.
+  5. Peak — assault threat or assault occurs; victim's concern for children is audible.
+Children are referenced by the adult speakers but are NOT direct participants.
+Include the child as ambient audio cues: words from the child may be brief and background.
+
+{{ common_rules(target_duration_minutes, [
+  "Include lines where the victim pleads for the children's sake.",
+  "The perpetrator may use the children as emotional leverage ('look what you're doing to them').",
+  "Post-assault: include victim comforting or calling out to children."
+]) }}
+{{ output_format() }}

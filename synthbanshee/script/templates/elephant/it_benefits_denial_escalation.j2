@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# IT — benefits or entitlement denial triggers escalating aggression.
+   Typology: IT  Slots: scene_type, benefit_type, denial_reason
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Benefits Denial / Escalating Aggression
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Benefit type:      {{ script_slots.get('benefit_type', 'disability_allowance') }}
+Denial reason:     {{ script_slots.get('denial_reason', 'missing_documentation') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = routine denial, 5 = threatening confrontation)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A bureaucratic denial triggers a cascade of escalating aggression:
+  1. Routine opening — worker explains the denial decision professionally.
+  2. Client challenge — client disputes the denial; disputes the documentation requirement.
+  3. Frustration — client references prior attempts, waiting times, and personal hardship.
+  4. Accusation — client accuses the worker or system of discrimination, incompetence, or corruption.
+  5. Peak aggression — explicit accusation or threat; worker calls for supervisor or security.
+
+{{ common_rules(target_duration_minutes, [
+  "Use realistic Hebrew welfare/bureaucracy vocabulary: קצבה, ביטוח לאומי, מסמכים, זכאות.",
+  "Client's anger should be understandable even if their behaviour is unacceptable.",
+  "Worker should follow protocol: explain, offer alternatives, escalate to supervisor."
+]) }}
+{{ output_format() }}

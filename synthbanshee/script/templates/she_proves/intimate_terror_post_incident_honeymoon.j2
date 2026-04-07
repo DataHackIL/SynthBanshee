@@ -1,0 +1,39 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Intimate terror — honeymoon / remorse phase after a previous incident.
+   Typology: IT  Slots: relationship, setting, prior_incident_type
+   Note: intensity arc inverted — starts high (victim cold/distant) and moves toward
+   false resolution, NOT toward violence. Useful for confusor training.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Intimate Terror / Post-Incident Honeymoon Phase
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_bedroom') }}
+Prior incident:    {{ script_slots.get('prior_incident_type', 'physical_altercation') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (arc reflects emotional tension, not violence level)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The honeymoon phase is a distinct and critical stage of the abuse cycle:
+  1. Opening — victim is emotionally withdrawn, responding minimally.
+  2. Perpetrator apology — expresses remorse, promises change, minimises the prior incident.
+  3. Gift / gesture — offers something (affection, gift, help with chores) as reparation.
+  4. Victim's conflict — the victim's responses reveal ambivalence: they want to believe the change.
+  5. Re-normalisation — scene ends with surface harmony restored, but underlying power dynamic unchanged.
+This scene should NOT escalate to new violence — it is a confusor / hard negative example.
+The danger is subtle: the viewer must understand that the cycle is continuing, not ending.
+
+{{ common_rules(target_duration_minutes, [
+  "The perpetrator should sound genuinely remorseful — not manipulative in an obvious way.",
+  "The victim's emotional state cycles: withdrawn → hopeful → uncertain → resigned.",
+  "Include at least one reference (explicit or implicit) to the prior incident."
+]) }}
+{{ output_format() }}

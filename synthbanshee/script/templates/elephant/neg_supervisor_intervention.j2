@@ -1,0 +1,34 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Negative — supervisor is called in and the situation is resolved without violence.
+   Typology: NEG  Slots: scene_type, client_issue
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Negative / Supervisor Resolves Situation
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'appeal_against_decision') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (peaks before supervisor arrives; drops after)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+  1. Escalating session — primary worker reaches the limit of their authority; client is angry.
+  2. Supervisor called — worker excuses themselves or calls out; supervisor is summoned.
+  3. Supervisor arrives — a senior staff member takes charge; tone shifts.
+  4. Authority effect — client's aggression reduces in response to the supervisor.
+  5. Resolution — supervisor offers a concession or escalation path; client agrees to leave.
+This is a negative example — the supervisor's intervention prevents violence.
+
+{{ common_rules(target_duration_minutes, [
+  "The supervisor should sound senior and authoritative without being confrontational.",
+  "Client's tone shifts when the supervisor arrives — show that authority matters.",
+  "End before violence; resolution may be partial (further review, new appointment)."
+]) }}
+{{ output_format() }}

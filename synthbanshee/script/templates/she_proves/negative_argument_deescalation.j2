@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Negative / hard negative — argument that heats up but de-escalates before violence.
+   Typology: NEG  Slots: relationship, setting, argument_topic
+   Purpose: confusor — loud argument that a classifier should NOT flag as violence.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Negative / Argument that De-escalates
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_kitchen') }}
+Argument topic:    {{ script_slots.get('argument_topic', 'household_chores') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (arc peaks in the middle then falls — no violence)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This is a hard-negative confusor: the argument is loud and emotional but resolves peacefully.
+  1. Trigger — one partner raises a grievance about the argument topic.
+  2. Counter — the other partner defends themselves or counter-accuses.
+  3. Escalation — voices rise; both speakers are frustrated and speak over each other.
+  4. Turning point — one speaker says something that diffuses the tension (apology, humour, insight).
+  5. Resolution — the couple moves toward a genuine (if imperfect) resolution or truce.
+IMPORTANT: this clip must NOT contain threats, coercion, or physical violence. It is
+deliberately designed to challenge classifiers that rely only on acoustic energy.
+
+{{ common_rules(target_duration_minutes, [
+  "Both speakers must have genuine grievances — neither is wholly the aggressor.",
+  "The de-escalation must feel earned, not sudden — show the turning point clearly.",
+  "Include overlapping speech cues (interruptions, sentences cut off) at the peak."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Physical violence — argument escalates to physical assault (audio cues: impact sounds are
+   in augmentation layer, not generated here; this template covers the verbal pre- and mid-assault).
+   Typology: SV  Slots: relationship, setting, assault_trigger
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Physical Violence / Assault Escalation
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_kitchen') }}
+Assault trigger:   {{ script_slots.get('assault_trigger', 'dinner_dispute') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = rising argument, 5 = assault moment)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This scene covers the verbal arc around a physical assault:
+  1. Pre-incident baseline — tense but controlled argument about the trigger.
+  2. Escalation — voices rise; victim is blamed, criticised, demeaned.
+  3. Immediate pre-assault — perpetrator gives a final warning or ultimatum.
+  4. Assault moment — dialogue breaks; victim reacts vocally (cry, gasp, protest) as assault occurs.
+  5. Immediate aftermath — perpetrator justifies or minimises; victim is frightened / in pain.
+Note: physical impact sounds will be layered by the acoustic augmenter. This template
+generates only spoken utterances and victim vocal reactions.
+
+{{ common_rules(target_duration_minutes, [
+  "Include victim vocalisations during and after assault (e.g., crying, short protest words).",
+  "Perpetrator language during assault is typically brief and commanding.",
+  "Post-assault turns should reflect shock; perpetrator shifts to minimisation or blame."
+]) }}
+{{ output_format() }}

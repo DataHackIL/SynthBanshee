@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# IT — child custody or child welfare case triggers confrontation with social worker.
+   Typology: IT  Slots: scene_type, custody_context, aggression_direction
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Child Custody / Welfare Confrontation
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Custody context:   {{ script_slots.get('custody_context', 'removal_risk_assessment') }}
+Aggression direction: {{ script_slots.get('aggression_direction', 'toward_social_worker') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = anxious parent, 5 = threatening confrontation)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Child-custody cases generate extreme emotion — fear and aggression are intertwined:
+  1. Session start — parent is informed of the welfare assessment or removal risk.
+  2. Denial — parent denies the allegations or assessment; becomes defensive.
+  3. Emotional escalation — fear for child transforms into anger at the system and the worker.
+  4. Accusation — parent accuses worker of bias, incompetence, or malice.
+  5. Explicit threat — parent threatens legal action, personal consequences, or physical harm.
+The worker must remain calm and professional while documenting and de-escalating.
+
+{{ common_rules(target_duration_minutes, [
+  "Show the parent's genuine love for their child alongside their unacceptable behaviour.",
+  "Worker should document the session (reference to paperwork) to signal a formal setting.",
+  "Avoid simplifying the parent to villain — this is a complex, high-stakes situation."
+]) }}
+{{ output_format() }}

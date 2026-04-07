@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Neutral / ambient — client waited a long time and is mildly annoyed, but session
+   proceeds normally. Tests classifier robustness to mild frustration without threat.
+   Typology: NEU  Slots: scene_type, wait_duration, client_issue
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Neutral / Mildly Frustrated Client
+Scene type:        {{ script_slots.get('scene_type', 'clinic_office') }}
+Wait duration:     {{ script_slots.get('wait_duration', 'forty_five_minutes') }}
+Client issue:      {{ script_slots.get('client_issue', 'follow_up_appointment') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (briefly 2 at opening, then back to 1)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A session that begins with mild frustration but normalises quickly:
+  1. Arrival — client mentions the wait and is mildly annoyed; worker apologises.
+  2. Reset — worker redirects to the session agenda; client accepts.
+  3. Substantive session — routine discussion of the client issue; normal tone.
+  4. Minor snag — a small administrative issue arises; resolved cooperatively.
+  5. Close — session ends productively; client is satisfied or at least accepting.
+This is NOT a confusor — it is a true neutral. The mild frustration resolves before tension builds.
+
+{{ common_rules(target_duration_minutes, [
+  "Intensity must not exceed 2 at any point.",
+  "The frustration at the opening must feel realistic but mild — not aggressive.",
+  "Show the worker's ability to reset the tone professionally."
+]) }}
+{{ output_format() }}

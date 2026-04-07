@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Sexual violence — coercive pressure and marital sexual coercion (no explicit content).
+   Typology: SV  Slots: relationship, setting
+   Content note: depicts coercive pressure, not graphic description. Hebrew spoken audio only.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Sexual Violence / Coercive Pressure
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_bedroom') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = pressure begins, 5 = peak coercion / refusal)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This scene depicts verbal coercion around consent — no graphic description:
+  1. Opening — victim expresses reluctance or tiredness; perpetrator dismisses it.
+  2. Pressure — perpetrator uses guilt, entitlement, or minimisation ("everyone does this").
+  3. Escalation — victim's refusal becomes more explicit; perpetrator's pressure intensifies.
+  4. Coercive framing — perpetrator invokes relationship duties, prior agreements, or threats of withdrawal.
+  5. Peak — victim's distress is audible; perpetrator is insistent.
+Keep language realistic but not graphic — this is spoken audio data; the coercion is verbal.
+
+{{ common_rules(target_duration_minutes, [
+  "Depict coercion through tone, persistence, and emotional manipulation — not explicit description.",
+  "The victim's refusal should be clear to a listener even if expressed indirectly.",
+  "Do not include graphic sexual language; focus on the power dynamic in the dialogue."
+]) }}
+{{ output_format() }}

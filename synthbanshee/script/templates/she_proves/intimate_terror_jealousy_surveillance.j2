@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Intimate terror — jealousy-driven surveillance and phone/location control.
+   Typology: IT  Slots: relationship, setting, surveillance_method
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Intimate Terror / Jealousy and Surveillance
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Surveillance method: {{ script_slots.get('surveillance_method', 'phone_inspection') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = calm interrogation, 5 = peak accusation)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This scene centres on a jealousy-fuelled interrogation:
+  1. Opening — perpetrator notices something suspicious (missed call, new contact, location gap).
+  2. Interrogation — demands to see phone, location history, or explanation of whereabouts.
+  3. Gaslighting — dismisses victim's explanations as lies; accuses them of hiding something.
+  4. Accusation — names a specific person the victim is supposedly involved with.
+  5. Ultimatum / threat — issues a controlling demand (delete contact, stop seeing friends, etc.).
+The victim tries to explain, placate, or defend themselves with diminishing success.
+
+{{ common_rules(target_duration_minutes, [
+  "The perpetrator's jealousy should escalate from suspicion to accusation — not start at peak anger.",
+  "Include at least one moment where the victim tries to show their phone or evidence of innocence.",
+  "Avoid naming real people; use generic Hebrew descriptors (החבר שלך, הגבר ההוא)."
+]) }}
+{{ output_format() }}
