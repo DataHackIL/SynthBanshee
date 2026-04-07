@@ -1,8 +1,8 @@
-"""AVDP CLI entry points.
+"""SynthBanshee CLI entry points.
 
 Usage:
-    avdp generate --config configs/scenes/test_scene_001.yaml
-    avdp validate --clip data/he/agg_m_30-45_001/sp_it_a_0001_00.wav
+    synthbanshee generate --config configs/scenes/test_scene_001.yaml
+    synthbanshee validate data/he/agg_m_30-45_001/sp_it_a_0001_00.wav
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def generate(
     dry_run: bool,
 ) -> None:
     """Generate a synthetic clip from a scene YAML config."""
-    from avdp.config.scene_config import SceneConfig
+    from synthbanshee.config.scene_config import SceneConfig
 
     console.print(f"[bold]Loading config:[/bold] {config}")
     scene = SceneConfig.from_yaml(config)
@@ -89,12 +89,12 @@ def generate(
     # --- TTS rendering (single-speaker stub for Phase 0) ---
     import tempfile
 
-    from avdp.augment.preprocessing import preprocess
-    from avdp.config.speaker_config import SpeakerConfig
-    from avdp.labels.generator import LabelGenerator, ScriptEvent
-    from avdp.labels.schema import PreprocessingApplied, SpeakerInfo
-    from avdp.package.validator import validate_clip
-    from avdp.tts.renderer import TTSRenderer
+    from synthbanshee.augment.preprocessing import preprocess
+    from synthbanshee.config.speaker_config import SpeakerConfig
+    from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
+    from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
+    from synthbanshee.package.validator import validate_clip
+    from synthbanshee.tts.renderer import TTSRenderer
 
     renderer = TTSRenderer(cache_dir=cache_dir)
     label_gen = LabelGenerator()
@@ -118,7 +118,7 @@ def generate(
     # Placeholder Hebrew utterance text — written in a template file,
     # not hardcoded in Python source. For Phase 0 stub we use a minimal literal.
     # In Phase 1 this comes from the Jinja2 template + LLM generation.
-    stub_template = Path("avdp/script/templates/she_proves/stub_utterance.txt")
+    stub_template = Path("synthbanshee/script/templates/she_proves/stub_utterance.txt")
     if stub_template.exists():
         utterance_text = stub_template.read_text(encoding="utf-8").strip()
     else:
@@ -220,7 +220,7 @@ def generate(
 @click.argument("clip", type=click.Path(exists=True, path_type=Path))
 def validate(clip: Path) -> None:
     """Validate an existing clip against the AVDP spec."""
-    from avdp.package.validator import validate_clip
+    from synthbanshee.package.validator import validate_clip
 
     result = validate_clip(clip)
     if result.is_valid:

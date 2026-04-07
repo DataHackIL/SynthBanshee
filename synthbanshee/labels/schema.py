@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from avdp.config.taxonomy import (
+from synthbanshee.config.taxonomy import (
     emotional_state_values,
     intensity_levels,
     speaker_role_codes,

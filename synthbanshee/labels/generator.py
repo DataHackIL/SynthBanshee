@@ -16,8 +16,8 @@ from typing import Literal
 
 import jsonlines
 
-from avdp import __version__
-from avdp.labels.schema import (
+from synthbanshee import __version__
+from synthbanshee.labels.schema import (
     ClipAcousticScene,
     ClipMetadata,
     EventLabel,

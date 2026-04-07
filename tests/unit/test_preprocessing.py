@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from avdp.augment.preprocessing import (
+from synthbanshee.augment.preprocessing import (
     _PEAK_DBFS,
     _SILENCE_PAD_S,
     _TARGET_SR,

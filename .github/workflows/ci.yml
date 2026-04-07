@@ -39,7 +39,7 @@ jobs:
         run: uv pip install --no-deps -e .
 
       - name: Run tests
-        run: .venv/bin/pytest tests/ -v --tb=short --cov avdp --cov-branch --cov-report=
+        run: .venv/bin/pytest tests/ -v --tb=short --cov synthbanshee --cov-branch --cov-report=
 
       - name: Upload raw coverage artifact
         if: always()
@@ -77,7 +77,7 @@ jobs:
         run: .venv/bin/ruff format --check .
 
       - name: mypy
-        run: .venv/bin/mypy avdp/ --ignore-missing-imports
+        run: .venv/bin/mypy synthbanshee/ --ignore-missing-imports
 
   coverage:
     name: "Combine coverage & generate XML"

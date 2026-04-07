@@ -7,9 +7,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from avdp.config.acoustic_config import AcousticSceneConfig, BackgroundEvent, RoomDimensionsRange
-from avdp.config.scene_config import SceneConfig, SheProvesConfig
-from avdp.config.speaker_config import SpeakerConfig
+from synthbanshee.config.acoustic_config import (
+    AcousticSceneConfig,
+    BackgroundEvent,
+    RoomDimensionsRange,
+)
+from synthbanshee.config.scene_config import SceneConfig, SheProvesConfig
+from synthbanshee.config.speaker_config import SpeakerConfig
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 SCENES_DIR = Path(__file__).parent.parent.parent / "configs" / "scenes"

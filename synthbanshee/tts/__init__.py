@@ -1,6 +1,6 @@
 """TTS rendering: SSML builder, Azure provider, render cache."""
 
-from avdp.tts.renderer import TTSRenderer
-from avdp.tts.ssml_builder import SSMLBuilder
+from synthbanshee.tts.renderer import TTSRenderer
+from synthbanshee.tts.ssml_builder import SSMLBuilder
 
 __all__ = ["SSMLBuilder", "TTSRenderer"]

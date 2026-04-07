@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from avdp.config.taxonomy import speaker_role_codes
+from synthbanshee.config.taxonomy import speaker_role_codes
 
 _SPEAKER_ID_RE = re.compile(r"^[A-Z]{2,4}_[MF]_\d{1,3}-\d{1,3}_\d{3}$")
 

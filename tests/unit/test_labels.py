@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from avdp.labels.generator import LabelGenerator, ScriptEvent
-from avdp.labels.schema import (
+from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
+from synthbanshee.labels.schema import (
     ClipMetadata,
     EventLabel,
     WeakLabel,

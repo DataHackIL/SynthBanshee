@@ -18,8 +18,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from avdp.augment.preprocessing import validate_audio
-from avdp.labels.schema import ClipMetadata
+from synthbanshee.augment.preprocessing import validate_audio
+from synthbanshee.labels.schema import ClipMetadata
 
 _ASCII_FILENAME_RE = re.compile(r"^[a-z0-9_\-]+$")
 
