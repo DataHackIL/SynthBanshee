@@ -93,7 +93,7 @@ relative_files = true
 [tool.coverage.paths]
 source = [
     "avdp",
-    "/home/runner/work/SynthBanshee/SynthBanshee/avdp",
+    "/home/runner/work/*/*/avdp",
 ]
 
 [tool.coverage.report]
