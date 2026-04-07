@@ -22,7 +22,7 @@ speakers:
     role: BYS                               # Child bystander
 
 # --- Script ---
-script_template: avdp/script/templates/she_proves/intimate_terror_coercive_control.j2
+script_template: synthbanshee/script/templates/she_proves/intimate_terror_coercive_control.j2
 script_slots:
   relationship: spouse                      # Template-specific: fills {{relationship}} slot
   setting: apartment_kitchen

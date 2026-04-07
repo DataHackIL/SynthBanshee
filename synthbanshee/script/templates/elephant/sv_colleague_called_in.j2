@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# SV — primary worker calls a colleague for support; client's threat escalates.
+   Typology: SV  Slots: scene_type, client_issue
+   Speakers: expect SW (social worker) + CLI (client) + possibly COL (colleague) roles.
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Multi-Speaker Threat / Colleague Called In
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'disability_assessment_dispute') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = escalating session, 5 = overt threat after colleague arrives)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+  1. Escalating session — primary worker handles an increasingly agitated client.
+  2. Call for colleague — worker calls out or uses intercom to summon a colleague.
+  3. Colleague arrives — a second worker enters; client reacts to being outnumbered.
+  4. Continued escalation — client's anger intensifies rather than subsiding.
+  5. Explicit threat — client makes a clear verbal threat to one or both workers.
+This scene tests multi-speaker classification in a professional setting.
+
+{{ common_rules(target_duration_minutes, [
+  "The colleague's arrival should feel like a natural office procedure, not a confrontation.",
+  "Client may address both workers differently — angrier toward the primary worker.",
+  "Include at least one turn per speaker after the colleague arrives."
+]) }}
+{{ output_format() }}

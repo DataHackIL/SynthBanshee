@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Neutral / ambient — follow-up appointment with an established client; no tension.
+   Typology: NEU  Slots: scene_type, case_context
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Neutral / Follow-Up Appointment
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Case context:      {{ script_slots.get('case_context', 'ongoing_support_monitoring') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (flat; all 1)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A familiar client checks in with their assigned worker — cooperative and calm:
+  1. Greeting — warm, familiar greeting between worker and known client.
+  2. Update — client provides a positive or neutral update on their situation.
+  3. Review — worker reviews case notes and asks routine monitoring questions.
+  4. Planning — worker and client plan next steps or schedule upcoming support.
+  5. Farewell — pleasant ending; client thanks the worker.
+This is a fully positive session — no frustration, no tension whatsoever.
+
+{{ common_rules(target_duration_minutes, [
+  "Keep all intensity at 1.",
+  "Include references to the ongoing case to make the follow-up relationship feel real.",
+  "Show warmth and professionalism — this is what most social work sessions actually look like."
+]) }}
+{{ output_format() }}

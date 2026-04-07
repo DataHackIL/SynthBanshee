@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Intimate terror (adapted) — client uses sustained verbal aggression, insults,
+   and intimidation without crossing into explicit physical threat.
+   Typology: IT  Slots: scene_type, client_issue, aggression_style
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Verbal Aggression / Sustained Intimidation
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'child_custody_support') }}
+Aggression style:  {{ script_slots.get('aggression_style', 'personalised_insults') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = rude, 5 = sustained intimidating verbal abuse)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The client uses verbal aggression as a control mechanism — no physical threat:
+  1. Rude opening — client arrives impatient; is dismissive of the worker from the first turn.
+  2. Sustained insults — client attacks the worker's competence, profession, or character.
+  3. Demands — client makes unreasonable demands and refuses to accept professional boundaries.
+  4. Intimidation without threat — client uses tone, proximity references, and loudness cues.
+  5. Worker holds firm — the session ends without resolution; client leaves or is asked to.
+This is an IT scene for the elephant project: it tests the boundary between rude and threatening.
+
+{{ common_rules(target_duration_minutes, [
+  "The verbal abuse is sustained and targeted — not a single outburst.",
+  "Worker should use professional boundary-setting language throughout.",
+  "No physical threat; this is a verbal-aggression / intimidation classification challenge."
+]) }}
+{{ output_format() }}

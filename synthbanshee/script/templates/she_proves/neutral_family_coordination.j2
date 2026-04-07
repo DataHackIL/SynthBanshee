@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Neutral / ambient — family logistics and planning conversation, no tension.
+   Typology: NEU  Slots: relationship, setting, coordination_topic
+   Purpose: true baseline; tests classifier robustness to lengthy benign speech.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Neutral / Family Coordination
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_living_room') }}
+Topic:             {{ script_slots.get('coordination_topic', 'school_pickup_schedule') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (flat; all 1–2)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A practical logistics conversation between partners:
+  1. Agenda — one partner raises the scheduling or planning topic.
+  2. Information exchange — dates, constraints, options discussed back and forth.
+  3. Problem-solving — a small complication arises and is resolved cooperatively.
+  4. Side conversation — one or both partners goes off-topic briefly (work, children, plans).
+  5. Resolution — the coordination topic is settled; conversation winds down.
+No violence, no coercion, no strong negative emotion.
+
+{{ common_rules(target_duration_minutes, [
+  "Keep all intensity values at 1 or 2.",
+  "Vary the sentence length — some turns are short (one word acknowledgements).",
+  "Use realistic Hebrew family vocabulary: לוח הזמנים, גן ילדים, תמסור ל, אני אדאג."
+]) }}
+{{ output_format() }}

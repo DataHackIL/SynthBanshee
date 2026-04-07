@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Physical violence — perpetrator uses or threatens to use an object as a weapon.
+   Typology: SV  Slots: relationship, setting, object_type
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Physical Violence / Object Threat
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_kitchen') }}
+Object:            {{ script_slots.get('object_type', 'kitchen_knife') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = argument begins, 5 = object threat made explicit)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+An object is used to amplify a physical threat — its presence in the dialogue is key:
+  1. Argument — a dispute escalates in a space where the object is accessible.
+  2. Grab / display — perpetrator picks up or references the object; victim notices.
+  3. Threat — perpetrator's language makes the object's function as a threat explicit.
+  4. Victim reaction — escalating fear; attempts to leave, talk perpetrator down, or comply.
+  5. Standoff — scene ends at peak tension; no resolution within this clip.
+The object itself will not make a sound in the spoken layer — only references to it.
+
+{{ common_rules(target_duration_minutes, [
+  "The victim should verbally acknowledge the object to make the threat audible to a classifier.",
+  "Perpetrator's language should include both verbal threat and object-related cues.",
+  "Include at least one turn where victim attempts de-escalation or tries to leave."
+]) }}
+{{ output_format() }}

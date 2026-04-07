@@ -1,0 +1,44 @@
+{# elephant/_partials.j2 — shared macros imported by all elephant templates.
+   Import with: {% from "_partials.j2" import common_rules, output_format, speakers_block %}
+#}
+
+{% macro speakers_block(speakers) %}
+SPEAKERS
+========
+{% for sp in speakers %}
+- ID: {{ sp.speaker_id }}  Role: {{ sp.role }}  Gender: {{ sp.gender }}
+{% endfor %}
+{% endmacro %}
+
+{% macro common_rules(target_duration_minutes, extra_rules=[]) %}
+DIALOGUE RULES
+==============
+1. Every utterance MUST be Hebrew text only — no transliteration, no English.
+2. Follow the intensity_arc chronologically. Alert-trigger moment must fall in the final 40% of the scene.
+3. Each turn is 1–4 sentences. Aim for roughly {{ (target_duration_minutes * 60 / 15) | int }} turns total.
+4. pause_before_s must be in [0.0, 1.5] s; use longer gaps at scene transitions.
+5. emotional_state must be one of: neutral, angry, fearful, sad, pleading, threatening, calm.
+6. Do NOT use binary Violence/Non-Violence labels anywhere.
+7. The social worker / clinician should model professional de-escalation language.
+{% for rule in extra_rules %}
+{{ loop.index + 7 }}. {{ rule }}
+{% endfor %}
+{% endmacro %}
+
+{% macro output_format() %}
+OUTPUT FORMAT
+=============
+Return ONLY valid JSON — no prose, no markdown fences.
+
+{
+  "turns": [
+    {
+      "speaker_id": "<speaker_id from SPEAKERS section>",
+      "text": "<Hebrew utterance>",
+      "intensity": <integer 1–5>,
+      "pause_before_s": <float 0.0–1.5>,
+      "emotional_state": "<state>"
+    }
+  ]
+}
+{% endmacro %}

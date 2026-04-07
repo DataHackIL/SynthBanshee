@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Intimate terror — financial abuse and economic control.
+   Typology: IT  Slots: relationship, setting, financial_trigger
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Intimate Terror / Financial Control
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_kitchen') }}
+Financial trigger: {{ script_slots.get('financial_trigger', 'credit_card_purchase') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = quiet accounting, 5 = peak financial threat)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Financial control scenes demonstrate economic abuse as a power mechanism:
+  1. Discovery — perpetrator finds evidence of spending or financial independence (receipt, bank app).
+  2. Interrogation — demands justification for every expense; questions victim's right to money.
+  3. Humiliation — belittles victim's earning capacity or contribution to the household.
+  4. Prohibition — forbids victim from working, having their own bank account, or spending freely.
+  5. Threat — threatens to cut off access to funds, kick them out, or expose alleged financial mismanagement.
+The victim defends themselves, then shrinks under financial coercion.
+
+{{ common_rules(target_duration_minutes, [
+  "Use realistic Hebrew financial vocabulary: חשבון בנק, כרטיס אשראי, משכורת, הוצאות.",
+  "The perpetrator should frame control as 'protecting the family finances', not as abuse.",
+  "The victim's resistance decreases as the scene progresses."
+]) }}
+{{ output_format() }}

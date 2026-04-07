@@ -1,0 +1,35 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# SV — client brandishes or threatens with an object in the office.
+   Typology: SV  Slots: scene_type, client_issue, object_type
+#}
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }} — Object Threat in Office
+Scene type:        {{ script_slots.get('scene_type', 'welfare_office') }}
+Client issue:      {{ script_slots.get('client_issue', 'housing_benefit_dispute') }}
+Object:            {{ script_slots.get('object_type', 'heavy_folder') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = tense meeting, 5 = object used as threat)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+  1. Session opening — routine discussion of client's issue.
+  2. Flashpoint — a specific statement by the worker provokes sudden anger in the client.
+  3. Client grabs object — the dialogue explicitly references the object being picked up.
+  4. Verbal threat with object — client uses the object as a threat while verbalising it.
+  5. Worker response — calm but firm; may call for assistance.
+The object must be verbally referenced by both parties so the threat is audible without video.
+
+{{ common_rules(target_duration_minutes, [
+  "Both speakers must reference the object verbally so the threat is clear in audio alone.",
+  "The worker should not panic but should signal urgency (calling a colleague, moving away).",
+  "Keep office-appropriate language; the threat is real but in a professional setting."
+]) }}
+{{ output_format() }}

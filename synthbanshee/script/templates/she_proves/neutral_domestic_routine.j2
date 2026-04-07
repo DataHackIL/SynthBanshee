@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Neutral / ambient — ordinary domestic conversation with no violence or conflict.
+   Typology: NEU  Slots: relationship, setting, activity
+   Purpose: true baseline; classifier should produce low scores throughout.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Neutral / Domestic Routine
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_kitchen') }}
+Activity:          {{ script_slots.get('activity', 'preparing_dinner') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (all values should be low; arc is flat)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+This is a true-negative baseline scene — purely domestic and non-violent:
+  1. Activity coordination — partners discuss or work together on the domestic task.
+  2. Small talk — news, plans for the weekend, something one of them read or saw.
+  3. Light disagreement (optional) — minor difference of opinion that resolves quickly.
+  4. Affection or warmth (optional) — a brief moment of connection.
+  5. Wrap-up — the conversation winds down naturally.
+This clip is NOT a confusor — it contains no argument, threat, or coercive behaviour.
+It establishes the acoustic and linguistic baseline for a normal household.
+
+{{ common_rules(target_duration_minutes, [
+  "Keep all turns at intensity 1–2 maximum.",
+  "Include ambient domestic cues in the dialogue (references to sounds, smells, objects).",
+  "Make the conversation feel natural, not scripted — people interrupt, trail off, use slang."
+]) }}
+{{ output_format() }}

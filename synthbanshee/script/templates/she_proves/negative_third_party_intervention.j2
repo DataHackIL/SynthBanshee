@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Negative / hard negative — a third party (neighbour, relative) interrupts and the incident
+   de-escalates due to their presence.
+   Typology: NEG  Slots: relationship, setting, third_party_role
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Negative / Third-Party Interruption
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Setting:           {{ script_slots.get('setting', 'apartment_entrance') }}
+Third party:       {{ script_slots.get('third_party_role', 'neighbour') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (peaks before interruption, drops sharply after)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The presence of a witness transforms the dynamic:
+  1. Pre-interruption peak — the couple is in a heated argument or the perpetrator is escalating.
+  2. Interruption — third party knocks, calls out, or enters unexpectedly.
+  3. Face-saving — both parties immediately change tone in front of the witness.
+  4. Managed interaction — polite or awkward exchange with the third party.
+  5. Post-interruption — third party leaves; scene ends before violence can resume.
+This is a negative example because no violence occurs — the witness prevents it.
+
+{{ common_rules(target_duration_minutes, [
+  "Make the contrast between pre- and post-interruption tone very clear.",
+  "The third party's arrival should feel realistic — a doorbell, a knock, a voice from outside.",
+  "End the scene before violence resumes — the clip is a non-incident."
+]) }}
+{{ output_format() }}
