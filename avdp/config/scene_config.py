@@ -113,9 +113,7 @@ class SceneConfig(BaseModel):
     def valid_typology(cls, v: str) -> str:
         valid = violence_typology_codes()
         if v not in valid:
-            raise ValueError(
-                f"violence_typology {v!r} not in taxonomy. Valid: {sorted(valid)}"
-            )
+            raise ValueError(f"violence_typology {v!r} not in taxonomy. Valid: {sorted(valid)}")
         return v
 
     @field_validator("tier")

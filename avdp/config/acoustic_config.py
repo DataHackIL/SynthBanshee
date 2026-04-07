@@ -68,9 +68,7 @@ class AcousticSceneConfig(BaseModel):
     @classmethod
     def valid_room_type(cls, v: str) -> str:
         if v not in _VALID_ROOM_TYPES:
-            raise ValueError(
-                f"Unknown room_type {v!r}. Valid: {sorted(_VALID_ROOM_TYPES)}"
-            )
+            raise ValueError(f"Unknown room_type {v!r}. Valid: {sorted(_VALID_ROOM_TYPES)}")
         return v
 
     @field_validator("device")

@@ -50,17 +50,13 @@ class AzureProvider:
                 "Install it with: pip install azure-cognitiveservices-speech"
             ) from exc
 
-        speech_config = speechsdk.SpeechConfig(
-            subscription=self._key, region=self._region
-        )
+        speech_config = speechsdk.SpeechConfig(subscription=self._key, region=self._region)
         speech_config.set_speech_synthesis_output_format(
             speechsdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm
         )
         # Stream output into memory
         audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=False)
-        return speechsdk.SpeechSynthesizer(
-            speech_config=speech_config, audio_config=audio_config
-        )
+        return speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
     def synthesize(self, ssml: str) -> bytes:
         """Synthesize SSML and return raw WAV bytes (Riff24Khz16BitMonoPcm).

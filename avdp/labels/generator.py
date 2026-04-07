@@ -145,9 +145,7 @@ class LabelGenerator:
             quality_flags=quality_flags or [],
         )
 
-    def write_strong_labels_jsonl(
-        self, labels: list[EventLabel], path: Path
-    ) -> None:
+    def write_strong_labels_jsonl(self, labels: list[EventLabel], path: Path) -> None:
         """Serialize event labels to a JSONL file (one JSON object per line)."""
         path.parent.mkdir(parents=True, exist_ok=True)
         with jsonlines.open(path, mode="w") as writer:

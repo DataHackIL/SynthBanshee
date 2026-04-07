@@ -138,9 +138,7 @@ class ClipMetadata(BaseModel):
     acoustic_scene: ClipAcousticScene = Field(default_factory=ClipAcousticScene)
     speakers: list[SpeakerInfo] = Field(default_factory=list)
     weak_label: WeakLabel
-    preprocessing_applied: PreprocessingApplied = Field(
-        default_factory=PreprocessingApplied
-    )
+    preprocessing_applied: PreprocessingApplied = Field(default_factory=PreprocessingApplied)
     dirty_file_path: str | None = None
     transcript_path: str | None = None
     quality_flags: list[str] = Field(default_factory=list)

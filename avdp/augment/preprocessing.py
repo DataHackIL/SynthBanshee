@@ -129,7 +129,9 @@ def preprocess(
 
     # --- 1. Resample ---------------------------------------------------------
     if src_sr != _TARGET_SR:
-        resampled_channels = [_resample(data[:, c], src_sr, _TARGET_SR) for c in range(data.shape[1])]
+        resampled_channels = [
+            _resample(data[:, c], src_sr, _TARGET_SR) for c in range(data.shape[1])
+        ]
         data = np.stack(resampled_channels, axis=1)
         steps.append(f"resample_{src_sr}_to_{_TARGET_SR}")
     sr = _TARGET_SR

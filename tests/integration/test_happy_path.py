@@ -78,9 +78,7 @@ class TestHappyPath:
     def _run_pipeline(self, scene_id: str = "sp_it_a_0001_00") -> Path:
         """Run the full pipeline and return the path to the output .wav file."""
         scene = SceneConfig.from_yaml(SCENES_DIR / "test_scene_001.yaml")
-        speaker = SpeakerConfig.from_yaml(
-            EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml"
-        )
+        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
 
         # Stage 1: TTS render
         raw_wav = self.tmp_path / "raw.wav"
@@ -176,7 +174,6 @@ class TestHappyPath:
         assert data["is_synthetic"] is True
 
     def test_wav_spec_compliant(self):
-
         clip_wav = self._run_pipeline()
         data, sr = sf.read(str(clip_wav))
         assert sr == 16000

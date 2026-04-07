@@ -102,9 +102,7 @@ def generate(
     # For Phase 0: generate a minimal stub clip with a placeholder utterance.
     # In Phase 1 the LLM script generator will fill this in.
     first_speaker_ref = scene.speakers[0]
-    speaker_yaml_path = (
-        Path("configs/speakers") / f"{first_speaker_ref.speaker_id}.yaml"
-    )
+    speaker_yaml_path = Path("configs/speakers") / f"{first_speaker_ref.speaker_id}.yaml"
     if not speaker_yaml_path.exists():
         # Fall back to examples directory
         speaker_yaml_path = (
@@ -112,9 +110,7 @@ def generate(
         )
 
     if not speaker_yaml_path.exists():
-        console.print(
-            f"[red]Speaker config not found: {first_speaker_ref.speaker_id}[/red]"
-        )
+        console.print(f"[red]Speaker config not found: {first_speaker_ref.speaker_id}[/red]")
         sys.exit(1)
 
     speaker = SpeakerConfig.from_yaml(speaker_yaml_path)
@@ -152,7 +148,8 @@ def generate(
             f"[CLIP_ID: {clip_id}_00]\n"
             f"[SPEAKER: {first_speaker_ref.speaker_id} | ROLE: {first_speaker_ref.role} "
             f"| ONSET: 0.5 | OFFSET: {result.duration_seconds - 0.5:.1f}]\n"
-            + utterance_text + "\n",
+            + utterance_text
+            + "\n",
             encoding="utf-8",
         )
 

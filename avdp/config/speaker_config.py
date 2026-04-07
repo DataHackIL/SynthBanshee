@@ -51,9 +51,7 @@ class SpeakerConfig(BaseModel):
     @classmethod
     def valid_speaker_id_format(cls, v: str) -> str:
         if not _SPEAKER_ID_RE.match(v):
-            raise ValueError(
-                f"speaker_id {v!r} does not match pattern ROLE_G_AGE-AGE_NNN"
-            )
+            raise ValueError(f"speaker_id {v!r} does not match pattern ROLE_G_AGE-AGE_NNN")
         return v
 
     @field_validator("role")
