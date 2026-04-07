@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "avdp-synth"
+name = "synthbanshee"
 version = "0.1.0"
-description = "Synthetic dataset generation framework for the Audio Violence Dataset Project (AVDP)"
+description = "SynthBanshee: synthetic Hebrew audio dataset generator for the AVDP initiative"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -63,10 +63,10 @@ dev = [
 ]
 
 [project.scripts]
-avdp = "avdp.cli:cli"
+synthbanshee = "synthbanshee.cli:cli"
 
 [tool.hatch.build.targets.wheel]
-packages = ["avdp"]
+packages = ["synthbanshee"]
 
 [tool.ruff]
 line-length = 100
@@ -86,14 +86,14 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["avdp"]
+source = ["synthbanshee"]
 branch = true
 relative_files = true
 
 [tool.coverage.paths]
 source = [
-    "avdp",
-    "/home/runner/work/*/*/avdp",
+    "synthbanshee",
+    "/home/runner/work/*/*/synthbanshee",
 ]
 
 [tool.coverage.report]

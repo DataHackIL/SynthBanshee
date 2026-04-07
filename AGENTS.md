@@ -22,7 +22,7 @@ All design decisions are documented. Read before changing anything structural:
 ## Repo structure
 
 ```
-avdp/                      ← main Python package
+synthbanshee/              ← main Python package
   config/                  ← Pydantic config models
   script/                  ← LLM-based script generation + Jinja2 templates
   tts/                     ← TTS rendering (Azure he-IL, Google he-IL)
@@ -131,7 +131,7 @@ OPENAI_API_KEY=...   # or ANTHROPIC_API_KEY for Codex script generation
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Run with `pytest`
 - Every module must have unit tests before the corresponding integration test is written
-- A generated clip is valid if and only if it passes `avdp.package.validator.validate_clip(clip_path)`
+- A generated clip is valid if and only if it passes `synthbanshee.package.validator.validate_clip(clip_path)`
 
 ## What NOT to do
 

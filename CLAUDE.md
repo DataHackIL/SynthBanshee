@@ -22,7 +22,7 @@ All design decisions are documented. Read before changing anything structural:
 ## Repo structure
 
 ```
-avdp/                      ← main Python package
+synthbanshee/              ← main Python package
   config/                  ← Pydantic config models
   script/                  ← LLM-based script generation + Jinja2 templates
   tts/                     ← TTS rendering (Azure he-IL, Google he-IL)
@@ -134,14 +134,14 @@ Path fields (`transcript_path`, `scene_config`) and date/version fields are inte
 
 ## Preprocessing stack
 
-**No torchaudio.** The preprocessing pipeline (`avdp/augment/preprocessing.py`) uses only `scipy` + `soundfile` to avoid torch version incompatibilities. Operations in order: resample (polyphase), downmix to mono, Butterworth low-pass at 7.5 kHz, Wiener denoise, peak-normalize to −1.0 dBFS, silence pad ≥ 0.5 s.
+**No torchaudio.** The preprocessing pipeline (`synthbanshee/augment/preprocessing.py`) uses only `scipy` + `soundfile` to avoid torch version incompatibilities. Operations in order: resample (polyphase), downmix to mono, Butterworth low-pass at 7.5 kHz, Wiener denoise, peak-normalize to −1.0 dBFS, silence pad ≥ 0.5 s.
 
 ## Testing conventions
 
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Run with `pytest`
 - Every module must have unit tests before the corresponding integration test is written
-- A generated clip is valid if and only if it passes `avdp.package.validator.validate_clip(clip_path)`
+- A generated clip is valid if and only if it passes `synthbanshee.package.validator.validate_clip(clip_path)`
 - `validate_clip` checks: (1) all three files present, (2) WAV passes `validate_audio()`, (3) JSON parses as `ClipMetadata` with `is_synthetic=True`, (4) filename stem is ASCII-only lowercase
 
 ## Phase 0 status (complete as of 2026-04-07)
@@ -150,11 +150,11 @@ All Phase 0 milestones (0.2–0.6) are implemented and tested:
 
 | Milestone | Module(s) | Status |
 |---|---|---|
-| 0.2 Config schema | `avdp/config/` | Done |
-| 0.3 TTS renderer | `avdp/tts/` | Done |
-| 0.4 Preprocessing pipeline | `avdp/augment/preprocessing.py` | Done |
-| 0.5 Label schema & generator | `avdp/labels/` | Done |
-| 0.6 Happy path + validator + CLI | `avdp/package/validator.py`, `avdp/cli.py` | Done |
+| 0.2 Config schema | `synthbanshee/config/` | Done |
+| 0.3 TTS renderer | `synthbanshee/tts/` | Done |
+| 0.4 Preprocessing pipeline | `synthbanshee/augment/preprocessing.py` | Done |
+| 0.5 Label schema & generator | `synthbanshee/labels/` | Done |
+| 0.6 Happy path + validator + CLI | `synthbanshee/package/validator.py`, `synthbanshee/cli.py` | Done |
 
 CI runs ruff, mypy, and pytest (Python 3.11 + 3.12) on every PR and push to main.
 

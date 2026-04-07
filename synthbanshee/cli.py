@@ -66,7 +66,7 @@ def generate(
     dry_run: bool,
 ) -> None:
     """Generate a synthetic clip from a scene YAML config."""
-    from avdp.config.scene_config import SceneConfig
+    from synthbanshee.config.scene_config import SceneConfig
 
     console.print(f"[bold]Loading config:[/bold] {config}")
     scene = SceneConfig.from_yaml(config)
@@ -89,12 +89,12 @@ def generate(
     # --- TTS rendering (single-speaker stub for Phase 0) ---
     import tempfile
 
-    from avdp.augment.preprocessing import preprocess
-    from avdp.config.speaker_config import SpeakerConfig
-    from avdp.labels.generator import LabelGenerator, ScriptEvent
-    from avdp.labels.schema import PreprocessingApplied, SpeakerInfo
-    from avdp.package.validator import validate_clip
-    from avdp.tts.renderer import TTSRenderer
+    from synthbanshee.augment.preprocessing import preprocess
+    from synthbanshee.config.speaker_config import SpeakerConfig
+    from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
+    from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
+    from synthbanshee.package.validator import validate_clip
+    from synthbanshee.tts.renderer import TTSRenderer
 
     renderer = TTSRenderer(cache_dir=cache_dir)
     label_gen = LabelGenerator()
@@ -220,7 +220,7 @@ def generate(
 @click.argument("clip", type=click.Path(exists=True, path_type=Path))
 def validate(clip: Path) -> None:
     """Validate an existing clip against the AVDP spec."""
-    from avdp.package.validator import validate_clip
+    from synthbanshee.package.validator import validate_clip
 
     result = validate_clip(clip)
     if result.is_valid:

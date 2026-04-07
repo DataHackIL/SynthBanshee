@@ -6,8 +6,8 @@ from typing import Annotated, Literal, Self
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from avdp.config.acoustic_config import AcousticSceneConfig
-from avdp.config.taxonomy import (
+from synthbanshee.config.acoustic_config import AcousticSceneConfig
+from synthbanshee.config.taxonomy import (
     scene_phase_values,
     speaker_role_codes,
     violence_typology_codes,

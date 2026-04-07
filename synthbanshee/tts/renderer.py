@@ -13,9 +13,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from avdp.config.speaker_config import SpeakerConfig
-from avdp.tts.azure_provider import AzureProvider
-from avdp.tts.ssml_builder import SSMLBuilder
+from synthbanshee.config.speaker_config import SpeakerConfig
+from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.ssml_builder import SSMLBuilder
 
 _DEFAULT_CACHE_DIR = Path("assets/speech")
 

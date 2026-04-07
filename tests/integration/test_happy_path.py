@@ -18,14 +18,14 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from avdp.augment.preprocessing import preprocess
-from avdp.config.scene_config import SceneConfig
-from avdp.config.speaker_config import SpeakerConfig
-from avdp.labels.generator import LabelGenerator, ScriptEvent
-from avdp.labels.schema import PreprocessingApplied, SpeakerInfo
-from avdp.package.validator import validate_clip
-from avdp.tts.azure_provider import AzureProvider
-from avdp.tts.renderer import TTSRenderer
+from synthbanshee.augment.preprocessing import preprocess
+from synthbanshee.config.scene_config import SceneConfig
+from synthbanshee.config.speaker_config import SpeakerConfig
+from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
+from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
+from synthbanshee.package.validator import validate_clip
+from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.renderer import TTSRenderer
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 SCENES_DIR = Path(__file__).parent.parent.parent / "configs" / "scenes"

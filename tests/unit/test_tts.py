@@ -11,10 +11,15 @@ import wave
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from avdp.config.speaker_config import SpeakerConfig
-from avdp.tts.azure_provider import AzureProvider
-from avdp.tts.renderer import TTSRenderer
-from avdp.tts.ssml_builder import SSMLBuilder, UtteranceSpec, _rate_to_string, _semitones_to_percent
+from synthbanshee.config.speaker_config import SpeakerConfig
+from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.renderer import TTSRenderer
+from synthbanshee.tts.ssml_builder import (
+    SSMLBuilder,
+    UtteranceSpec,
+    _rate_to_string,
+    _semitones_to_percent,
+)
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 
