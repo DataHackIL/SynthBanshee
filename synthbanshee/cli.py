@@ -1,8 +1,8 @@
-"""AVDP CLI entry points.
+"""SynthBanshee CLI entry points.
 
 Usage:
-    avdp generate --config configs/scenes/test_scene_001.yaml
-    avdp validate --clip data/he/agg_m_30-45_001/sp_it_a_0001_00.wav
+    synthbanshee generate --config configs/scenes/test_scene_001.yaml
+    synthbanshee validate data/he/agg_m_30-45_001/sp_it_a_0001_00.wav
 """
 
 from __future__ import annotations
@@ -118,7 +118,7 @@ def generate(
     # Placeholder Hebrew utterance text — written in a template file,
     # not hardcoded in Python source. For Phase 0 stub we use a minimal literal.
     # In Phase 1 this comes from the Jinja2 template + LLM generation.
-    stub_template = Path("avdp/script/templates/she_proves/stub_utterance.txt")
+    stub_template = Path("synthbanshee/script/templates/she_proves/stub_utterance.txt")
     if stub_template.exists():
         utterance_text = stub_template.read_text(encoding="utf-8").strip()
     else:
