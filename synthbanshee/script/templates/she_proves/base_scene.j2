@@ -1,0 +1,47 @@
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue for the following scene. The dialogue must be entirely in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }}
+{% for key, val in script_slots.items() %}{{ key }}: {{ val }}
+{% endfor %}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = calm, 5 = peak)
+
+SPEAKERS
+========
+{% for sp in speakers %}
+- ID: {{ sp.speaker_id }}  Role: {{ sp.role }}  Gender: {{ sp.gender }}
+{% endfor %}
+
+DIALOGUE RULES
+==============
+1. Every utterance MUST be Hebrew text only — no transliteration, no English.
+2. Follow the intensity arc chronologically: the dialogue must build from the first
+   intensity value to the last across the turns.
+3. Each turn is 1–4 sentences.  Aim for roughly {{ (target_duration_minutes * 60 / 15) | int }} turns total
+   (assuming ~15 s per turn on average).
+4. Silence gaps (pause_before_s) between turns: 0.2–1.5 s; use longer gaps at
+   scene transitions or after confrontational outbursts.
+5. emotional_state must be one of: neutral, angry, fearful, sad, pleading, threatening, calm.
+6. Do NOT use binary Violence/Non-Violence labels anywhere.
+
+OUTPUT FORMAT
+=============
+Return ONLY valid JSON — no prose, no markdown fences.
+
+{
+  "turns": [
+    {
+      "speaker_id": "<speaker_id from SPEAKERS section>",
+      "text": "<Hebrew utterance>",
+      "intensity": <integer 1–5>,
+      "pause_before_s": <float>,
+      "emotional_state": "<state>"
+    }
+  ]
+}
