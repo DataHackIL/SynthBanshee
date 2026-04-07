@@ -25,6 +25,9 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
 
+      - name: Create venv
+        run: uv venv
+
       - name: Install dependencies
         run: |
           uv pip install \
@@ -36,7 +39,7 @@ jobs:
         run: uv pip install --no-deps -e .
 
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+        run: .venv/bin/pytest tests/ -v --tb=short
 
   lint:
     name: "Lint & type-check"
@@ -52,6 +55,9 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
+      - name: Create venv
+        run: uv venv
+
       - name: Install lint dependencies
         run: uv pip install ruff mypy pydantic types-PyYAML
 
@@ -59,10 +65,10 @@ jobs:
         run: uv pip install --no-deps -e .
 
       - name: ruff check
-        run: uv run ruff check .
+        run: .venv/bin/ruff check .
 
       - name: ruff format (check only)
-        run: uv run ruff format --check .
+        run: .venv/bin/ruff format --check .
 
       - name: mypy
-        run: uv run mypy avdp/ --ignore-missing-imports
+        run: .venv/bin/mypy avdp/ --ignore-missing-imports
