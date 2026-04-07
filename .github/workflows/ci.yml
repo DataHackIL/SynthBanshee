@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: "Test (Python ${{ matrix.python-version }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          uv pip install \
+            pydantic pyyaml jinja2 soundfile numpy scipy \
+            click rich jsonlines \
+            pytest pytest-asyncio
+
+      - name: Install package
+        run: uv pip install --no-deps -e .
+
+      - name: Run tests
+        run: .venv/bin/pytest tests/ -v --tb=short
+
+  lint:
+    name: "Lint & type-check"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install lint dependencies
+        run: uv pip install ruff mypy pydantic types-PyYAML
+
+      - name: Install package
+        run: uv pip install --no-deps -e .
+
+      - name: ruff check
+        run: .venv/bin/ruff check .
+
+      - name: ruff format (check only)
+        run: .venv/bin/ruff format --check .
+
+      - name: mypy
+        run: .venv/bin/mypy avdp/ --ignore-missing-imports
