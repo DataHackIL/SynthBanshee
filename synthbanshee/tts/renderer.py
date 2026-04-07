@@ -14,6 +14,7 @@ import hashlib
 from pathlib import Path
 
 from synthbanshee.config.speaker_config import SpeakerConfig
+from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
@@ -136,3 +137,62 @@ class TTSRenderer:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(wav_bytes)
         return output_path
+
+    def render_scene(
+        self,
+        turns: list[DialogueTurn],
+        speakers: dict[str, SpeakerConfig],
+        *,
+        randomize: bool = False,
+        rng_seed: int | None = None,
+        disfluency: bool = False,
+    ) -> MixedScene:
+        """Render a multi-speaker dialogue script to a MixedScene.
+
+        Each turn is rendered individually (with caching) then mixed into a
+        single audio stream by SceneMixer.  Turn onset/offset times are derived
+        from the mix, not from TTS durations, so the label generator should
+        always use MixedScene.turn_onsets_s / turn_offsets_s.
+
+        Args:
+            turns: Ordered list of DialogueTurn objects from ScriptGenerator.
+            speakers: Mapping from speaker_id to SpeakerConfig.
+            randomize: Apply small random prosody variation per turn.
+            rng_seed: Seed for reproducible prosody variation.
+            disfluency: If True, inject Hebrew filled pauses into each turn's
+                        text using the speaker's disfluency profile.
+
+        Returns:
+            MixedScene with concatenated audio and per-turn timing metadata.
+
+        Raises:
+            KeyError: If a turn references a speaker_id not in *speakers*.
+        """
+        import random
+
+        from synthbanshee.script.generator import inject_disfluency
+        from synthbanshee.tts.mixer import SceneMixer
+
+        rng = random.Random(rng_seed)
+        mixer = SceneMixer()
+
+        segments: list[tuple[bytes, float, str]] = []
+        for turn in turns:
+            speaker = speakers[turn.speaker_id]
+            text = turn.text
+            if disfluency:
+                text = inject_disfluency(
+                    text,
+                    prob=speaker.disfluency.filled_pause_prob,
+                    rng_seed=rng.randint(0, 2**31),
+                )
+            wav_bytes, _ = self.render_utterance(
+                text,
+                speaker,
+                turn.intensity,
+                randomize=randomize,
+                rng_seed=rng.randint(0, 2**31) if randomize else None,
+            )
+            segments.append((wav_bytes, turn.pause_before_s, turn.speaker_id))
+
+        return mixer.mix_sequential(segments)

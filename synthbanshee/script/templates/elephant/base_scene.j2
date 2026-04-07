@@ -1,0 +1,54 @@
+You are a professional Hebrew dialogue writer creating training data for a workplace-safety audio detection system.
+
+Write a realistic Hebrew dialogue for the following scene. The dialogue must be entirely in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (clinic/welfare office alert system)
+Violence typology: {{ violence_typology }}
+{% for key, val in script_slots.items() %}{{ key }}: {{ val }}
+{% endfor %}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (1 = calm, 5 = peak threat/attack)
+
+SPEAKERS
+========
+{% for sp in speakers %}
+- ID: {{ sp.speaker_id }}  Role: {{ sp.role }}  Gender: {{ sp.gender }}
+{% endfor %}
+
+SCENE STRUCTURE GUIDANCE
+=========================
+Clinic/welfare-office incidents typically follow this arc:
+  1. Routine interaction — client and social worker / clinician in normal session.
+  2. Frustration — client becomes impatient, dissatisfied, or agitated.
+  3. Verbal escalation — raised voice, threats, verbal abuse.
+  4. Peak — explicit threat or physical intimidation (the alert-trigger moment).
+The alert should occur in the final 40% of the scene duration.
+
+DIALOGUE RULES
+==============
+1. Every utterance MUST be Hebrew text only — no transliteration, no English.
+2. Follow the intensity arc chronologically across the turns.
+3. Each turn is 1–4 sentences.  Aim for roughly {{ (target_duration_minutes * 60 / 15) | int }} turns total.
+4. Silence gaps (pause_before_s): 0.2–1.5 s; longer gaps at transitions.
+5. emotional_state must be one of: neutral, angry, fearful, sad, pleading, threatening, calm.
+6. The social worker / clinician (SW or CLIN role) should attempt de-escalation.
+7. Do NOT write binary Violence/Non-Violence labels.
+
+OUTPUT FORMAT
+=============
+Return ONLY valid JSON — no prose, no markdown fences.
+
+{
+  "turns": [
+    {
+      "speaker_id": "<speaker_id from SPEAKERS section>",
+      "text": "<Hebrew utterance>",
+      "intensity": <integer 1–5>,
+      "pause_before_s": <float>,
+      "emotional_state": "<state>"
+    }
+  ]
+}
