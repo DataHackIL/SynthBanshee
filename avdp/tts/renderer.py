@@ -1,6 +1,8 @@
 """TTS rendering orchestrator with asset cache.
 
-Cache key: SHA-256 of (voice_id, normalized_text).
+Cache key: SHA-256 of the rendered SSML string, which captures voice, text,
+style, prosody parameters, and any randomization — so two calls with different
+intensity or prosody will never collide.
 Cache format: raw WAV bytes stored as {cache_key}.wav in the cache directory.
 
 Spec reference: docs/implementation_plan.md §0.3
@@ -21,8 +23,8 @@ _DEFAULT_CACHE_DIR = Path("assets/speech")
 class TTSRenderer:
     """Render TTS utterances with a file-system render cache.
 
-    Caches WAV bytes keyed on (voice_id, text) so identical utterances are
-    only synthesized once, even across pipeline runs.
+    Caches WAV bytes keyed on the full SSML string so that calls with
+    different voice, text, style, or prosody always produce distinct entries.
     """
 
     def __init__(
@@ -38,9 +40,8 @@ class TTSRenderer:
     # Cache helpers
     # ------------------------------------------------------------------
 
-    def _cache_key(self, voice_id: str, text: str) -> str:
-        h = hashlib.sha256(f"{voice_id}\x00{text}".encode()).hexdigest()
-        return h
+    def _cache_key(self, ssml: str) -> str:
+        return hashlib.sha256(ssml.encode()).hexdigest()
 
     def _cache_path(self, key: str) -> Path:
         return self._cache_dir / f"{key}.wav"
@@ -110,7 +111,7 @@ class TTSRenderer:
             volume_delta_db=volume,
         )
 
-        cache_key = self._cache_key(speaker.tts_voice_id, text)
+        cache_key = self._cache_key(ssml)
         cached = self._load_from_cache(cache_key)
         if cached is not None:
             return cached, cache_key

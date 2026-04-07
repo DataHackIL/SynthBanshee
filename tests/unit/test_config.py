@@ -167,9 +167,10 @@ class TestSpeakerConfig:
 
     def test_style_for_intensity_fallback(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
-        # intensity 5 exists; intensity 6 should fall back to 5
-        entry = cfg.style_for_intensity(5)
+        # intensity 6 is out of range; should fall back to the nearest key (5)
+        entry = cfg.style_for_intensity(6)
         assert entry is not None
+        assert entry == cfg.style_for_intensity(5)
 
     def test_invalid_speaker_id_format(self):
         with pytest.raises(ValidationError, match="speaker_id"):

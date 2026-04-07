@@ -2,10 +2,9 @@
 
 Validates:
   1. All three required files exist (.wav, .txt, .json)
-  2. WAV meets spec: 16 kHz, mono, 16-bit PCM, ≥ 3 s, −1.0 dBFS peak, ≥ 0.5 s silence pad
+  2. WAV passes validate_audio() checks
   3. JSON parses as ClipMetadata, is_synthetic == True
-  4. No UTF-8 above U+00A1 in JSON string fields (ASCII-safe metadata)
-  5. Filename is ASCII-only, lowercase, no spaces
+  4. Filename is ASCII-only, lowercase, no spaces
 
 Spec reference: docs/spec.md §2–§5
 """

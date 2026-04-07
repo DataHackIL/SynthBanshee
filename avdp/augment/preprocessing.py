@@ -115,11 +115,13 @@ def preprocess(
     warnings: list[str] = []
 
     # --- Retain dirty original -----------------------------------------------
+    # Use output_path.stem as the dirty filename so that two different inputs
+    # that share the same basename (e.g. "raw.wav") never collide.
     dirty_path: Path | None = None
     if dirty_dir is not None:
         dirty_dir = Path(dirty_dir)
         dirty_dir.mkdir(parents=True, exist_ok=True)
-        dirty_path = dirty_dir / input_path.name
+        dirty_path = dirty_dir / f"{output_path.stem}_dirty{input_path.suffix}"
         if not dirty_path.exists():
             shutil.copy2(input_path, dirty_path)
 
@@ -225,8 +227,9 @@ def validate_audio(path: Path | str) -> tuple[bool, list[str]]:
     if not np.isfinite(samples).all():
         errors.append("audio contains NaN or Inf samples")
 
-    # Duration
-    duration = len(samples) / _TARGET_SR
+    # Duration — use the file's actual sr so the value is accurate even when
+    # sr != _TARGET_SR (the sample_rate error above will still be reported).
+    duration = len(samples) / sr
     if duration < _MIN_DURATION_S:
         errors.append(f"duration {duration:.2f} s < minimum {_MIN_DURATION_S} s")
 
@@ -238,7 +241,7 @@ def validate_audio(path: Path | str) -> tuple[bool, list[str]]:
         )
 
     # Silence padding: check first and last 0.5 s are below -40 dBFS
-    pad_n = int(_SILENCE_PAD_S * _TARGET_SR)
+    pad_n = int(_SILENCE_PAD_S * sr)
     if len(samples) > 2 * pad_n:
         head_peak = _to_dbfs(samples[:pad_n])
         tail_peak = _to_dbfs(samples[-pad_n:])

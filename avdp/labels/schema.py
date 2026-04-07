@@ -163,7 +163,7 @@ class ClipMetadata(BaseModel):
             raise ValueError(f"Unknown quality_flags: {bad}. Valid: {sorted(_QUALITY_FLAGS)}")
         return v
 
-    @field_validator("clip_id", "project", "tts_engine")
+    @field_validator("clip_id", "project", "tts_engine", "violence_typology", "generator_version")
     @classmethod
     def ascii_safe_string(cls, v: str, info) -> str:
         return _assert_ascii_safe(v, info.field_name)

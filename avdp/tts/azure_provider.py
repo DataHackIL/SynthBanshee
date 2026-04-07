@@ -16,7 +16,7 @@ from typing import Protocol
 class SpeechSDKProtocol(Protocol):
     """Protocol for dependency injection / testing without real Azure credentials."""
 
-    def synthesize_ssml_async(self, ssml: str): ...
+    def speak_ssml_async(self, ssml: str): ...
 
 
 class AzureProvider:

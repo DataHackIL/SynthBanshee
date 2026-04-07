@@ -4,7 +4,7 @@ description: All Python commands for this project must use the local uv venv at 
 type: project
 ---
 
-Use the local uv venv at `/Users/shaypalachy/clones/SynthBanshee/.venv` for all Python operations in this project.
+Use the local uv venv at `.venv` for all Python operations in this project.
 
 Activate: `source .venv/bin/activate` (from repo root)
 Install packages: `uv pip install <pkg>` (not plain `pip install` which may be slow)
