@@ -52,9 +52,6 @@ jobs:
           enable-cache: true
           python-version: "3.12"
 
-      - name: Create venv
-        run: uv venv
-
       - name: Install lint dependencies
         run: uv pip install ruff mypy pydantic types-PyYAML
 
