@@ -35,6 +35,7 @@ configs/
   scenes/                  ← per-scene YAML configs (see examples/)
   speakers/                ← speaker persona YAMLs (see examples/)
   acoustic_scenes/         ← room/device YAML configs
+  run_configs/             ← full generation run definitions (RunConfig YAML)
   examples/                ← worked examples for each config type
 
 assets/                    ← source assets (gitignored; populated at runtime)
@@ -157,6 +158,22 @@ All Phase 0 milestones (0.2–0.6) are implemented and tested:
 | 0.6 Happy path + validator + CLI | `synthbanshee/package/validator.py`, `synthbanshee/cli.py` | Done |
 
 CI runs ruff, mypy, and pytest (Python 3.11 + 3.12) on every PR and push to main.
+
+## Phase 1 status (milestones 1.4 & 1.5 complete as of 2026-04-08)
+
+Batch generation infrastructure and automated QA suite are implemented and tested:
+
+| Milestone | Module(s) | Status |
+|---|---|---|
+| 1.4 Run config schema | `synthbanshee/config/run_config.py` | Done |
+| 1.4 Speaker-disjoint splits | `synthbanshee/package/splitter.py` | Done |
+| 1.4 Batch generation CLI | `synthbanshee/cli.py` (`generate-batch`) | Done |
+| 1.4 Run configs (Tier A) | `configs/run_configs/` | Done |
+| 1.5 Manifest CSV | `synthbanshee/package/manifest.py` | Done |
+| 1.5 Automated QA suite | `synthbanshee/package/qa.py` | Done |
+| 1.5 QA report CLI | `synthbanshee/cli.py` (`qa-report`) | Done |
+
+Milestones 1.1–1.3 (Jinja2 template library, multi-speaker TTS, LLM script generator) are still in progress and are not blocking AI team model development — the Tier A dataset from 1.4 is sufficient to start baseline training.
 
 ## What NOT to do
 

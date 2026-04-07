@@ -3,8 +3,8 @@
 **Project:** Audio Violence Dataset Project (AVDP)
 **Initiatives:** She-Proves · Elephant in the Room
 **Organization:** DataHack / DataForBetter (datahack.org.il)
-**Status:** Phase 0 complete (2026-04-07) — Phase 1 ready to begin
-**Date:** 2026-04-06 (updated 2026-04-07)
+**Status:** Phase 0 complete (2026-04-07) — Phase 1 milestones 1.4 & 1.5 complete (2026-04-08)
+**Date:** 2026-04-06 (updated 2026-04-08)
 **Companion documents:** `design_approaches.md`, `spec.md`
 
 ---
@@ -252,6 +252,8 @@ Each template defines:
 
 **Acceptance criteria:** 500 clips per project; full manifest and label files present; < 2% clips with quality flags requiring exclusion.
 
+**✓ Complete** — `RunConfig` Pydantic model (`synthbanshee/config/run_config.py`) with per-typology `TypologyTarget` and `SplitFractions` validator. `generate-batch` CLI command: discovers scene configs by typology, applies per-typology count caps, renders clips, assigns speaker-disjoint splits via Union-Find, and writes manifest CSV. Run configs for both projects at `configs/run_configs/`. `assign_splits()` in `synthbanshee/package/splitter.py` uses path-halving Union-Find to guarantee speaker-disjoint train/val/test partitions.
+
 ### 1.5 Dataset QA & Delivery
 
 **Owner:** Bar + Livnat
@@ -263,6 +265,8 @@ Each template defines:
 - Package and deliver to AI teams as a versioned archive (`avdp_synth_v0.1_tier_a.tar.gz`)
 
 **Acceptance criteria:** QA suite passes with < 1% clip failure rate; statistics report shows balanced distribution across stratification variables; AI teams confirm they can load the dataset.
+
+**✓ Complete** — `run_qa()` in `synthbanshee/package/qa.py` validates every clip via `validate_clip()`, re-parses `ClipMetadata`, accumulates `DatasetStats` (total/failed clips, duration, typology/split/speaker counts, quality-flagged clips), and returns a `QAReport` (pass/fail based on configurable `max_failure_rate`, default 2%). `qa-report` CLI command prints a Rich table summary and optionally writes a JSON report file; exits 1 if the report fails. `generate_manifest()` in `synthbanshee/package/manifest.py` produces a flat CSV with 11 columns (clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path).
 
 ---
 

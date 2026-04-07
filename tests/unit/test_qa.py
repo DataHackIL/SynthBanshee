@@ -259,3 +259,33 @@ class TestQAReportStructure:
     def test_report_quality_flagged_is_dict(self, tmp_path):
         report = run_qa(tmp_path)
         assert isinstance(report.quality_flagged, dict)
+
+
+# ---------------------------------------------------------------------------
+# qa.py lines 101-104: validate_clip passes but ClipMetadata re-parse fails
+# ---------------------------------------------------------------------------
+
+
+class TestRunQAMetadataReparseFails:
+    def test_valid_clip_but_metadata_reparse_raises_counted_as_failed(self, tmp_path):
+        """validate_clip succeeds but ClipMetadata.model_validate_json in run_qa raises.
+
+        This covers qa.py lines 101-104: the except block after the second
+        ClipMetadata parse attempt.  validate_clip uses its own import of
+        ClipMetadata (synthbanshee.package.validator.ClipMetadata) while
+        run_qa uses synthbanshee.package.qa.ClipMetadata — patching only the
+        qa module's reference leaves validate_clip unaffected.
+        """
+        from unittest.mock import patch
+
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+
+        with patch("synthbanshee.package.qa.ClipMetadata") as MockMeta:
+            MockMeta.model_validate_json.side_effect = RuntimeError("schema changed")
+            report = run_qa(tmp_path)
+
+        # validate_clip passed (uses validator.ClipMetadata, not patched)
+        # but run_qa's re-parse failed → clip counted as failed, not as valid
+        assert report.stats.failed_clips == 1
+        assert report.stats.total_clips == 0
+        assert "clip_001_00" in report.failed_clip_ids

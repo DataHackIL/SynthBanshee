@@ -128,3 +128,21 @@ class TestSpeakerDisjoint:
         splits = assign_splits(m, rng_seed=42)
         assert len(splits) == 500
         assert set(splits.values()) <= {"train", "val", "test"}
+
+    def test_two_speakers_shared_between_same_pair_no_double_union(self):
+        """clip_A and clip_B share TWO speakers — the second _union call finds ra==rb.
+
+        This exercises the ``if ra != rb`` guard in _union (line 56 of splitter.py)
+        taking the False branch: when clip_A and clip_B are already in the same
+        component from the first speaker, the second speaker's _union is a no-op.
+        """
+        m = {
+            "clip_A": ["SPK_X", "SPK_Y"],  # shares both speakers with clip_B
+            "clip_B": ["SPK_X", "SPK_Y"],
+            "clip_C": ["SPK_Z"],
+        }
+        splits = assign_splits(m, rng_seed=0)
+        # clip_A and clip_B must still be in the same split
+        assert splits["clip_A"] == splits["clip_B"]
+        # All three clips are assigned
+        assert set(splits.keys()) == {"clip_A", "clip_B", "clip_C"}
