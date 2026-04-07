@@ -1,12 +1,7 @@
-{% extends "base_scene.j2" %}
-{# Intimate-terror / coercive-control scene specialisation.
-   Extends base_scene.j2 by appending domain-specific guidance as a second
-   section after the base prompt. Jinja2 inheritance is not used here because
-   the generator renders templates as standalone files; the parent template
-   content is included verbatim via include so this file can be used as the
-   primary template.
+{# Intimate-terror / coercive-control scene specialisation for she_proves.
+   Standalone template (not using Jinja2 {% extends %}) so the generator can
+   render it directly via FileSystemLoader without block definitions.
 #}
-
 You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
 
 Write a realistic Hebrew dialogue for the following scene. The dialogue must be entirely in Hebrew (UTF-8).

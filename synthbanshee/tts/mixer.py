@@ -1,8 +1,9 @@
 """SceneMixer: concatenate per-speaker TTS WAV segments into a single audio scene.
 
-Each segment is a (wav_bytes, pause_before_s) pair.  The mixer decodes WAV bytes
-using soundfile, resamples to 16 kHz if needed, prepends the requested silence
-gap, and concatenates all segments into a single float32 mono array.
+Each segment is a (wav_bytes, pause_before_s, speaker_id) triple.  The mixer
+decodes WAV bytes using soundfile, resamples to 16 kHz if needed, prepends the
+requested silence gap, and concatenates all segments into a single float32 mono
+array while preserving speaker IDs in the mix metadata.
 
 The output MixedScene carries per-turn onset/offset times so the label generator
 can derive event timing from the mix log rather than re-estimating it from the

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
-from unittest.mock import patch
+from types import ModuleType
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -132,6 +134,29 @@ class TestValidateScript:
         bad = [DialogueTurn(speaker_id="AGG_M_30-45_001", text="hello world", intensity=1)]
         errors = validate_script(bad, _SPEAKER_IDS)
         assert any("Hebrew" in e for e in errors)
+
+    def test_negative_pause_flagged(self):
+        bad = [
+            DialogueTurn(
+                speaker_id="AGG_M_30-45_001", text="שלום", intensity=1, pause_before_s=-0.1
+            )
+        ]
+        errors = validate_script(bad, _SPEAKER_IDS)
+        assert any("pause_before_s" in e for e in errors)
+
+    def test_excessive_pause_flagged(self):
+        bad = [
+            DialogueTurn(speaker_id="AGG_M_30-45_001", text="שלום", intensity=1, pause_before_s=2.0)
+        ]
+        errors = validate_script(bad, _SPEAKER_IDS)
+        assert any("pause_before_s" in e for e in errors)
+
+    def test_valid_pause_no_error(self):
+        ok = [
+            DialogueTurn(speaker_id="AGG_M_30-45_001", text="שלום", intensity=1, pause_before_s=1.0)
+        ]
+        errors = validate_script(ok, _SPEAKER_IDS)
+        assert not any("pause_before_s" in e for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -266,3 +291,85 @@ class TestScriptGeneratorInit:
     def test_custom_model(self):
         gen = ScriptGenerator(provider="anthropic", model="claude-haiku-4-5-20251001")
         assert gen._model == "claude-haiku-4-5-20251001"
+
+
+# ---------------------------------------------------------------------------
+# ScriptGenerator — LLM provider dispatch (_call_llm, _call_anthropic, _call_openai)
+# ---------------------------------------------------------------------------
+
+
+class TestLLMDispatch:
+    """Cover _call_anthropic, _call_openai, and _call_llm routing."""
+
+    def test_call_llm_routes_to_anthropic(self, tmp_path: Path):
+        gen = ScriptGenerator(provider="anthropic", cache_dir=tmp_path)
+        with patch.object(gen, "_call_anthropic", return_value="resp") as mock_a:
+            result = gen._call_llm("prompt")
+        mock_a.assert_called_once_with("prompt")
+        assert result == "resp"
+
+    def test_call_llm_routes_to_openai(self, tmp_path: Path):
+        gen = ScriptGenerator(provider="openai", cache_dir=tmp_path)
+        with patch.object(gen, "_call_openai", return_value="resp") as mock_o:
+            result = gen._call_llm("prompt")
+        mock_o.assert_called_once_with("prompt")
+        assert result == "resp"
+
+    def test_call_anthropic_uses_sdk(self, tmp_path: Path):
+        gen = ScriptGenerator(provider="anthropic", model="claude-test", cache_dir=tmp_path)
+        mock_message = MagicMock()
+        mock_message.content = [MagicMock(text="שלום")]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = mock_message
+
+        mock_anthropic_mod = ModuleType("anthropic")
+        mock_anthropic_mod.Anthropic = MagicMock(return_value=mock_client)  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"anthropic": mock_anthropic_mod}):
+            result = gen._call_anthropic("test prompt")
+
+        mock_client.messages.create.assert_called_once_with(
+            model="claude-test",
+            max_tokens=4096,
+            messages=[{"role": "user", "content": "test prompt"}],
+        )
+        assert result == "שלום"
+
+    def test_call_openai_uses_sdk(self, tmp_path: Path):
+        gen = ScriptGenerator(provider="openai", model="gpt-test", cache_dir=tmp_path)
+        mock_choice = MagicMock()
+        mock_choice.message.content = "שלום מהאי"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        mock_openai_mod = ModuleType("openai")
+        mock_openai_mod.OpenAI = MagicMock(return_value=mock_client)  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"openai": mock_openai_mod}):
+            result = gen._call_openai("test prompt")
+
+        mock_client.chat.completions.create.assert_called_once_with(
+            model="gpt-test",
+            messages=[{"role": "user", "content": "test prompt"}],
+            max_tokens=4096,
+        )
+        assert result == "שלום מהאי"
+
+    def test_call_openai_empty_content_returns_empty_string(self, tmp_path: Path):
+        gen = ScriptGenerator(provider="openai", model="gpt-test", cache_dir=tmp_path)
+        mock_choice = MagicMock()
+        mock_choice.message.content = None
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        mock_openai_mod = ModuleType("openai")
+        mock_openai_mod.OpenAI = MagicMock(return_value=mock_client)  # type: ignore[attr-defined]
+
+        with patch.dict(sys.modules, {"openai": mock_openai_mod}):
+            result = gen._call_openai("prompt")
+
+        assert result == ""

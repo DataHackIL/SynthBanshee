@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import unicodedata
 from pathlib import Path
@@ -90,6 +91,12 @@ def validate_script(
 
         if turn.intensity not in range(1, 6):
             errors.append(f"{prefix}: intensity {turn.intensity} out of range 1–5")
+
+        # Validate pause_before_s: must be finite and within [0.0, 1.5] s
+        if not math.isfinite(turn.pause_before_s) or not (0.0 <= turn.pause_before_s <= 1.5):
+            errors.append(
+                f"{prefix}: pause_before_s {turn.pause_before_s} must be finite and in [0.0, 1.5]"
+            )
 
         # Detect repetition: 4+ consecutive identical whitespace-split tokens
         tokens = turn.text.split()
