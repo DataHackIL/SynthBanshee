@@ -76,7 +76,7 @@ The augmentation log from Stage 3 is the source of truth for SFX onset/offset ti
 - Every `.wav` must have a matching `.txt` (transcript) and `.json` (metadata)
 - **No binary Violence/Non-Violence labels** — use the hierarchical taxonomy in `configs/taxonomy.yaml`
 - Silence padding: **≥ 0.5 s** ambient baseline before and after target speech
-- Retain "dirty" (pre-preprocessing) files in `assets/` always
+- Retain "dirty" (pre-preprocessing) files in `assets/` always — named `{clip_id}_dirty{original_suffix}` (e.g. `clip_001_dirty.wav`), NOT the raw input filename, to avoid collisions when multiple inputs share the same basename
 - `is_synthetic: true` in all generated clip metadata
 
 ## Label taxonomy
@@ -94,7 +94,7 @@ See `spec.md §4` for full definitions.
 - **Primary:** Azure Cognitive Services he-IL voices — `he-IL-AvriNeural` (male), `he-IL-HilaNeural` (female)
 - **Secondary / evaluation:** Google Cloud TTS Chirp 3 HD he-IL
 - Azure SSML supports multi-speaker documents, prosody control, and `<mstts:express-as>` style tags — use these
-- Cache all TTS outputs in `assets/speech/` keyed on `(voice_id, text_hash)` to avoid redundant API calls
+- Cache all TTS outputs in `assets/speech/` keyed on **SHA-256 of the full rendered SSML string**. This captures voice, text, style, prosody parameters, and any randomization seed — so calls that differ only in intensity or rate will never share a cache entry. The key is NOT derived from `(voice_id, text)` alone.
 
 ## TTS API credentials
 
@@ -126,12 +126,37 @@ OPENAI_API_KEY=...   # or ANTHROPIC_API_KEY for Claude script generation
 | Phase 2 (Weeks 8–11) | 1,000–1,500 Tier B clips/project | Robustness training |
 | Phase 3 (Weeks 12–16) | 4,000 clips/project, all tiers | Full Phase 1 dataset |
 
+## ASCII-safe metadata fields
+
+`ClipMetadata` enforces the "no Hebrew in JSON string fields" rule via a `@field_validator` on:
+`clip_id`, `project`, `tts_engine`, `violence_typology`, `generator_version`.
+Path fields (`transcript_path`, `scene_config`) and date/version fields are intentionally excluded — they are always ASCII by construction.
+
+## Preprocessing stack
+
+**No torchaudio.** The preprocessing pipeline (`avdp/augment/preprocessing.py`) uses only `scipy` + `soundfile` to avoid torch version incompatibilities. Operations in order: resample (polyphase), downmix to mono, Butterworth low-pass at 7.5 kHz, Wiener denoise, peak-normalize to −1.0 dBFS, silence pad ≥ 0.5 s.
+
 ## Testing conventions
 
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
 - Run with `pytest`
 - Every module must have unit tests before the corresponding integration test is written
 - A generated clip is valid if and only if it passes `avdp.package.validator.validate_clip(clip_path)`
+- `validate_clip` checks: (1) all three files present, (2) WAV passes `validate_audio()`, (3) JSON parses as `ClipMetadata` with `is_synthetic=True`, (4) filename stem is ASCII-only lowercase
+
+## Phase 0 status (complete as of 2026-04-07)
+
+All Phase 0 milestones (0.2–0.6) are implemented and tested:
+
+| Milestone | Module(s) | Status |
+|---|---|---|
+| 0.2 Config schema | `avdp/config/` | Done |
+| 0.3 TTS renderer | `avdp/tts/` | Done |
+| 0.4 Preprocessing pipeline | `avdp/augment/preprocessing.py` | Done |
+| 0.5 Label schema & generator | `avdp/labels/` | Done |
+| 0.6 Happy path + validator + CLI | `avdp/package/validator.py`, `avdp/cli.py` | Done |
+
+CI runs ruff, mypy, and pytest (Python 3.11 + 3.12) on every PR and push to main.
 
 ## What NOT to do
 

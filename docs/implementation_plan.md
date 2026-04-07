@@ -3,8 +3,8 @@
 **Project:** Audio Violence Dataset Project (AVDP)
 **Initiatives:** She-Proves · Elephant in the Room
 **Organization:** DataHack / DataForBetter (datahack.org.il)
-**Status:** Draft v0.1 — for review by AI team leads (Bar, Livnat, Asya)
-**Date:** 2026-04-06
+**Status:** Phase 0 complete (2026-04-07) — Phase 1 ready to begin
+**Date:** 2026-04-06 (updated 2026-04-07)
 **Companion documents:** `design_approaches.md`, `spec.md`
 
 ---
@@ -89,13 +89,15 @@ avdp-synth/
 **Duration:** 2 days
 
 - Set up Python ≥ 3.11 environment, `pyproject.toml`, `ruff` linting, `pytest`
-- Install core dependencies: `pydub`, `torchaudio`, `pyroomacoustics`, `scaper`, `pydantic`, `jinja2`, `click`, `soundfile`
+- Install core dependencies: `pydantic`, `jinja2`, `click`, `soundfile`, `numpy`, `scipy` (note: **no torchaudio** — preprocessing uses scipy+soundfile exclusively to avoid torch version incompatibilities; `pyroomacoustics` and `scaper` are Phase 2 dependencies)
 - Provision TTS API access: Azure Cognitive Services (he-IL voices: `he-IL-AvriNeural`, `he-IL-HilaNeural`) and Google Cloud TTS (he-IL)
 - Provision LLM API access (Claude or GPT-4) for script generation
 - Acquire MUSAN noise corpus (freely available): `wget http://www.openslr.org/17/`
 - Set up project secrets management (`python-dotenv` or environment variables)
 
 **Acceptance criteria:** `pytest tests/unit/test_setup.py` passes; Azure TTS returns audio for a Hebrew test sentence.
+
+**✓ Complete** — environment configured with uv; CI workflow runs ruff, mypy, and pytest across Python 3.11 and 3.12.
 
 ### 0.2 Config Schema & Validation
 
@@ -109,6 +111,8 @@ avdp-synth/
 
 **Acceptance criteria:** All hand-authored configs parse without errors; invalid configs (bad intensity range, missing required fields) raise `ValidationError`.
 
+**✓ Complete** — `SceneConfig`, `SpeakerConfig`, `AcousticSceneConfig` implemented with full taxonomy-backed validation. Example configs in `configs/examples/`.
+
 ### 0.3 TTS Renderer (Single Speaker)
 
 **Owner:** Asya
@@ -116,10 +120,12 @@ avdp-synth/
 
 - Implement `azure_provider.py`: accepts a list of `(text, speaker_persona, style_directives)` tuples, returns WAV byte streams
 - Implement SSML builder: generates SSML documents with `<voice>`, `<prosody>` (rate, pitch, volume), `<mstts:express-as>` style tags for he-IL voices
-- Implement rendering cache: skip re-rendering utterances that already exist in `assets/speech/` (keyed on speaker + text hash)
+- Implement rendering cache: skip re-rendering utterances that already exist in `assets/speech/` (keyed on **SHA-256 of the full rendered SSML string**, which captures voice, text, style, prosody, and randomization — not just `(voice_id, text)`)
 - Implement single-speaker rendering test: render 3 Hebrew utterances at different intensity levels
 
 **Acceptance criteria:** Three Hebrew utterances rendered as valid 16-bit PCM WAV files at 24 kHz (pre-downsampling); cache prevents re-render on second run.
+
+**✓ Complete** — `SSMLBuilder`, `AzureProvider` (with `sdk_factory` injection for testing), and `TTSRenderer` implemented with SSML-keyed filesystem cache.
 
 ### 0.4 Preprocessing Pipeline
 
@@ -127,10 +133,12 @@ avdp-synth/
 **Duration:** 2 days
 
 - Implement `preprocessing.py`: resample → downmix → low-pass filter → Wiener denoise → normalize → pad → validate
-- Retain "dirty" originals in `assets/` before processing
+- Retain "dirty" originals in `assets/` before processing, named `{output_stem}_dirty{original_suffix}` to avoid filename collisions across pipeline runs
 - Validate output against spec constraints (sample rate, bit depth, mono, normalization, SNR check, silence padding)
 
 **Acceptance criteria:** A noisy TTS output passes through pipeline and emerges as a valid 16 kHz mono WAV at −1.0 dBFS with ≥ 0.5 s padding; dirty file retained.
+
+**✓ Complete** — pure scipy+soundfile implementation (no torchaudio); `validate_audio()` uses the file's actual sample rate for all duration and padding calculations.
 
 ### 0.5 Label Schema & Auto-Generator (Stub)
 
@@ -143,6 +151,8 @@ avdp-synth/
 
 **Acceptance criteria:** Labels for a 3-event script serialize to valid JSONL and round-trip correctly; schema validation rejects malformed labels.
 
+**✓ Complete** — `EventLabel`, `WeakLabel`, `ClipMetadata` implemented; `LabelGenerator` produces JSONL and JSON with full round-trip fidelity. ASCII-safe validation covers `clip_id`, `project`, `tts_engine`, `violence_typology`, and `generator_version`.
+
 ### 0.6 End-to-End "Happy Path" Test
 
 **Owner:** All
@@ -152,6 +162,8 @@ avdp-synth/
 - Assert: `.wav` + `.txt` + `.json` all present with correct naming; manifest CSV row is valid; label JSONL parses
 
 **Acceptance criteria:** Running `avdp generate --config configs/scenes/test_scene_001.yaml` produces a complete, spec-compliant clip.
+
+**✓ Complete** — `validate_clip()` checks: all three files present, WAV passes `validate_audio()`, JSON parses as `ClipMetadata` with `is_synthetic=True`, filename stem is ASCII-only lowercase. 80 unit + integration tests pass on Python 3.11 and 3.12.
 
 ---
 
