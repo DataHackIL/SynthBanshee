@@ -74,7 +74,7 @@ def _run_generate_pipeline(
     if stub_template.exists():
         utterance_text = stub_template.read_text(encoding="utf-8").strip()
     else:
-        utterance_text = "shalom"
+        utterance_text = "שלום"
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -417,7 +417,14 @@ def generate_batch(
     ) as progress:
         task = progress.add_task("Rendering clips", total=len(selected))
         for scene_yaml in selected:
-            wav_path, messages = _run_generate_pipeline(scene_yaml, out_dir, cache_dir, dirty_dir)
+            wav_path: Path | None = None
+            messages: list[str] = []
+            for _attempt in range(run_cfg.max_retries):
+                wav_path, messages = _run_generate_pipeline(
+                    scene_yaml, out_dir, cache_dir, dirty_dir
+                )
+                if wav_path is not None:
+                    break
             if wav_path is None:
                 failed.append((scene_yaml, messages))
                 if run_cfg.fail_fast:
@@ -453,7 +460,7 @@ def generate_batch(
     )
 
     # --- Manifest ---
-    rows = generate_manifest(out_dir, manifest_path, splits=splits)
+    rows = generate_manifest(out_dir, manifest_path, splits=splits, clip_ids=set(splits.keys()))
     console.print(f"[bold green]Manifest written:[/bold green] {manifest_path} ({len(rows)} rows)")
 
     # --- Summary ---

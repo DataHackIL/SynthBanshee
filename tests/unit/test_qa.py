@@ -281,7 +281,7 @@ class TestRunQAMetadataReparseFails:
         _write_valid_clip(tmp_path / "spk", "clip_001_00")
 
         with patch("synthbanshee.package.qa.ClipMetadata") as MockMeta:
-            MockMeta.model_validate_json.side_effect = RuntimeError("schema changed")
+            MockMeta.model_validate_json.side_effect = ValueError("schema changed")
             report = run_qa(tmp_path)
 
         # validate_clip passed (uses validator.ClipMetadata, not patched)

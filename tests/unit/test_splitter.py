@@ -146,3 +146,37 @@ class TestSpeakerDisjoint:
         assert splits["clip_A"] == splits["clip_B"]
         # All three clips are assigned
         assert set(splits.keys()) == {"clip_A", "clip_B", "clip_C"}
+
+
+# ---------------------------------------------------------------------------
+# Fraction validation
+# ---------------------------------------------------------------------------
+
+
+class TestAssignSplitsFractionValidation:
+    def test_fractions_not_summing_to_one_raises(self):
+        m = _make_clip_speaker_map(3)
+        import pytest
+
+        with pytest.raises(ValueError, match="sum"):
+            assign_splits(m, train_frac=0.5, val_frac=0.3, test_frac=0.3)
+
+    def test_zero_fraction_raises(self):
+        m = _make_clip_speaker_map(3)
+        import pytest
+
+        with pytest.raises(ValueError, match="positive"):
+            assign_splits(m, train_frac=0.0, val_frac=0.5, test_frac=0.5)
+
+    def test_negative_fraction_raises(self):
+        m = _make_clip_speaker_map(3)
+        import pytest
+
+        with pytest.raises(ValueError, match="positive"):
+            assign_splits(m, train_frac=-0.1, val_frac=0.6, test_frac=0.5)
+
+    def test_valid_fractions_do_not_raise(self):
+        m = _make_clip_speaker_map(10)
+        # Should not raise
+        result = assign_splits(m, train_frac=0.7, val_frac=0.15, test_frac=0.15, rng_seed=0)
+        assert len(result) == 10

@@ -333,11 +333,19 @@ One record per labeled event, stored in `metadata/{split}_labels_strong.jsonl`. 
 
 ### 5.3 Weak Label Manifest (CSV)
 
-`metadata/{split}_manifest.csv` — one row per clip, for fast dataset loading:
+One manifest CSV per generation run, written to the output directory (e.g. `data/he/manifest.csv`).
+One row per clip, for fast dataset loading:
 
 ```
-clip_id, project, language, tier, violence_typology, has_violence, violence_categories, max_intensity, duration_seconds, split, wav_path, txt_path, json_path
+clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path
 ```
+
+- `speaker_ids`: pipe-separated list of `speaker_id` values (e.g. `AGG_M_30-45_001|VIC_F_25-40_002`)
+- `quality_flags`: comma-separated list of flag strings, empty string if none
+- `split`: `train` | `val` | `test`, or empty string if unassigned
+- `wav_path`: path to the `.wav` file; `.txt` and `.json` share the same stem
+- `language` is implicit in the `data/{language_code}/` directory structure and omitted from the manifest
+- `violence_categories` and the redundant `txt_path`/`json_path` columns from the original spec are superseded by this schema
 
 ### 5.4 Analysis Windows
 

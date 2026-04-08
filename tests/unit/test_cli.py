@@ -507,7 +507,7 @@ class TestRunGeneratePipeline:
                 tmp_path / "dirty",
             )
         assert wav is not None, errors
-        assert captured[0] == "shalom"
+        assert captured[0] == "שלום"
 
     def test_validation_failure_returns_error_list(self, tmp_path):
         """A clip that fails validate_clip returns (None, validation errors)."""
@@ -860,3 +860,96 @@ class TestGenerateBatchAdvanced:
             )
         # Should complete (even though split assignment falls back to stem)
         assert "Manifest written" in result.output
+
+    def test_retry_succeeds_on_second_attempt(self, tmp_path):
+        """A clip that fails once but succeeds on the second attempt is counted as succeeded."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        self._write_it_scene_config(scenes_dir, 0)
+
+        # Use max_retries: 2 so the retry loop runs twice
+        run_cfg_yaml = (
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            )
+            .replace("max_retries: 1", "max_retries: 2")
+            .replace("violence_typology: NEU", "violence_typology: IT")
+        )
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(run_cfg_yaml, encoding="utf-8")
+
+        fake_wav = tmp_path / "out" / "clip_ok.wav"
+        fake_wav.parent.mkdir(parents=True, exist_ok=True)
+        fake_wav.write_bytes(b"fake")
+        call_count = [0]
+
+        def _fail_then_succeed(config, out_dir, cache_dir, dirty_dir):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return None, ["transient render error"]
+            return fake_wav, []
+
+        manifest_path = tmp_path / "manifest.csv"
+        with patch("synthbanshee.cli._run_generate_pipeline", side_effect=_fail_then_succeed):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--manifest-out",
+                    str(manifest_path),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert call_count[0] == 2  # tried twice
+        assert "Manifest written" in result.output
+
+
+# ---------------------------------------------------------------------------
+# _run_generate_pipeline — primary speaker path (line 61 False branch)
+# ---------------------------------------------------------------------------
+
+
+class TestRunGeneratePipelinePrimaryPath:
+    def test_primary_speaker_config_used_when_exists(self, tmp_path):
+        """Covers line 61 False branch: configs/speakers/{id}.yaml found → fallback skipped."""
+        from synthbanshee.config.speaker_config import SpeakerConfig
+
+        example_speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        _orig_exists = pathlib.Path.exists
+        primary_path = str(Path("configs/speakers/AGG_M_30-45_001.yaml"))
+
+        def _fake_exists(self: pathlib.Path) -> bool:
+            if str(self) == primary_path:
+                return True
+            return _orig_exists(self)
+
+        def _fake_render(text, speaker, output_path, intensity=1):
+            Path(output_path).write_bytes(_make_wav_bytes())
+            return Path(output_path)
+
+        with (
+            patch.object(pathlib.Path, "exists", _fake_exists),
+            patch(
+                "synthbanshee.config.speaker_config.SpeakerConfig.from_yaml",
+                return_value=example_speaker,
+            ),
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
+            wav, errors = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+            )
+
+        assert wav is not None, errors

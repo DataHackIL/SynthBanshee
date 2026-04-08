@@ -38,6 +38,16 @@ def assign_splits(
         Dict mapping clip_id → split name ("train", "val", or "test").
         Every clip in clip_speaker_map appears exactly once in the result.
     """
+    if not (0 < train_frac <= 1 and 0 < val_frac <= 1 and 0 < test_frac <= 1):
+        raise ValueError(
+            "All split fractions must be positive and ≤ 1.0; "
+            f"got train={train_frac}, val={val_frac}, test={test_frac}"
+        )
+    if abs(train_frac + val_frac + test_frac - 1.0) > 1e-6:
+        raise ValueError(
+            f"Split fractions must sum to 1.0; got {train_frac + val_frac + test_frac:.6f}"
+        )
+
     all_clips = sorted(clip_speaker_map)
     if not all_clips:
         return {}

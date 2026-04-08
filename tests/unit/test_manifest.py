@@ -235,3 +235,25 @@ class TestGenerateManifest:
         rows = generate_manifest(tmp_path, out)
 
         assert [r.clip_id for r in rows] == sorted(r.clip_id for r in rows)
+
+    def test_clip_ids_filter_excludes_unlisted_clips(self, tmp_path):
+        """clip_ids allow-list restricts manifest to only those clips."""
+        for clip_id in ["clip_a_00", "clip_b_00", "clip_c_00"]:
+            _write_valid_clip(tmp_path / "spk", clip_id)
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out, clip_ids={"clip_a_00", "clip_c_00"})
+
+        ids = {r.clip_id for r in rows}
+        assert ids == {"clip_a_00", "clip_c_00"}
+        assert "clip_b_00" not in ids
+
+    def test_clip_ids_none_includes_all_clips(self, tmp_path):
+        """When clip_ids is None all clips are included (default behaviour)."""
+        for clip_id in ["clip_a_00", "clip_b_00"]:
+            _write_valid_clip(tmp_path / "spk", clip_id)
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out, clip_ids=None)
+
+        assert {r.clip_id for r in rows} == {"clip_a_00", "clip_b_00"}

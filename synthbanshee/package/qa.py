@@ -20,6 +20,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pydantic
+
 from synthbanshee.labels.schema import ClipMetadata
 from synthbanshee.package.validator import validate_clip
 
@@ -98,7 +100,7 @@ def run_qa(
         json_path = wav_path.with_suffix(".json")
         try:
             metadata = ClipMetadata.model_validate_json(json_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, ValueError, pydantic.ValidationError):
             stats.failed_clips += 1
             report.failed_clip_ids.append(wav_path.stem)
             continue

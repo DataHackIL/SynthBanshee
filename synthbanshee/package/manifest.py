@@ -50,6 +50,7 @@ def generate_manifest(
     output_path: Path,
     *,
     splits: dict[str, str] | None = None,
+    clip_ids: set[str] | None = None,
 ) -> list[ManifestRow]:
     """Scan data_dir recursively for clip JSON files and write a manifest CSV.
 
@@ -62,6 +63,10 @@ def generate_manifest(
         output_path: Destination path for the manifest CSV.
         splits: Optional mapping of clip_id → split name ("train"/"val"/"test").
             Clips not present in this dict receive an empty split column.
+        clip_ids: Optional allow-list of clip IDs. When provided, only clips
+            whose clip_id is in this set are included in the manifest. Use this
+            to restrict the manifest to a specific generation run when
+            ``data_dir`` may contain clips from previous runs.
 
     Returns:
         List of ManifestRow objects that were written to output_path.
@@ -75,6 +80,9 @@ def generate_manifest(
         try:
             metadata = ClipMetadata.model_validate_json(json_path.read_text(encoding="utf-8"))
         except Exception:
+            continue
+
+        if clip_ids is not None and metadata.clip_id not in clip_ids:
             continue
 
         rows.append(
