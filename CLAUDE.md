@@ -159,12 +159,16 @@ All Phase 0 milestones (0.2–0.6) are implemented and tested:
 
 CI runs ruff, mypy, and pytest (Python 3.11 + 3.12) on every PR and push to main.
 
-## Phase 1 status (milestones 1.4 & 1.5 complete as of 2026-04-08)
+## Phase 1 status (complete as of 2026-04-08)
 
-Batch generation infrastructure and automated QA suite are implemented and tested:
+All Phase 1 milestones are implemented and tested:
 
 | Milestone | Module(s) | Status |
 |---|---|---|
+| 1.1 Jinja2 template library | `synthbanshee/script/templates/` | Done |
+| 1.2 Multi-speaker TTS renderer | `synthbanshee/tts/renderer.py`, `synthbanshee/tts/mixer.py` | Done |
+| 1.3 LLM script generator | `synthbanshee/script/generator.py` | Done |
+| 1.3 Full pipeline integration | `synthbanshee/cli.py` (`_run_generate_pipeline`) | Done |
 | 1.4 Run config schema | `synthbanshee/config/run_config.py` | Done |
 | 1.4 Speaker-disjoint splits | `synthbanshee/package/splitter.py` | Done |
 | 1.4 Batch generation CLI | `synthbanshee/cli.py` (`generate-batch`) | Done |
@@ -173,7 +177,7 @@ Batch generation infrastructure and automated QA suite are implemented and teste
 | 1.5 Automated QA suite | `synthbanshee/package/qa.py` | Done |
 | 1.5 QA report CLI | `synthbanshee/cli.py` (`qa-report`) | Done |
 
-Milestones 1.1–1.3 (Jinja2 template library, multi-speaker TTS, LLM script generator) are still in progress and are not blocking AI team model development — the Tier A dataset from 1.4 is sufficient to start baseline training.
+The full pipeline is now wired end-to-end: `ScriptGenerator.generate()` → `TTSRenderer.render_scene()` → `preprocess()` → per-turn event labels → `ClipMetadata`. AI teams can use the Tier A dataset to start baseline model development.
 
 ## What NOT to do
 

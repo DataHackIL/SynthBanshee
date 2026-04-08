@@ -15,6 +15,7 @@ import soundfile as sf
 from click.testing import CliRunner
 
 from synthbanshee.cli import (
+    _derive_event_type,
     _discover_scene_configs,
     _print_batch_summary,
     _print_selection_summary,
@@ -44,6 +45,40 @@ def _make_wav_bytes(sample_rate: int = 24000, duration_s: float = 5.0) -> bytes:
         samples = (0.3 * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
         w.writeframes(samples.tobytes())
     return buf.getvalue()
+
+
+def _make_mixed_scene(
+    duration_s: float = 5.0, n_turns: int = 1, speaker_id: str = "AGG_M_30-45_001"
+):
+    """Return a MixedScene for mocking render_scene.
+
+    Onsets/offsets are clamped to [0, duration_s] and each offset > its onset,
+    matching SceneMixer.mix_sequential() semantics.
+    """
+    from synthbanshee.script.types import MixedScene
+
+    sr = 16000
+    n = int(sr * duration_s)
+    samples = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, duration_s, n))).astype(np.float32)
+    turn_dur = (duration_s * 0.8) / n_turns  # leave 20% headroom so offsets stay in range
+    onsets = [i * turn_dur + 0.3 for i in range(n_turns)]
+    offsets = [min(o + turn_dur - 0.05, duration_s) for o in onsets]
+    offsets = [max(off, on + 0.05) for on, off in zip(onsets, offsets, strict=False)]
+    return MixedScene(
+        samples=samples,
+        sample_rate=sr,
+        turn_onsets_s=onsets,
+        turn_offsets_s=offsets,
+        duration_s=duration_s,
+        speaker_ids=[speaker_id] * n_turns,
+    )
+
+
+def _make_dialogue_turns(n: int = 1, speaker_id: str = "AGG_M_30-45_001", intensity: int = 1):
+    """Return a list of DialogueTurn stubs for mocking ScriptGenerator.generate."""
+    from synthbanshee.script.types import DialogueTurn
+
+    return [DialogueTurn(speaker_id=speaker_id, text="שלום", intensity=intensity) for _ in range(n)]
 
 
 def _write_valid_clip(tmp_path: Path, clip_id: str = "test_clip_01") -> Path:
@@ -123,17 +158,17 @@ class TestGenerateCommand:
         assert result.exit_code != 0
 
     def test_full_generate_with_mocked_tts(self, tmp_path):
-        """Full generate (no dry-run) wires TTS → preprocessing → labels → output files."""
-
-        def _fake_render_to_file(text, speaker, output_path, intensity=1):
-            """Write synthetic 24 kHz WAV to output_path as the TTS stub would."""
-            wav_bytes = _make_wav_bytes()
-            Path(output_path).write_bytes(wav_bytes)
-            return Path(output_path)
+        """Full generate (no dry-run) wires ScriptGenerator → TTS → preprocessing → output files."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
 
         runner = CliRunner()
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render_to_file
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
             result = runner.invoke(
                 cli,
                 [
@@ -146,6 +181,8 @@ class TestGenerateCommand:
                     str(tmp_path / "cache"),
                     "--dirty-dir",
                     str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
                 ],
             )
 
@@ -298,14 +335,17 @@ class TestGenerateBatchCommand:
             encoding="utf-8",
         )
 
-        def _fake_render_to_file(text, speaker, output_path, intensity=1):
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
 
         manifest_path = tmp_path / "manifest.csv"
         runner = CliRunner()
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render_to_file
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
             result = runner.invoke(
                 cli,
                 [
@@ -318,6 +358,8 @@ class TestGenerateBatchCommand:
                     str(tmp_path / "cache"),
                     "--dirty-dir",
                     str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
                 ],
             )
 
@@ -401,7 +443,7 @@ class TestRunGeneratePipeline:
         """A YAML that fails SceneConfig validation returns (None, [config error])."""
         bad_cfg = tmp_path / "bad.yaml"
         bad_cfg.write_text("scene_id: x\nproject: not_a_valid_project\n", encoding="utf-8")
-        wav, errors = _run_generate_pipeline(bad_cfg, tmp_path, tmp_path, tmp_path)
+        wav, errors = _run_generate_pipeline(bad_cfg, tmp_path, tmp_path, tmp_path, tmp_path)
         assert wav is None
         assert any("Config parse error" in e for e in errors)
 
@@ -426,7 +468,7 @@ class TestRunGeneratePipeline:
             """),
             encoding="utf-8",
         )
-        wav, errors = _run_generate_pipeline(scene_yaml, tmp_path, tmp_path, tmp_path)
+        wav, errors = _run_generate_pipeline(scene_yaml, tmp_path, tmp_path, tmp_path, tmp_path)
         assert wav is None
         assert any("Speaker config not found" in e for e in errors)
 
@@ -437,119 +479,95 @@ class TestRunGeneratePipeline:
             side_effect=ValueError("corrupted speaker file"),
         ):
             wav, errors = _run_generate_pipeline(
-                SCENES_DIR / "test_scene_001.yaml", tmp_path, tmp_path, tmp_path
+                SCENES_DIR / "test_scene_001.yaml", tmp_path, tmp_path, tmp_path, tmp_path
             )
         assert wav is None
         assert any("Speaker config parse error" in e for e in errors)
 
-    def test_pipeline_render_error_returns_error(self, tmp_path):
-        """A TTS render exception is caught and returned as a pipeline error."""
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = RuntimeError(
+    def test_script_generation_error_returns_error(self, tmp_path):
+        """ScriptGenerator.generate() raising is caught and returned as a script error."""
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+        ):
+            MockGen.return_value.generate.side_effect = RuntimeError("LLM quota exceeded")
+            wav, errors = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+        assert wav is None
+        assert any("Script generation error" in e for e in errors)
+
+    def test_tts_render_scene_error_returns_error(self, tmp_path):
+        """TTSRenderer.render_scene() raising is caught and returned as a TTS render error."""
+        turns = _make_dialogue_turns(n=1)
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.side_effect = RuntimeError(
                 "TTS service unavailable"
             )
             wav, errors = _run_generate_pipeline(
-                SCENES_DIR / "test_scene_001.yaml", tmp_path, tmp_path, tmp_path
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
             )
         assert wav is None
-        assert any("Pipeline error" in e for e in errors)
-
-    def test_stub_utterance_txt_used_when_exists(self, tmp_path):
-        """When stub_utterance.txt exists its content is used (covers the if-branch)."""
-        stub_path = Path("synthbanshee/script/templates/she_proves/stub_utterance.txt")
-        assert stub_path.exists(), "stub_utterance.txt must exist in the repo for this test"
-
-        captured: list[str] = []
-
-        def _fake_render(text, speaker, output_path, intensity=1):
-            captured.append(text)
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
-
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
-            wav, errors = _run_generate_pipeline(
-                SCENES_DIR / "test_scene_001.yaml",
-                tmp_path / "out",
-                tmp_path / "cache",
-                tmp_path / "dirty",
-            )
-        assert wav is not None, errors
-        assert captured, "render_utterance_to_file was not called"
-        # Text should come from the stub file, not the hardcoded fallback
-        assert captured[0] == stub_path.read_text(encoding="utf-8").strip()
-
-    def test_fallback_utterance_when_stub_txt_missing(self, tmp_path):
-        """When stub_utterance.txt is absent 'shalom' fallback is used (covers else-branch)."""
-        _orig_exists = pathlib.Path.exists
-
-        def _fake_exists(self: pathlib.Path) -> bool:
-            if "stub_utterance" in self.name:
-                return False
-            return _orig_exists(self)
-
-        captured: list[str] = []
-
-        def _fake_render(text, speaker, output_path, intensity=1):
-            captured.append(text)
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
-
-        with (
-            patch.object(pathlib.Path, "exists", _fake_exists),
-            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
-        ):
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
-            wav, errors = _run_generate_pipeline(
-                SCENES_DIR / "test_scene_001.yaml",
-                tmp_path / "out",
-                tmp_path / "cache",
-                tmp_path / "dirty",
-            )
-        assert wav is not None, errors
-        assert captured[0] == "שלום"
+        assert any("TTS render error" in e for e in errors)
 
     def test_validation_failure_returns_error_list(self, tmp_path):
         """A clip that fails validate_clip returns (None, validation errors)."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
 
-        def _fake_render(text, speaker, output_path, intensity=1):
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
-
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
-            with patch(
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+            patch(
                 "synthbanshee.package.validator.validate_clip",
                 return_value=ValidationResult(is_valid=False, errors=["bad sample rate"]),
-            ):
-                wav, errors = _run_generate_pipeline(
-                    SCENES_DIR / "test_scene_001.yaml",
-                    tmp_path / "out",
-                    tmp_path / "cache",
-                    tmp_path / "dirty",
-                )
+            ),
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, errors = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
         assert wav is None
         assert "bad sample rate" in errors
 
     def test_success_with_warnings_returns_wav_and_warnings(self, tmp_path):
         """Successful pipeline with validation warnings returns (wav_path, warnings)."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
 
-        def _fake_render(text, speaker, output_path, intensity=1):
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
-
-        with patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer:
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
-            with patch(
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+            patch(
                 "synthbanshee.package.validator.validate_clip",
                 return_value=ValidationResult(is_valid=True, warnings=["minor issue"]),
-            ):
-                wav, messages = _run_generate_pipeline(
-                    SCENES_DIR / "test_scene_001.yaml",
-                    tmp_path / "out",
-                    tmp_path / "cache",
-                    tmp_path / "dirty",
-                )
+            ),
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, messages = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
         assert wav is not None
         assert "minor issue" in messages
 
@@ -884,7 +902,7 @@ class TestGenerateBatchAdvanced:
         fake_wav.write_bytes(b"fake")
         call_count = [0]
 
-        def _fail_then_succeed(config, out_dir, cache_dir, dirty_dir):
+        def _fail_then_succeed(config, out_dir, cache_dir, dirty_dir, script_cache_dir):
             call_count[0] += 1
             if call_count[0] == 1:
                 return None, ["transient render error"]
@@ -920,7 +938,7 @@ class TestGenerateBatchAdvanced:
 
 class TestRunGeneratePipelinePrimaryPath:
     def test_primary_speaker_config_used_when_exists(self, tmp_path):
-        """Covers line 61 False branch: configs/speakers/{id}.yaml found → fallback skipped."""
+        """Covers primary path: configs/speakers/{id}.yaml found → fallback skipped."""
         from synthbanshee.config.speaker_config import SpeakerConfig
 
         example_speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
@@ -932,9 +950,8 @@ class TestRunGeneratePipelinePrimaryPath:
                 return True
             return _orig_exists(self)
 
-        def _fake_render(text, speaker, output_path, intensity=1):
-            Path(output_path).write_bytes(_make_wav_bytes())
-            return Path(output_path)
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
 
         with (
             patch.object(pathlib.Path, "exists", _fake_exists),
@@ -942,14 +959,74 @@ class TestRunGeneratePipelinePrimaryPath:
                 "synthbanshee.config.speaker_config.SpeakerConfig.from_yaml",
                 return_value=example_speaker,
             ),
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
             patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
         ):
-            MockRenderer.return_value.render_utterance_to_file.side_effect = _fake_render
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
             wav, errors = _run_generate_pipeline(
                 SCENES_DIR / "test_scene_001.yaml",
                 tmp_path / "out",
                 tmp_path / "cache",
                 tmp_path / "dirty",
+                tmp_path / "scripts",
             )
 
         assert wav is not None, errors
+
+
+# ---------------------------------------------------------------------------
+# _derive_event_type — unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestDeriveEventType:
+    def test_neu_always_ambient(self):
+        for intensity in range(1, 6):
+            t1, t2 = _derive_event_type("NEU", intensity)
+            assert t1 == "NONE"
+            assert t2 == "NONE_AMBIENT"
+
+    def test_neg_always_argu(self):
+        for intensity in range(1, 6):
+            t1, t2 = _derive_event_type("NEG", intensity)
+            assert t1 == "NONE"
+            assert t2 == "NONE_ARGU"
+
+    def test_it_low_intensity_gaslit(self):
+        t1, t2 = _derive_event_type("IT", 1)
+        assert t1 == "EMOT" and t2 == "EMOT_GASLIT"
+        t1, t2 = _derive_event_type("IT", 2)
+        assert t1 == "EMOT" and t2 == "EMOT_GASLIT"
+
+    def test_it_mid_intensity_isol(self):
+        t1, t2 = _derive_event_type("IT", 3)
+        assert t1 == "EMOT" and t2 == "EMOT_ISOL"
+
+    def test_it_high_intensity_threat(self):
+        t1, t2 = _derive_event_type("IT", 4)
+        assert t1 == "VERB" and t2 == "VERB_THREAT"
+        t1, t2 = _derive_event_type("IT", 5)
+        assert t1 == "VERB" and t2 == "VERB_THREAT"
+
+    def test_sv_low_intensity_shout(self):
+        t1, t2 = _derive_event_type("SV", 1)
+        assert t1 == "VERB" and t2 == "VERB_SHOUT"
+        t1, t2 = _derive_event_type("SV", 2)
+        assert t1 == "VERB" and t2 == "VERB_SHOUT"
+
+    def test_sv_mid_intensity_threat(self):
+        t1, t2 = _derive_event_type("SV", 3)
+        assert t1 == "VERB" and t2 == "VERB_THREAT"
+
+    def test_sv_high_intensity_scream(self):
+        t1, t2 = _derive_event_type("SV", 4)
+        assert t1 == "DIST" and t2 == "DIST_SCREAM"
+
+    def test_sv_max_intensity_phys(self):
+        t1, t2 = _derive_event_type("SV", 5)
+        assert t1 == "PHYS" and t2 == "PHYS_HARD"
+
+    def test_unknown_typology_defaults_to_ambient(self):
+        t1, t2 = _derive_event_type("UNKNOWN", 3)
+        assert t1 == "NONE" and t2 == "NONE_AMBIENT"
