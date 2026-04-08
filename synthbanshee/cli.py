@@ -28,128 +28,201 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 
+def _derive_event_type(violence_typology: str, intensity: int) -> tuple[str, str]:
+    """Map (violence_typology, intensity) to (tier1_category, tier2_subtype)."""
+    if violence_typology == "NEU":
+        return "NONE", "NONE_AMBIENT"
+    if violence_typology == "NEG":
+        return "NONE", "NONE_ARGU"
+    if violence_typology == "IT":
+        if intensity <= 2:
+            return "EMOT", "EMOT_GASLIT"
+        if intensity <= 3:
+            return "EMOT", "EMOT_ISOL"
+        return "VERB", "VERB_THREAT"
+    if violence_typology == "SV":
+        if intensity <= 2:
+            return "VERB", "VERB_SHOUT"
+        if intensity <= 3:
+            return "VERB", "VERB_THREAT"
+        if intensity <= 4:
+            return "DIST", "DIST_SCREAM"
+        return "PHYS", "PHYS_HARD"
+    return "NONE", "NONE_AMBIENT"
+
+
 def _run_generate_pipeline(
     config: Path,
     output_dir: Path,
     cache_dir: Path,
     dirty_dir: Path,
+    script_cache_dir: Path,
 ) -> tuple[Path | None, list[str]]:
-    """Run the single-clip generate pipeline.
+    """Run the full single-clip generate pipeline.
 
-    Returns (wav_path, errors). wav_path is None on failure.
-    This is the Phase 0/1 stub pipeline; will be replaced with the full
-    LLM + multi-speaker pipeline in a later iteration.
+    Returns (wav_path, errors/warnings). wav_path is None on failure.
     """
+    import soundfile as sf
+
     from synthbanshee.augment.preprocessing import preprocess
     from synthbanshee.config.scene_config import SceneConfig
     from synthbanshee.config.speaker_config import SpeakerConfig
     from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
     from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
     from synthbanshee.package.validator import validate_clip
+    from synthbanshee.script.generator import ScriptGenerator
     from synthbanshee.tts.renderer import TTSRenderer
 
+    # 1. Load scene config
     try:
         scene = SceneConfig.from_yaml(config)
     except Exception as exc:
         return None, [f"Config parse error: {exc}"]
 
-    renderer = TTSRenderer(cache_dir=cache_dir)
-    label_gen = LabelGenerator()
+    # 2. Load ALL speaker configs into a dict keyed by speaker_id
+    speakers: dict[str, SpeakerConfig] = {}
+    for spk_ref in scene.speakers:
+        spk_path = Path("configs/speakers") / f"{spk_ref.speaker_id}.yaml"
+        if not spk_path.exists():
+            spk_path = Path("configs/examples") / f"speaker_{spk_ref.speaker_id}.yaml"
+        if not spk_path.exists():
+            return None, [f"Speaker config not found: {spk_ref.speaker_id}"]
+        try:
+            speakers[spk_ref.speaker_id] = SpeakerConfig.from_yaml(spk_path)
+        except Exception as exc:
+            return None, [f"Speaker config parse error: {exc}"]
 
-    first_speaker_ref = scene.speakers[0]
-    speaker_yaml_path = Path("configs/speakers") / f"{first_speaker_ref.speaker_id}.yaml"
-    if not speaker_yaml_path.exists():
-        speaker_yaml_path = (
-            Path("configs/examples") / f"speaker_{first_speaker_ref.speaker_id}.yaml"
-        )
-    if not speaker_yaml_path.exists():
-        return None, [f"Speaker config not found: {first_speaker_ref.speaker_id}"]
-
+    # 3. Generate script
+    script_gen = ScriptGenerator(cache_dir=script_cache_dir)
     try:
-        speaker = SpeakerConfig.from_yaml(speaker_yaml_path)
+        turns = script_gen.generate(
+            scene_id=scene.scene_id,
+            project=scene.project,
+            violence_typology=scene.violence_typology,
+            script_template=scene.script_template,
+            script_slots=scene.script_slots,
+            intensity_arc=scene.intensity_arc,
+            target_duration_minutes=scene.target_duration_minutes,
+            speakers=[
+                {
+                    "speaker_id": spk.speaker_id,
+                    "role": spk.role,
+                    "gender": spk.gender,
+                    "age_range": spk.age_range,
+                    "tts_voice_id": spk.tts_voice_id,
+                }
+                for spk in speakers.values()
+            ],
+            random_seed=scene.random_seed,
+        )
     except Exception as exc:
-        return None, [f"Speaker config parse error: {exc}"]
+        return None, [f"Script generation error: {exc}"]
 
-    stub_template = Path("synthbanshee/script/templates/she_proves/stub_utterance.txt")
-    if stub_template.exists():
-        utterance_text = stub_template.read_text(encoding="utf-8").strip()
-    else:
-        utterance_text = "שלום"
+    # 4. Render multi-speaker scene
+    renderer = TTSRenderer(cache_dir=cache_dir)
+    try:
+        mixed = renderer.render_scene(
+            turns=turns,
+            speakers=speakers,
+            disfluency=True,
+            rng_seed=scene.random_seed,
+        )
+    except Exception as exc:
+        return None, [f"TTS render error: {exc}"]
+
+    # 5. Write raw mix to temp WAV, preprocess to final output path
+    clip_id = scene.scene_id.lower().replace("-", "_")
+    first_speaker_ref = scene.speakers[0]
+    speaker_dir = output_dir / first_speaker_ref.speaker_id.lower()
+    clip_wav = speaker_dir / f"{clip_id}_00.wav"
+    clip_txt = speaker_dir / f"{clip_id}_00.txt"
+    clip_json = speaker_dir / f"{clip_id}_00.json"
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
             raw_wav = Path(tmp) / "raw.wav"
-            renderer.render_utterance_to_file(
-                utterance_text, speaker, raw_wav, intensity=scene.intensity_arc[0]
-            )
-
-            clip_id = scene.scene_id.lower().replace("-", "_")
-            speaker_dir = output_dir / first_speaker_ref.speaker_id.lower()
-            clip_wav = speaker_dir / f"{clip_id}_00.wav"
-            clip_txt = speaker_dir / f"{clip_id}_00.txt"
-            clip_json = speaker_dir / f"{clip_id}_00.json"
-
+            sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="PCM_16")
             result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir)
-
-            clip_txt.parent.mkdir(parents=True, exist_ok=True)
-            clip_txt.write_text(
-                f"[CLIP_ID: {clip_id}_00]\n"
-                f"[SPEAKER: {first_speaker_ref.speaker_id} | ROLE: {first_speaker_ref.role} "
-                f"| ONSET: 0.5 | OFFSET: {result.duration_seconds - 0.5:.1f}]\n"
-                + utterance_text
-                + "\n",
-                encoding="utf-8",
-            )
-
-            stub_events = [
-                ScriptEvent(
-                    tier1_category="NONE",
-                    tier2_subtype="NONE_AMBIENT",
-                    onset=0.5,
-                    offset=max(result.duration_seconds - 0.5, 1.0),
-                    intensity=scene.intensity_arc[0],
-                    speaker_id=first_speaker_ref.speaker_id,
-                    speaker_role=first_speaker_ref.role,
-                )
-            ]
-            event_labels = label_gen.generate_event_labels(f"{clip_id}_00", stub_events)
-
-            speakers_meta = [
-                SpeakerInfo(
-                    speaker_id=speaker.speaker_id,
-                    role=speaker.role,
-                    gender=speaker.gender,
-                    age_range=speaker.age_range,
-                    tts_voice_id=speaker.tts_voice_id,
-                )
-            ]
-            preprocessing_meta = PreprocessingApplied(
-                resampled_to_16k=True,
-                downmixed_to_mono=True,
-                spectral_filtered=True,
-                denoised=True,
-                normalized_dbfs=-1.0,
-                silence_padded=True,
-            )
-            metadata = label_gen.generate_clip_metadata(
-                clip_id=f"{clip_id}_00",
-                project=scene.project,
-                violence_typology=scene.violence_typology,
-                tier=scene.tier,
-                duration_seconds=result.duration_seconds,
-                events=event_labels,
-                speakers=speakers_meta,
-                scene_config_path=str(config),
-                random_seed=scene.random_seed,
-                preprocessing=preprocessing_meta,
-                dirty_file_path=str(result.dirty_path) if result.dirty_path else None,
-                transcript_path=str(clip_txt),
-            )
-            label_gen.write_clip_metadata_json(metadata, clip_json)
-
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
+    # 6. Write structured multi-speaker transcript
+    label_gen = LabelGenerator()
+    clip_txt.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"[CLIP_ID: {clip_id}_00]"]
+    for i, turn in enumerate(turns):
+        onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
+        offset = (
+            mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else result.duration_seconds
+        )
+        spk = speakers.get(turn.speaker_id)
+        role = spk.role if spk else "UNK"
+        lines.append(
+            f"[SPEAKER: {turn.speaker_id} | ROLE: {role} | ONSET: {onset:.2f} | OFFSET: {offset:.2f}]"
+        )
+        lines.append(turn.text)
+    clip_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # 7. Build per-turn event labels from MixedScene timing (authoritative per spec)
+    events: list[ScriptEvent] = []
+    for i, turn in enumerate(turns):
+        onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
+        offset = (
+            mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else result.duration_seconds
+        )
+        spk = speakers.get(turn.speaker_id)
+        role = spk.role if spk else "UNK"
+        tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
+        events.append(
+            ScriptEvent(
+                tier1_category=tier1,
+                tier2_subtype=tier2,
+                onset=onset,
+                offset=max(offset, onset + 0.1),
+                intensity=turn.intensity,
+                speaker_id=turn.speaker_id,
+                speaker_role=role,
+                emotional_state=turn.emotional_state,
+            )
+        )
+    event_labels = label_gen.generate_event_labels(f"{clip_id}_00", events)
+
+    # 8. Write clip metadata JSON
+    speakers_meta = [
+        SpeakerInfo(
+            speaker_id=spk.speaker_id,
+            role=spk.role,
+            gender=spk.gender,
+            age_range=spk.age_range,
+            tts_voice_id=spk.tts_voice_id,
+        )
+        for spk in speakers.values()
+    ]
+    preprocessing_meta = PreprocessingApplied(
+        resampled_to_16k=True,
+        downmixed_to_mono=True,
+        spectral_filtered=True,
+        denoised=True,
+        normalized_dbfs=-1.0,
+        silence_padded=True,
+    )
+    metadata = label_gen.generate_clip_metadata(
+        clip_id=f"{clip_id}_00",
+        project=scene.project,
+        violence_typology=scene.violence_typology,
+        tier=scene.tier,
+        duration_seconds=result.duration_seconds,
+        events=event_labels,
+        speakers=speakers_meta,
+        scene_config_path=str(config),
+        random_seed=scene.random_seed,
+        preprocessing=preprocessing_meta,
+        dirty_file_path=str(result.dirty_path) if result.dirty_path else None,
+        transcript_path=str(clip_txt),
+    )
+    label_gen.write_clip_metadata_json(metadata, clip_json)
+
+    # 9. Validate
     validation = validate_clip(clip_wav)
     if not validation.is_valid:
         return None, validation.errors
@@ -203,6 +276,13 @@ def cli() -> None:
     help="Directory to retain pre-preprocessing (dirty) audio files.",
 )
 @click.option(
+    "--script-cache-dir",
+    type=click.Path(path_type=Path),
+    default=Path("assets/scripts"),
+    show_default=True,
+    help="LLM script generation cache directory.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -213,6 +293,7 @@ def generate(
     output_dir: Path | None,
     cache_dir: Path,
     dirty_dir: Path,
+    script_cache_dir: Path,
     dry_run: bool,
 ) -> None:
     """Generate a synthetic clip from a scene YAML config."""
@@ -237,7 +318,9 @@ def generate(
     out_dir = Path(output_dir or scene.output_dir)
 
     console.print("[cyan]Running generate pipeline...[/cyan]")
-    wav_path, messages = _run_generate_pipeline(config, out_dir, cache_dir, dirty_dir)
+    wav_path, messages = _run_generate_pipeline(
+        config, out_dir, cache_dir, dirty_dir, script_cache_dir
+    )
 
     if wav_path is None:
         console.print("[bold red]Generation FAILED:[/bold red]")
@@ -337,6 +420,13 @@ def _select_configs_by_typology(
     help="Directory to retain pre-preprocessing (dirty) audio files.",
 )
 @click.option(
+    "--script-cache-dir",
+    type=click.Path(path_type=Path),
+    default=Path("assets/scripts"),
+    show_default=True,
+    help="LLM script generation cache directory.",
+)
+@click.option(
     "--manifest-out",
     "-m",
     type=click.Path(path_type=Path),
@@ -354,6 +444,7 @@ def generate_batch(
     output_dir: Path | None,
     cache_dir: Path,
     dirty_dir: Path,
+    script_cache_dir: Path,
     manifest_out: Path | None,
     dry_run: bool,
 ) -> None:
@@ -421,7 +512,7 @@ def generate_batch(
             messages: list[str] = []
             for _attempt in range(run_cfg.max_retries):
                 wav_path, messages = _run_generate_pipeline(
-                    scene_yaml, out_dir, cache_dir, dirty_dir
+                    scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir
                 )
                 if wav_path is not None:
                     break
