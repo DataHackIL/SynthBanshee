@@ -137,6 +137,12 @@ Path fields (`transcript_path`, `scene_config`) and date/version fields are inte
 
 **No torchaudio.** The preprocessing pipeline (`synthbanshee/augment/preprocessing.py`) uses only `scipy` + `soundfile` to avoid torch version incompatibilities. Operations in order: resample (polyphase), downmix to mono, Butterworth low-pass at 7.5 kHz, Wiener denoise, peak-normalize to −1.0 dBFS, silence pad ≥ 0.5 s.
 
+`preprocess()` returns `PreprocessingResult` which includes a `silence_pad_applied_s` field (currently always `0.5`). That value is applied **per side**: preprocessing pads the audio with the same amount of silence at both the start and the end, so total clip duration increases by `2 * result.silence_pad_applied_s`. Any code that writes per-turn transcript or label timings derived from `MixedScene.turn_onsets_s/offsets_s` **must add only the leading pad, `result.silence_pad_applied_s`, to every onset and offset** — the mixer starts at `t=0` with no head silence, and the trailing pad extends clip length but does not shift event timestamps.
+
+## Event type mapping
+
+`_TYPOLOGY_INTENSITY_MAP` in `synthbanshee/cli.py` maps `(violence_typology, intensity)` to `(tier1_category, tier2_subtype)`. Every code in the map is validated against `configs/taxonomy.yaml` at import time via `_validate_event_type_codes()`. If you add a new typology to the taxonomy, add a corresponding entry to the map — a missing entry will fall through to `("NONE", "NONE_AMBIENT")` silently, which is wrong. If you change a code name in the taxonomy, the import will fail loudly with a `ValueError`.
+
 ## Testing conventions
 
 - Unit tests in `tests/unit/`, integration tests in `tests/integration/`
