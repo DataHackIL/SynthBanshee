@@ -3,7 +3,7 @@
 **Project:** Audio Violence Dataset Project (AVDP)
 **Initiatives:** She-Proves · Elephant in the Room
 **Organization:** DataHack / DataForBetter (datahack.org.il)
-**Status:** Phase 0 complete (2026-04-07) — Phase 1 milestones 1.4 & 1.5 complete (2026-04-08)
+**Status:** Phase 0 complete (2026-04-07) — Phase 1 complete (2026-04-08)
 **Date:** 2026-04-06 (updated 2026-04-08)
 **Companion documents:** `design_approaches.md`, `spec.md`
 
@@ -24,55 +24,60 @@
 ## Repository Structure
 
 ```
-avdp-synth/
-├── avdp/
+SynthBanshee/
+├── synthbanshee/                 ← main Python package
 │   ├── __init__.py
 │   ├── config/
 │   │   ├── scene_config.py       # Pydantic models for scene YAML configs
 │   │   ├── speaker_config.py     # Speaker persona definitions
-│   │   └── acoustic_config.py   # Acoustic scene definitions
+│   │   ├── acoustic_config.py    # Acoustic scene definitions
+│   │   ├── run_config.py         # Batch run configuration (RunConfig)
+│   │   └── taxonomy.py           # Taxonomy loader (single source of truth)
 │   ├── script/
-│   │   ├── generator.py          # LLM-based script generation from templates
-│   │   ├── templates/            # Jinja2 scene templates (.j2 files)
-│   │   │   ├── she_proves/
-│   │   │   └── elephant/
-│   │   └── validator.py          # Script structure validation
+│   │   ├── generator.py          # LLM-based script generation (ScriptGenerator)
+│   │   ├── types.py              # DialogueTurn, MixedScene dataclasses
+│   │   └── templates/            # Jinja2 scene templates (.j2 files)
+│   │       ├── she_proves/
+│   │       └── elephant/
 │   ├── tts/
-│   │   ├── renderer.py           # TTS rendering orchestrator
+│   │   ├── renderer.py           # TTSRenderer (single + multi-speaker)
+│   │   ├── mixer.py              # SceneMixer (concatenate segments → MixedScene)
 │   │   ├── azure_provider.py     # Azure Cognitive Services (he-IL SSML)
 │   │   ├── google_provider.py    # Google Cloud TTS (he-IL Chirp 3 HD)
 │   │   └── ssml_builder.py       # SSML document generation
 │   ├── augment/
-│   │   ├── pipeline.py           # Augmentation pipeline orchestrator
-│   │   ├── room_sim.py           # pyroomacoustics room IR simulation
-│   │   ├── device_profiles.py    # Device codec / placement emulation
-│   │   ├── noise_mixer.py        # Background noise / SFX layering
-│   │   └── preprocessing.py     # Resample, normalize, filter, pad
+│   │   ├── preprocessing.py      # Resample → downmix → filter → denoise → normalize → pad
+│   │   ├── room_sim.py           # pyroomacoustics room IR simulation (Phase 2)
+│   │   ├── device_profiles.py    # Device codec / placement emulation (Phase 2)
+│   │   └── noise_mixer.py        # Background noise / SFX layering (Phase 2)
 │   ├── labels/
-│   │   ├── generator.py          # Auto-label generation from script + augmentation log
+│   │   ├── generator.py          # LabelGenerator (ScriptEvent → EventLabel → ClipMetadata)
 │   │   ├── schema.py             # AVDP label schema (Pydantic)
 │   │   └── iaa.py                # Inter-annotator agreement utilities
 │   ├── package/
-│   │   ├── packager.py           # Assemble final dataset directory
-│   │   ├── manifest.py           # Generate manifest CSV
-│   │   └── splitter.py           # Speaker/scene-disjoint split assignment
-│   └── cli.py                    # Click CLI entry points
+│   │   ├── validator.py          # validate_clip() — three-file spec check
+│   │   ├── manifest.py           # generate_manifest() → CSV
+│   │   ├── splitter.py           # assign_splits() — speaker-disjoint Union-Find
+│   │   └── qa.py                 # run_qa() → QAReport
+│   └── cli.py                    # Click CLI (generate, generate-batch, validate, qa-report)
 ├── configs/
-│   ├── scenes/                   # Per-scene YAML configs (generated + hand-authored)
+│   ├── scenes/                   # Per-scene YAML configs
 │   ├── speakers/                 # Speaker persona YAMLs
-│   ├── acoustic_scenes/         # Room/device YAML configs
-│   └── run_configs/             # Full generation run definitions
-├── assets/
-│   ├── speech/                  # Pre-rendered TTS utterance cache
-│   ├── sfx/                     # Sound effects (licensed)
-│   ├── ambient/                 # Ambient/background recordings
-│   └── noise/                   # MUSAN noise subset + curated noise
-├── data/                        # Generated dataset output (gitignored)
+│   ├── acoustic_scenes/          # Room/device YAML configs
+│   ├── run_configs/              # Full generation run definitions (RunConfig YAML)
+│   ├── taxonomy.yaml             # Label taxonomy — single source of truth
+│   └── examples/                 # Worked examples for each config type
+├── assets/                       # Source assets (gitignored; populated at runtime)
+│   ├── speech/                   # TTS utterance cache (SHA-256 keyed)
+│   ├── scripts/                  # LLM script generation cache
+│   ├── sfx/                      # Sound effects (licensed CC0/CC-BY)
+│   ├── ambient/                  # Ambient/background audio
+│   └── noise/                    # MUSAN noise subset
+├── data/                         # Generated dataset output (gitignored)
 ├── tests/
 │   ├── unit/
 │   └── integration/
-├── notebooks/                   # Exploratory / QA notebooks
-├── docs/                        # This directory
+├── docs/                         # This directory
 ├── pyproject.toml
 └── README.md
 ```
@@ -161,7 +166,7 @@ avdp-synth/
 - Wire together: config → TTS render → preprocessing → label generation → write output files
 - Assert: `.wav` + `.txt` + `.json` all present with correct naming; manifest CSV row is valid; label JSONL parses
 
-**Acceptance criteria:** Running `avdp generate --config configs/scenes/test_scene_001.yaml` produces a complete, spec-compliant clip.
+**Acceptance criteria:** Running `synthbanshee generate --config configs/scenes/test_scene_001.yaml` produces a complete, spec-compliant clip.
 
 **✓ Complete** — `validate_clip()` checks: all three files present, WAV passes `validate_audio()`, JSON parses as `ClipMetadata` with `is_synthetic=True`, filename stem is ASCII-only lowercase. 80 unit + integration tests pass on Python 3.11 and 3.12.
 
@@ -201,6 +206,8 @@ Each template defines:
 
 **Acceptance criteria:** 20 templates per project; each template renders a syntactically valid script; event markers map to AVDP taxonomy.
 
+**✓ Complete** — 26 Jinja2 templates across both projects in `synthbanshee/script/templates/`; each template produces a syntactically valid script with AVDP-taxonomy event markers and intensity arcs.
+
 ### 1.2 Multi-Speaker TTS Rendering
 
 **Owner:** Asya
@@ -212,6 +219,8 @@ Each template defines:
 - Add disfluency injection: occasional filled pauses (`אממ`, `אה`), false starts, truncations (configurable probability)
 
 **Acceptance criteria:** A 2-speaker dialogue renders with distinct voices, natural timing, and audible prosody variation across multiple renders with different random seeds.
+
+**✓ Complete** — `TTSRenderer.render_scene()` renders each turn individually (with SSML-keyed cache), then `SceneMixer.mix_sequential()` concatenates segments into a `MixedScene` with per-turn onset/offset metadata. Disfluency injection and prosody randomization via `rng_seed`.
 
 ### 1.3 LLM Script Generator
 
@@ -229,6 +238,8 @@ Each template defines:
 - Post-process: validate event markers are present and map to taxonomy; regenerate if validation fails (max 3 attempts)
 
 **Acceptance criteria:** 50 scripts per project generated; zero transcript redundancy violations; 10% manual spot-check passes plausibility review.
+
+**✓ Complete** — `ScriptGenerator` in `synthbanshee/script/generator.py`; SHA-256 generation cache in `assets/scripts/`; output validated as `list[DialogueTurn]`; wired end-to-end into `_run_generate_pipeline()` in `cli.py`. `_TYPOLOGY_INTENSITY_MAP` in `cli.py` maps (typology, intensity) → taxonomy codes, validated against `configs/taxonomy.yaml` at import time.
 
 ### 1.4 Tier A Dataset Generation Run
 
@@ -484,10 +495,10 @@ Caching TTS outputs (same text + same voice = same file) will substantially redu
 
 ## Milestones
 
-| Milestone | Target date | Deliverable |
-|---|---|---|
-| M0: Happy path test passing | Week 3 | Single spec-compliant clip generated end-to-end |
-| M1: Tier A dataset delivered | Week 7 | 500 clips/project, Tier A, AI teams can train baselines |
+| Milestone | Target date | Deliverable | Status |
+|---|---|---|---|
+| M0: Happy path test passing | Week 3 | Single spec-compliant clip generated end-to-end | **Done** |
+| M1: Tier A dataset delivered | Week 7 | 500 clips/project, Tier A, AI teams can train baselines | **Done** |
 | M2: Template expert review complete | Week 9 | 20+ templates/project reviewed by Rakman Institute |
 | M3: Tier B dataset delivered | Week 11 | 1,000–1,500 clips/project, Tier B augmented |
 | M4: Phase 1 complete dataset | Week 16 | 4,000 clips/project, all tiers, IAA done, dataset card published |

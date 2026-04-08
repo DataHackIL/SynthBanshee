@@ -60,13 +60,12 @@ Full taxonomy: `configs/taxonomy.yaml`.
 
 ## Current status
 
-Phase 0 (pipeline foundation) is complete. Phase 1 batch generation and QA infrastructure (milestones 1.4 & 1.5) is complete — AI teams can now use the delivered Tier A dataset to start baseline model development.
+Phase 0 (pipeline foundation) and Phase 1 (full Tier A pipeline) are complete — AI teams can now use the delivered Tier A dataset to start baseline model development.
 
 | Phase | Deliverable | Status |
 |---|---|---|
 | 0 | Single spec-compliant clip end-to-end | **Done** |
-| 1 (1.4–1.5) | Batch generation run + QA suite | **Done** |
-| 1 (1.1–1.3) | Script templates + multi-speaker TTS + LLM generator | In progress |
+| 1 | Script templates + multi-speaker TTS + LLM generator + batch generation + QA suite | **Done** |
 | 2 | 1,000–1,500 Tier B clips/project | Planned |
 | 3 | 4,000 clips/project, all tiers | Planned |
 
