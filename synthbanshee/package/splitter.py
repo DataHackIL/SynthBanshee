@@ -82,7 +82,7 @@ def assign_splits(
 
     # Sort groups by their lexicographically smallest clip_id for determinism,
     # then shuffle with the fixed seed.
-    groups: list[list[str]] = sorted(components.values(), key=lambda g: sorted(g)[0])
+    groups: list[list[str]] = sorted(components.values(), key=lambda g: min(g))
     random.Random(rng_seed).shuffle(groups)
 
     total = len(all_clips)

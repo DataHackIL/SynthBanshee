@@ -11,6 +11,8 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 
+import pydantic
+
 from synthbanshee.labels.schema import ClipMetadata
 
 _MANIFEST_COLUMNS = [
@@ -79,10 +81,13 @@ def generate_manifest(
             continue
         try:
             metadata = ClipMetadata.model_validate_json(json_path.read_text(encoding="utf-8"))
-        except Exception:
+        except (OSError, ValueError, pydantic.ValidationError):
             continue
 
         if clip_ids is not None and metadata.clip_id not in clip_ids:
+            continue
+
+        if not json_path.with_suffix(".wav").exists():
             continue
 
         rows.append(

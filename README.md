@@ -84,7 +84,6 @@ synthbanshee generate --config configs/scenes/test_scene_001.yaml
 # Generate a full Tier A batch from a run config
 synthbanshee generate-batch \
   --run-config configs/run_configs/tier_a_500_she_proves.yaml \
-  --scenes-dir configs/scenes/ \
   --output-dir data/he
 
 # Run the automated QA suite on a dataset directory

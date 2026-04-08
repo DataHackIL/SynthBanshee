@@ -257,3 +257,56 @@ class TestGenerateManifest:
         rows = generate_manifest(tmp_path, out, clip_ids=None)
 
         assert {r.clip_id for r in rows} == {"clip_a_00", "clip_b_00"}
+
+    def test_json_without_sibling_wav_is_skipped(self, tmp_path):
+        """A metadata JSON whose sibling .wav does not exist is excluded from the manifest."""
+        clip_dir = tmp_path / "spk_000"
+        clip_dir.mkdir()
+        # Write a complete valid clip
+        _write_valid_clip(clip_dir, "good_clip_00")
+        # Write a JSON-only orphan (no matching .wav)
+        (clip_dir / "orphan_clip_00.json").write_text(
+            json.dumps(
+                {
+                    "clip_id": "orphan_clip_00",
+                    "project": "she_proves",
+                    "language": "he",
+                    "violence_typology": "IT",
+                    "tier": "A",
+                    "duration_seconds": 4.0,
+                    "sample_rate": 16000,
+                    "channels": 1,
+                    "generation_date": datetime.date.today().isoformat(),
+                    "generator_version": "0.1.0",
+                    "is_synthetic": True,
+                    "tts_engine": "azure_he_IL",
+                    "acoustic_scene": {},
+                    "speakers": [
+                        {
+                            "speaker_id": "AGG_M_30-45_001",
+                            "role": "AGG",
+                            "gender": "male",
+                            "age_range": "30-45",
+                            "tts_voice_id": "he-IL-AvriNeural",
+                        }
+                    ],
+                    "weak_label": {
+                        "has_violence": True,
+                        "violence_categories": ["VERB"],
+                        "max_intensity": 3,
+                        "violence_typology": "IT",
+                    },
+                    "preprocessing_applied": {},
+                    "quality_flags": [],
+                    "annotator_confidence": 1.0,
+                    "iaa_reviewed": False,
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out)
+
+        assert len(rows) == 1
+        assert rows[0].clip_id == "good_clip_00"
