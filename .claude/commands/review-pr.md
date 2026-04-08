@@ -21,11 +21,12 @@ If no PR number is given, use the PR for the current branch (`gh pr view --json 
    {
      repository(owner: "OWNER", name: "REPO") {
        pullRequest(number: N) {
-         reviewThreads(first: 50) {
+         reviewThreads(first: 100) {
+           pageInfo { hasNextPage endCursor }
            nodes {
              id
              isResolved
-             comments(first: 1) {
+             comments(first: 3) {
                nodes { databaseId author { login } body path line }
              }
            }
@@ -34,7 +35,9 @@ If no PR number is given, use the PR for the current branch (`gh pr view --json 
      }
    }
    ```
-   Filter to `isResolved: false` nodes only.
+   Filter to `isResolved: false` nodes only. If `pageInfo.hasNextPage` is `true`,
+   re-query with `reviewThreads(first: 100, after: "<endCursor>")` and merge results
+   until all pages are exhausted.
 
 2. **For each unresolved thread**, read the file at the referenced path and line,
    then recommend one of:

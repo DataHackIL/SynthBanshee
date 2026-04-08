@@ -137,7 +137,7 @@ Path fields (`transcript_path`, `scene_config`) and date/version fields are inte
 
 **No torchaudio.** The preprocessing pipeline (`synthbanshee/augment/preprocessing.py`) uses only `scipy` + `soundfile` to avoid torch version incompatibilities. Operations in order: resample (polyphase), downmix to mono, Butterworth low-pass at 7.5 kHz, Wiener denoise, peak-normalize to −1.0 dBFS, silence pad ≥ 0.5 s.
 
-`preprocess()` returns `PreprocessingResult` which includes a `silence_pad_applied_s` field (currently always `0.5`). Any code that writes per-turn transcript or label timings derived from `MixedScene.turn_onsets_s/offsets_s` **must add `result.silence_pad_applied_s` to every onset and offset** — the mixer starts at `t=0` with no head silence, but the preprocessed audio has 0.5 s prepended unconditionally.
+`preprocess()` returns `PreprocessingResult` which includes a `silence_pad_applied_s` field (currently always `0.5`). That value is applied **per side**: preprocessing pads the audio with the same amount of silence at both the start and the end, so total clip duration increases by `2 * result.silence_pad_applied_s`. Any code that writes per-turn transcript or label timings derived from `MixedScene.turn_onsets_s/offsets_s` **must add only the leading pad, `result.silence_pad_applied_s`, to every onset and offset** — the mixer starts at `t=0` with no head silence, and the trailing pad extends clip length but does not shift event timestamps.
 
 ## Event type mapping
 
