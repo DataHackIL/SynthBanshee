@@ -50,15 +50,20 @@ def _make_wav_bytes(sample_rate: int = 24000, duration_s: float = 5.0) -> bytes:
 def _make_mixed_scene(
     duration_s: float = 5.0, n_turns: int = 1, speaker_id: str = "AGG_M_30-45_001"
 ):
-    """Return a MixedScene-like object (simple namespace) for mocking render_scene."""
+    """Return a MixedScene for mocking render_scene.
+
+    Onsets/offsets are clamped to [0, duration_s] and each offset > its onset,
+    matching SceneMixer.mix_sequential() semantics.
+    """
     from synthbanshee.script.types import MixedScene
 
     sr = 16000
     n = int(sr * duration_s)
     samples = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, duration_s, n))).astype(np.float32)
-    turn_dur = duration_s / n_turns
-    onsets = [i * turn_dur + 0.5 for i in range(n_turns)]
-    offsets = [o + turn_dur - 0.1 for o in onsets]
+    turn_dur = (duration_s * 0.8) / n_turns  # leave 20% headroom so offsets stay in range
+    onsets = [i * turn_dur + 0.3 for i in range(n_turns)]
+    offsets = [min(o + turn_dur - 0.05, duration_s) for o in onsets]
+    offsets = [max(off, on + 0.05) for on, off in zip(onsets, offsets, strict=False)]
     return MixedScene(
         samples=samples,
         sample_rate=sr,

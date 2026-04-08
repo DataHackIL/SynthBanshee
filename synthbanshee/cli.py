@@ -28,27 +28,57 @@ console = Console()
 # ---------------------------------------------------------------------------
 
 
+# Semantic mapping: (violence_typology) → ordered list of (max_intensity, tier1, tier2).
+# Each entry matches intensities ≤ max_intensity; the last entry is the catch-all.
+# Validated against configs/taxonomy.yaml at import time (see _validate_event_type_codes).
+_TYPOLOGY_INTENSITY_MAP: dict[str, list[tuple[int, str, str]]] = {
+    "NEU": [(5, "NONE", "NONE_AMBIENT")],
+    "NEG": [(5, "NONE", "NONE_ARGU")],
+    "IT": [
+        (2, "EMOT", "EMOT_GASLIT"),
+        (3, "EMOT", "EMOT_ISOL"),
+        (5, "VERB", "VERB_THREAT"),
+    ],
+    "SV": [
+        (2, "VERB", "VERB_SHOUT"),
+        (3, "VERB", "VERB_THREAT"),
+        (4, "DIST", "DIST_SCREAM"),
+        (5, "PHYS", "PHYS_HARD"),
+    ],
+}
+_DEFAULT_EVENT_TYPE: tuple[str, str] = ("NONE", "NONE_AMBIENT")
+
+
+def _validate_event_type_codes() -> None:
+    """Assert every code in _TYPOLOGY_INTENSITY_MAP is valid per configs/taxonomy.yaml."""
+    from synthbanshee.config.taxonomy import tier1_category_codes, tier2_subtype_codes
+
+    valid_tier1 = tier1_category_codes()
+    valid_tier2 = tier2_subtype_codes()
+    for typology, entries in _TYPOLOGY_INTENSITY_MAP.items():
+        for _max_int, t1, t2 in entries:
+            if t1 not in valid_tier1:
+                raise ValueError(
+                    f"_TYPOLOGY_INTENSITY_MAP[{typology!r}]: tier1 {t1!r} not in taxonomy"
+                )
+            if t2 not in valid_tier2:
+                raise ValueError(
+                    f"_TYPOLOGY_INTENSITY_MAP[{typology!r}]: tier2 {t2!r} not in taxonomy"
+                )
+    t1_default, t2_default = _DEFAULT_EVENT_TYPE
+    if t1_default not in valid_tier1 or t2_default not in valid_tier2:
+        raise ValueError(f"_DEFAULT_EVENT_TYPE {_DEFAULT_EVENT_TYPE!r} not in taxonomy")
+
+
+_validate_event_type_codes()
+
+
 def _derive_event_type(violence_typology: str, intensity: int) -> tuple[str, str]:
     """Map (violence_typology, intensity) to (tier1_category, tier2_subtype)."""
-    if violence_typology == "NEU":
-        return "NONE", "NONE_AMBIENT"
-    if violence_typology == "NEG":
-        return "NONE", "NONE_ARGU"
-    if violence_typology == "IT":
-        if intensity <= 2:
-            return "EMOT", "EMOT_GASLIT"
-        if intensity <= 3:
-            return "EMOT", "EMOT_ISOL"
-        return "VERB", "VERB_THREAT"
-    if violence_typology == "SV":
-        if intensity <= 2:
-            return "VERB", "VERB_SHOUT"
-        if intensity <= 3:
-            return "VERB", "VERB_THREAT"
-        if intensity <= 4:
-            return "DIST", "DIST_SCREAM"
-        return "PHYS", "PHYS_HARD"
-    return "NONE", "NONE_AMBIENT"
+    for max_intensity, tier1, tier2 in _TYPOLOGY_INTENSITY_MAP.get(violence_typology, []):
+        if intensity <= max_intensity:
+            return tier1, tier2
+    return _DEFAULT_EVENT_TYPE
 
 
 def _run_generate_pipeline(
@@ -147,29 +177,35 @@ def _run_generate_pipeline(
         return None, [f"Pipeline error: {exc}"]
 
     # 6. Write structured multi-speaker transcript
+    # preprocess() prepends result.silence_pad_applied_s of silence unconditionally,
+    # so all MixedScene timings must be shifted forward by that amount.
+    pad_s = result.silence_pad_applied_s
     label_gen = LabelGenerator()
     clip_txt.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"[CLIP_ID: {clip_id}_00]"]
     for i, turn in enumerate(turns):
-        onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
-        offset = (
-            mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else result.duration_seconds
-        )
+        raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
+        raw_offset = mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else mixed.duration_s
+        onset = raw_onset + pad_s
+        offset = raw_offset + pad_s
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
+        _, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
         lines.append(
             f"[SPEAKER: {turn.speaker_id} | ROLE: {role} | ONSET: {onset:.2f} | OFFSET: {offset:.2f}]"
         )
         lines.append(turn.text)
+        lines.append(f"[ACTION: {tier2} | INTENSITY: {turn.intensity}]")
     clip_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # 7. Build per-turn event labels from MixedScene timing (authoritative per spec)
+    # Same pad_s offset applied here to match the processed audio.
     events: list[ScriptEvent] = []
     for i, turn in enumerate(turns):
-        onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
-        offset = (
-            mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else result.duration_seconds
-        )
+        raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
+        raw_offset = mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else mixed.duration_s
+        onset = raw_onset + pad_s
+        offset = raw_offset + pad_s
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
         tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)

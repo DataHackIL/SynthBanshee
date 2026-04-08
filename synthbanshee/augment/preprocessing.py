@@ -38,6 +38,7 @@ class PreprocessingResult:
     channels: int
     duration_seconds: float
     peak_dbfs: float
+    silence_pad_applied_s: float = _SILENCE_PAD_S
     steps_applied: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
