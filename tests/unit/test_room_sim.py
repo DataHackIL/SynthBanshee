@@ -114,12 +114,13 @@ def test_different_seeds_differ():
 
 def test_unknown_room_type_raises():
     sim = RoomSimulator()
+    config = AcousticSceneConfig.model_construct(
+        room_type="nonexistent_room",
+        room_dimensions_range=None,
+        rt60_range=None,
+        speaker_distance_meters=1.0,
+    )
     with pytest.raises(KeyError):
-        config = AcousticSceneConfig.__new__(AcousticSceneConfig)
-        object.__setattr__(config, "room_type", "nonexistent_room")
-        object.__setattr__(config, "room_dimensions_range", None)
-        object.__setattr__(config, "rt60_range", None)
-        object.__setattr__(config, "speaker_distance_meters", 1.0)
         sim.apply(_make_samples(), _SR, config, rng_seed=0)
 
 

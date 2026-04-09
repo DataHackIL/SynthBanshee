@@ -14,7 +14,6 @@ import numpy as np
 
 from synthbanshee.config.acoustic_config import AcousticSceneConfig
 
-_TARGET_SR = 16_000
 _ISM_ORDER_MAX = 12  # cap to keep simulation tractable
 
 # Preset fallback bounds: (dims_min, dims_max, rt60_range)

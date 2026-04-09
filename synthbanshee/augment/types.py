@@ -11,10 +11,11 @@ import numpy as np
 class AugmentedEvent:
     """Record of one background or SFX event applied during augmentation.
 
-    onset_s and offset_s are times in the *final preprocessed* clip
-    (i.e. already offset by PreprocessingResult.silence_pad_applied_s).
-    The NoiseMixer returns raw times relative to the un-padded MixedScene;
-    cli.py is responsible for adding the padding offset before writing labels.
+    onset_s and offset_s are raw times relative to the un-padded MixedScene.
+    They do not include any preprocessing silence padding offset such as
+    PreprocessingResult.silence_pad_applied_s.  Downstream code (for example,
+    cli.py when writing labels) is responsible for adding that padding offset
+    if final preprocessed-clip coordinates are required.
     """
 
     type: str  # taxonomy ACOU_* code or ambient label (e.g. "tv_ambient")

@@ -374,17 +374,18 @@ class NoiseMixer:
 
     def _has_asset(self, ev: BackgroundEvent) -> bool:
         """Return True if a loadable asset exists for this event."""
-        if ev.asset_path is not None:
-            return Path(ev.asset_path).exists()
+        if ev.asset_path is not None and Path(ev.asset_path).exists():
+            return True
         search_dir = self._sfx_dir if ev.type in _ACOU_TYPES else self._ambient_dir
         return search_dir.exists() and any(search_dir.glob(f"{ev.type}*.wav"))
 
     def _resolve_asset_path(self, ev: BackgroundEvent) -> Path:
         """Return the first matching asset path for an event."""
-        if ev.asset_path is not None:
+        if ev.asset_path is not None and Path(ev.asset_path).exists():
             return Path(ev.asset_path)
         search_dir = self._sfx_dir if ev.type in _ACOU_TYPES else self._ambient_dir
-        return next(search_dir.glob(f"{ev.type}*.wav"))
+        candidates = sorted(search_dir.glob(f"{ev.type}*.wav"))
+        return next(iter(candidates))
 
     def _load_or_synthesise_sfx(
         self, ev: BackgroundEvent, sr: int, rng: np.random.Generator

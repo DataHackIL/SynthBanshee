@@ -515,6 +515,27 @@ class TestNoiseMixerWithAssets:
         _, events, _ = mixer.mix(samples, _SR, config)
         assert len(events) == 1  # synthetic fallback used
 
+    def test_ambient_asset_path_missing_falls_through_to_dir_search(self):
+        """Ambient asset_path set but file missing → _has_asset falls through to dir search."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assets_dir = Path(tmpdir)
+            ambient_dir = assets_dir / "ambient"
+            ambient_dir.mkdir()
+            self._write_wav(ambient_dir / "tv_ambient_001.wav")
+
+            ev = BackgroundEvent(
+                type="tv_ambient",
+                loop=True,
+                onset_seconds=0.0,
+                asset_path="/tmp/nonexistent_ambient_99999.wav",
+            )
+            mixer = NoiseMixer(assets_dir=assets_dir)
+            samples = _sine()
+            config = _make_config(background_events=[ev])
+            _, events, _ = mixer.mix(samples, _SR, config)
+            # Falls through to ambient dir; asset loaded, not synthetic
+            assert len(events) == 1
+
     def test_sfx_dir_exists_but_no_matching_files_uses_synthetic(self):
         """sfx_dir exists but no files match event type → synthesise fallback."""
         with tempfile.TemporaryDirectory() as tmpdir:
