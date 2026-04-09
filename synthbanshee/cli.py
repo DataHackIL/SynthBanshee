@@ -176,6 +176,62 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
+    # 5b. Stage 3 (Tier B): Room simulation → device profile → noise mix
+    #
+    # Runs on the fully preprocessed audio (16 kHz mono, silence-padded).
+    # AugmentedEvent onset/offset times are therefore already in padded-audio
+    # coordinates and must NOT receive the extra pad_s offset that speech turns do.
+    acoustic_scene_meta = None
+    _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
+    if scene.tier == "B" and scene.acoustic_scene is not None:
+        try:
+            import numpy as _np
+            import soundfile as _sf
+
+            from synthbanshee.augment.device_profiles import DeviceProfiler
+            from synthbanshee.augment.noise_mixer import NoiseMixer
+            from synthbanshee.augment.room_sim import RoomSimulator
+            from synthbanshee.labels.schema import ClipAcousticScene
+
+            audio_data, audio_sr = _sf.read(str(clip_wav), dtype="float32", always_2d=False)
+            reverbed = RoomSimulator().apply(
+                audio_data, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
+            )
+            device_colored = DeviceProfiler().apply(
+                reverbed, audio_sr, scene.acoustic_scene.device, rng_seed=scene.random_seed
+            )
+            aug_samples, aug_events, snr_actual = NoiseMixer().mix(
+                device_colored, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
+            )
+
+            # Peak-normalize augmented signal to −1.0 dBFS
+            peak = float(_np.max(_np.abs(aug_samples)))
+            if peak > 0.0:
+                target_peak = 10.0 ** (-1.0 / 20.0)
+                aug_samples = (aug_samples * (target_peak / peak)).astype(_np.float32)
+            _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
+
+            acoustic_scene_meta = ClipAcousticScene(
+                room_type=scene.acoustic_scene.room_type,
+                device=scene.acoustic_scene.device,
+                ir_source="pyroomacoustics_ism",
+                speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
+                snr_db_actual=round(snr_actual, 2),
+                background_events=[
+                    {
+                        "type": ev.type,
+                        "onset": round(ev.onset_s, 3),
+                        "offset": round(ev.offset_s, 3),
+                        "level_db": round(ev.level_db, 1),
+                    }
+                    for ev in aug_events
+                ],
+            )
+            # Keep only foreground ACOU_* SFX for strong-label generation
+            _aug_acou_events = [ev for ev in aug_events if ev.type.startswith("ACOU_")]
+        except Exception as exc:
+            return None, [f"Acoustic augmentation error: {exc}"]
+
     # 6. Write structured multi-speaker transcript
     # preprocess() prepends result.silence_pad_applied_s of silence unconditionally,
     # so all MixedScene timings must be shifted forward by that amount.
@@ -221,6 +277,20 @@ def _run_generate_pipeline(
                 emotional_state=turn.emotional_state,
             )
         )
+    # Stage 3 ACOU_* SFX events (Tier B only). Their onset/offset times are
+    # already in padded-audio coordinates — no pad_s shift needed.
+    for aug_ev in _aug_acou_events:
+        events.append(
+            ScriptEvent(
+                tier1_category="ACOU",
+                tier2_subtype=aug_ev.type,
+                onset=aug_ev.onset_s,
+                offset=max(aug_ev.offset_s, aug_ev.onset_s + 0.1),
+                intensity=3,  # default mid-intensity for physical SFX events
+                notes="sfx_augmentation",
+            )
+        )
+
     event_labels = label_gen.generate_event_labels(f"{clip_id}_00", events)
 
     # 8. Write clip metadata JSON
@@ -255,6 +325,7 @@ def _run_generate_pipeline(
         preprocessing=preprocessing_meta,
         dirty_file_path=str(result.dirty_path) if result.dirty_path else None,
         transcript_path=str(clip_txt),
+        acoustic_scene=acoustic_scene_meta,
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 

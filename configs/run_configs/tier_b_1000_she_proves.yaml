@@ -1,0 +1,37 @@
+# Phase 2 — Tier B generation run: She-Proves project
+# Target: 1 000 acoustically augmented clips (room IR + device profile + noise mix).
+# Scene configs must exist in scene_configs_dir before running.
+# Each scene config must include an acoustic_scene block (required for Tier B).
+# See docs/implementation_plan.md §2 for scale targets.
+#
+# She-Proves scenes: 3–6 min, phone_in_pocket / phone_on_table / phone_in_hand device.
+# Room types: small_bedroom, apartment_kitchen, living_room.
+
+run_id: tier_b_1000_she_proves
+project: she_proves
+tier: B
+language: he
+random_seed: 42
+output_dir: data/he
+scene_configs_dir: configs/scenes/she_proves_tier_b
+
+# --- Per-typology clip count targets (total: 1 000) ---
+targets:
+  - violence_typology: IT    # Intimate Terrorism
+    count: 300
+  - violence_typology: SV    # Situational Violence
+    count: 300
+  - violence_typology: NEG   # Negative / Confusor
+    count: 300
+  - violence_typology: NEU   # Neutral / ambient
+    count: 100
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false             # Continue batch even if individual clips fail
