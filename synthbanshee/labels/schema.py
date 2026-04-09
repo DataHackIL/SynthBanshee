@@ -71,6 +71,8 @@ class ClipAcousticScene(BaseModel):
     room_type: str | None = None
     device: str | None = None
     ir_source: str | None = None
+    speaker_distance_meters: float | None = None
+    snr_db_actual: float | None = None
     background_events: list[dict] = Field(default_factory=list)
 
 
