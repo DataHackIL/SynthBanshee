@@ -53,8 +53,8 @@ class AugmentationResult:
             "background_events": [
                 {
                     "type": ev.type,
-                    "onset_s": round(ev.onset_s, 3),
-                    "offset_s": round(ev.offset_s, 3),
+                    "onset": round(ev.onset_s, 3),
+                    "offset": round(ev.offset_s, 3),
                     "level_db": round(ev.level_db, 1),
                 }
                 for ev in self.events

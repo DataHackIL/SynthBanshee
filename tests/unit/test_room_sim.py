@@ -143,6 +143,27 @@ def test_custom_room_dimensions_used():
     assert out.shape == (_N,)
 
 
+def test_low_ceiling_room_clamps_mic_src_z():
+    """Room height < 1.2 m: mic/src z must be clamped inside the room bounds."""
+    from synthbanshee.config.acoustic_config import RoomDimensionsRange
+
+    # Room height of 1.0 m is below both default mic (1.2 m) and src (1.6 m)
+    config = AcousticSceneConfig(
+        room_type="small_bedroom",
+        device="phone_in_hand",
+        speaker_distance_meters=0.3,
+        victim_distance_meters=0.3,
+        room_dimensions_range=RoomDimensionsRange(
+            min=[3.0, 3.0, 1.0],
+            max=[3.1, 3.1, 1.0],
+        ),
+    )
+    sim = RoomSimulator()
+    # Should not raise — mic/src z are clamped to [0.1, 0.9]
+    out = sim.apply(_make_samples(), _SR, config, rng_seed=0)
+    assert out.shape == (_N,)
+
+
 def test_custom_rt60_range_used():
     config = AcousticSceneConfig(
         room_type="clinic_office",

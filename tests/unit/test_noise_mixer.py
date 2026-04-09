@@ -579,8 +579,8 @@ class TestAugmentationResult:
         assert d["snr_db_actual"] == pytest.approx(18.3, abs=0.01)
         assert len(d["background_events"]) == 1
         assert d["background_events"][0]["type"] == "tv_ambient"
-        assert d["background_events"][0]["onset_s"] == pytest.approx(0.0)
-        assert d["background_events"][0]["offset_s"] == pytest.approx(2.0)
+        assert d["background_events"][0]["onset"] == pytest.approx(0.0)
+        assert d["background_events"][0]["offset"] == pytest.approx(2.0)
 
     def test_acoustic_scene_dict_empty_events(self):
         from synthbanshee.augment.types import AugmentationResult

@@ -111,21 +111,23 @@ class RoomSimulator:
             air_absorption=True,
         )
 
-        # Microphone at room centre, ear height (1.2 m)
-        mic = np.array([dims[0] / 2.0, dims[1] / 2.0, 1.2])
+        # Microphone at room centre, ear height (1.2 m), clamped to room z
+        mic_z = float(np.clip(1.2, 0.1, dims[2] - 0.1))
+        mic = np.array([dims[0] / 2.0, dims[1] / 2.0, mic_z])
 
         # Source at speaker_distance_meters from mic (random azimuth, mouth height)
-        # Clamp so source stays inside the room (10 cm margin from walls)
+        # Clamp so source stays inside the room (10 cm margin from all walls)
         max_dist = min(
             config.speaker_distance_meters,
             min(dims[0], dims[1]) * 0.85,
         )
         angle = float(rng.uniform(0.0, 2.0 * np.pi))
+        src_z = float(np.clip(1.6, 0.1, dims[2] - 0.1))
         src = np.array(
             [
                 float(np.clip(mic[0] + max_dist * np.cos(angle), 0.1, dims[0] - 0.1)),
                 float(np.clip(mic[1] + max_dist * np.sin(angle), 0.1, dims[1] - 0.1)),
-                1.6,  # mouth height
+                src_z,
             ]
         )
 

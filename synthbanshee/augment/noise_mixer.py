@@ -14,7 +14,7 @@ Asset loading order (per event)
 1. BackgroundEvent.asset_path — explicit path if given and file exists.
 2. assets_dir/sfx/<type>*.wav — for ACOU_* types.
 3. assets_dir/ambient/<type>*.wav — for ambient types.
-4. Synthetic fallback — always available; logs a quality note.
+4. Synthetic fallback — always available.
 
 Spec reference: docs/spec.md §3.1 (Stage 3 acoustic augmentation)
 """
