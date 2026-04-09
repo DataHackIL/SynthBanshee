@@ -178,9 +178,13 @@ def _run_generate_pipeline(
 
     # 5b. Stage 3 (Tier B): Room simulation → device profile → noise mix
     #
-    # Runs on the fully preprocessed audio (16 kHz mono, silence-padded).
-    # AugmentedEvent onset/offset times are therefore already in padded-audio
-    # coordinates and must NOT receive the extra pad_s offset that speech turns do.
+    # Stage 3 receives the fully preprocessed (16 kHz, mono, silence-padded) WAV.
+    # NoiseMixer therefore operates on padded audio, so its returned AugmentedEvent
+    # onset/offset values are measured from the start of the *padded* clip — they are
+    # already in final clip coordinates and must NOT be shifted by pad_s again.
+    # (This differs from the AugmentedEvent docstring convention, which assumes
+    # NoiseMixer receives the raw un-padded MixedScene.  Here we pass padded audio
+    # intentionally so the placed events align with audible speech, not with silence.)
     acoustic_scene_meta = None
     _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
     if scene.tier == "B" and scene.acoustic_scene is not None:
@@ -191,9 +195,11 @@ def _run_generate_pipeline(
             from synthbanshee.augment.device_profiles import DeviceProfiler
             from synthbanshee.augment.noise_mixer import NoiseMixer
             from synthbanshee.augment.room_sim import RoomSimulator
+            from synthbanshee.config.taxonomy import tier2_subtype_codes
             from synthbanshee.labels.schema import ClipAcousticScene
 
             audio_data, audio_sr = _sf.read(str(clip_wav), dtype="float32", always_2d=False)
+            n_orig = len(audio_data)
             reverbed = RoomSimulator().apply(
                 audio_data, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
             )
@@ -204,6 +210,15 @@ def _run_generate_pipeline(
                 device_colored, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
             )
 
+            # Enforce exact length match with the input WAV so metadata.duration_seconds
+            # and transcript timings remain consistent after the write-back.
+            if len(aug_samples) > n_orig:
+                aug_samples = aug_samples[:n_orig]
+            elif len(aug_samples) < n_orig:
+                aug_samples = _np.pad(aug_samples, (0, n_orig - len(aug_samples))).astype(
+                    _np.float32
+                )
+
             # Peak-normalize augmented signal to −1.0 dBFS
             peak = float(_np.max(_np.abs(aug_samples)))
             if peak > 0.0:
@@ -211,10 +226,11 @@ def _run_generate_pipeline(
                 aug_samples = (aug_samples * (target_peak / peak)).astype(_np.float32)
             _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
 
+            ir_src = getattr(scene.acoustic_scene, "ir_source", None) or "pyroomacoustics_ism"
             acoustic_scene_meta = ClipAcousticScene(
                 room_type=scene.acoustic_scene.room_type,
                 device=scene.acoustic_scene.device,
-                ir_source="pyroomacoustics_ism",
+                ir_source=ir_src,
                 speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
                 snr_db_actual=round(snr_actual, 2),
                 background_events=[
@@ -227,8 +243,13 @@ def _run_generate_pipeline(
                     for ev in aug_events
                 ],
             )
-            # Keep only foreground ACOU_* SFX for strong-label generation
-            _aug_acou_events = [ev for ev in aug_events if ev.type.startswith("ACOU_")]
+            # Keep foreground ACOU_* SFX that are valid taxonomy tier2 codes.
+            # Unknown/mis-typed ACOU_* values are silently dropped rather than
+            # crashing label generation with a cryptic validation error.
+            _valid_tier2 = tier2_subtype_codes()
+            _aug_acou_events = [
+                ev for ev in aug_events if ev.type.startswith("ACOU_") and ev.type in _valid_tier2
+            ]
         except Exception as exc:
             return None, [f"Acoustic augmentation error: {exc}"]
 

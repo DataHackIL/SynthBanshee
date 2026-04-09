@@ -1076,6 +1076,7 @@ class TestRunGeneratePipelineTierB:
         aug_events=None,
         snr_actual: float = 12.0,
         aug_side_effect=None,
+        aug_all_zeros: bool = False,
     ):
         """Helper: run Tier B pipeline with mocked TTS + mocked augmentation stack.
 
@@ -1086,20 +1087,22 @@ class TestRunGeneratePipelineTierB:
         if aug_events is None:
             aug_events = []
 
+        turns = _make_dialogue_turns(n=1, intensity=3)
+        # MixedScene duration is 5 s; preprocess() adds 0.5 s pad at each end → 6 s WAV.
+        mixed = _make_mixed_scene(duration_s=5.0, n_turns=1)
         sr = 16_000
         pad = int(0.5 * sr)
-        total = sr * 5  # 5 seconds
-        aug_audio = np.zeros(total, dtype=np.float32)
-        # Place a sine tone in the middle, leaving ≥ 0.5 s silence at each end
-        t = np.arange(total - 2 * pad, dtype=np.float32) / sr
-        aug_audio[pad : total - pad] = 0.5 * np.sin(2 * np.pi * 440 * t)
-        # Peak-normalize to −1.0 dBFS (as the pipeline does before writing)
-        peak = float(np.max(np.abs(aug_audio)))
-        if peak > 0.0:
-            aug_audio = (aug_audio * (10.0 ** (-1.0 / 20.0) / peak)).astype(np.float32)
-
-        turns = _make_dialogue_turns(n=1, intensity=3)
-        mixed = _make_mixed_scene(n_turns=1)
+        # Build aug_audio to match the preprocessed WAV length (6 s = 5 s + 2 × 0.5 s pad).
+        total = mixed.samples.shape[0] + 2 * pad  # 6 × 16 000 = 96 000 samples
+        if aug_all_zeros:
+            aug_audio = np.zeros(total, dtype=np.float32)
+        else:
+            aug_audio = np.zeros(total, dtype=np.float32)
+            t = np.arange(total - 2 * pad, dtype=np.float32) / sr
+            aug_audio[pad : total - pad] = 0.5 * np.sin(2 * np.pi * 440 * t)
+            peak = float(np.max(np.abs(aug_audio)))
+            if peak > 0.0:
+                aug_audio = (aug_audio * (10.0 ** (-1.0 / 20.0) / peak)).astype(np.float32)
 
         mock_aug_events = [
             AugmentedEvent(
@@ -1151,7 +1154,7 @@ class TestRunGeneratePipelineTierB:
         scene = meta["acoustic_scene"]
         assert scene["room_type"] == "small_bedroom"
         assert scene["device"] == "phone_in_hand"
-        assert scene["ir_source"] == "pyroomacoustics_ism"
+        assert scene["ir_source"] == "pyroomacoustics"  # value from AcousticSceneConfig default
         assert scene["speaker_distance_meters"] == 1.5
 
     def test_tier_b_snr_db_actual_in_metadata(self, tmp_path):
@@ -1191,3 +1194,34 @@ class TestRunGeneratePipelineTierB:
         )
         assert wav is None
         assert any("Acoustic augmentation error" in e for e in errors)
+
+    def test_tier_b_silent_augmented_output_skips_normalization(self, tmp_path):
+        """When NoiseMixer returns all-zero audio, peak==0 branch is skipped gracefully."""
+        # Covers the `if peak > 0.0` False branch (line 209 in cli.py)
+        wav, errors = self._run_tier_b(tmp_path, aug_all_zeros=True)
+        assert wav is not None, errors
+        # WAV must still exist and be the correct length (not crash on zero-peak input)
+        import soundfile as _sf
+
+        data, sr = _sf.read(str(wav))
+        assert len(data) > 0
+
+    def test_tier_b_unknown_acou_type_is_dropped(self, tmp_path):
+        """ACOU_* events with unrecognised tier2 codes are dropped, not propagated as labels."""
+        aug_events = [
+            {"type": "ACOU_UNKNOWN_XYZ", "onset_s": 1.0, "offset_s": 1.5, "level_db": -20.0},
+        ]
+        wav, errors = self._run_tier_b(tmp_path, aug_events=aug_events)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert "ACOU" not in meta["weak_label"]["violence_categories"]
+
+    def test_tier_b_output_wav_length_preserved(self, tmp_path):
+        """Stage 3 write-back keeps the WAV at exactly the preprocessed length."""
+        import soundfile as _sf
+
+        wav, errors = self._run_tier_b(tmp_path)
+        assert wav is not None, errors
+        data, sr = _sf.read(str(wav))
+        # Preprocessed duration = MixedScene 5 s + 2 × 0.5 s pad = 6 s
+        assert abs(len(data) / sr - 6.0) < 0.05
