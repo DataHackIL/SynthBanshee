@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -13,6 +14,8 @@ import soundfile as sf
 from synthbanshee.augment.noise_mixer import (
     _PHASE_FRACTIONS,
     NoiseMixer,
+    _load_audio,
+    _pad_or_trim,
     _resolve_onset_s,
     _rms,
     _snr_db,
@@ -90,6 +93,12 @@ class TestAudioHelpers:
     def test_to_dbfs_silence(self):
         assert _to_dbfs(np.zeros(100, dtype=np.float32)) == -math.inf
 
+    def test_speech_rms_short_signal_falls_back_to_rms(self):
+        """Signal shorter than one frame triggers the early-return path."""
+        short = np.ones(100, dtype=np.float32) * 0.5
+        result = _speech_rms(short, frame_ms=20, sr=_SR)
+        assert result == pytest.approx(0.5, abs=1e-4)
+
     def test_speech_rms_excludes_silence_frames(self):
         # Mix loud active frames with silent frames
         n_frames = 100
@@ -114,6 +123,47 @@ class TestAudioHelpers:
 
     def test_snr_db_silent_noise(self):
         assert _snr_db(_sine(), np.zeros(_N, dtype=np.float32)) == math.inf
+
+
+# ---------------------------------------------------------------------------
+# _pad_or_trim tests
+# ---------------------------------------------------------------------------
+
+
+class TestPadOrTrim:
+    def test_empty_audio_returns_zeros(self):
+        result = _pad_or_trim(np.array([], dtype=np.float32), 100)
+        assert len(result) == 100
+        assert np.all(result == 0.0)
+        assert result.dtype == np.float32
+
+    def test_longer_audio_is_truncated(self):
+        audio = np.ones(200, dtype=np.float32)
+        result = _pad_or_trim(audio, 100)
+        assert len(result) == 100
+
+    def test_shorter_audio_is_tiled(self):
+        audio = np.array([1.0, 2.0], dtype=np.float32)
+        result = _pad_or_trim(audio, 5)
+        assert len(result) == 5
+        assert result[0] == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# _load_audio resampling test
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAudio:
+    def test_resample_from_44100_to_16000(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "test_44100.wav"
+            data = (np.sin(np.linspace(0, 2 * np.pi, 44100)) * 0.5).astype(np.float32)
+            sf.write(str(path), data, 44100)
+            result = _load_audio(path, sr=_SR)
+            # Resampled length should be ~16000 (within rounding margin)
+            assert abs(len(result) - _SR) < 10
+            assert result.dtype == np.float32
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +271,19 @@ class TestResolveOnsetS:
 
     def test_negative_clamped_to_zero(self):
         ev = self._make_ev(onset_seconds=0.5, onset_offset_seconds=-2.0)
+        rng = np.random.default_rng(0)
+        onset = _resolve_onset_s(ev, 5.0, None, rng)
+        assert onset == 0.0
+
+    def test_neither_onset_nor_phase_defaults_to_zero(self):
+        """Bypass validator to test the defensive else-branch (base=0)."""
+        ev = BackgroundEvent.model_construct(
+            type="ACOU_SLAM",
+            loop=False,
+            onset_seconds=None,
+            onset_at_phase=None,
+            onset_offset_seconds=None,
+        )
         rng = np.random.default_rng(0)
         onset = _resolve_onset_s(ev, 5.0, None, rng)
         assert onset == 0.0
@@ -345,6 +408,25 @@ class TestNoiseMixerNoAssets:
         assert len(events) == 1
         assert events[0].onset_s == pytest.approx(0.8, abs=0.01)
 
+    def test_silent_speech_skips_snr_scaling(self):
+        """When speech is silent, SNR scaling branch is skipped (speech_rms == 0)."""
+        silence = np.zeros(_N, dtype=np.float32)
+        config = _make_config(background_events=[_ambient_event()], snr_target_db=20.0)
+        out, events, _ = self.mixer.mix(silence, _SR, config)
+        assert len(events) == 1
+        # Output equals the unscaled ambient (no gain applied)
+        assert out.shape == silence.shape
+
+    def test_sfx_skipped_when_copy_n_zero(self):
+        """SFX with zero-length audio is skipped (copy_n <= 0 branch)."""
+        config = _make_config(background_events=[_sfx_event(onset_seconds=0.5)])
+        with patch(
+            "synthbanshee.augment.noise_mixer.NoiseMixer._load_or_synthesise_sfx",
+            return_value=np.array([], dtype=np.float32),
+        ):
+            _, events, _ = self.mixer.mix(self.samples, _SR, config)
+        assert len(events) == 0
+
 
 # ---------------------------------------------------------------------------
 # NoiseMixer.mix — with real WAV assets
@@ -400,3 +482,96 @@ class TestNoiseMixerWithAssets:
             config = _make_config(background_events=[ev])
             _, events, _ = mixer.mix(samples, _SR, config)
             assert len(events) == 1
+
+    def test_ambient_explicit_asset_path_used(self):
+        """Covers _has_asset and _resolve_asset_path with asset_path set on ambient event."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            asset_file = Path(tmpdir) / "custom_ambient.wav"
+            self._write_wav(asset_file, n=_SR * 2)
+
+            ev = BackgroundEvent(
+                type="tv_ambient",
+                loop=True,
+                onset_seconds=0.0,
+                asset_path=str(asset_file),
+            )
+            mixer = NoiseMixer(assets_dir=Path("/tmp/nonexistent"))
+            samples = _sine()
+            config = _make_config(background_events=[ev])
+            _, events, _ = mixer.mix(samples, _SR, config)
+            assert len(events) == 1
+
+    def test_sfx_asset_path_missing_falls_through_to_synthetic(self):
+        """SFX asset_path set but file missing → synthesise fallback (_load_or_synthesise_sfx)."""
+        ev = BackgroundEvent(
+            type="ACOU_SLAM",
+            loop=False,
+            onset_seconds=0.3,
+            asset_path="/tmp/nonexistent_sfx_12345.wav",
+        )
+        mixer = NoiseMixer(assets_dir=Path("/tmp/nonexistent"))
+        samples = _sine()
+        config = _make_config(background_events=[ev])
+        _, events, _ = mixer.mix(samples, _SR, config)
+        assert len(events) == 1  # synthetic fallback used
+
+    def test_sfx_dir_exists_but_no_matching_files_uses_synthetic(self):
+        """sfx_dir exists but no files match event type → synthesise fallback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            assets_dir = Path(tmpdir)
+            sfx_dir = assets_dir / "sfx"
+            sfx_dir.mkdir()
+            # Put a file for a different type, not ACOU_SLAM
+            self._write_wav(sfx_dir / "ACOU_FALL_001.wav", n=_SR // 4)
+
+            mixer = NoiseMixer(assets_dir=assets_dir)
+            samples = _sine()
+            config = _make_config(background_events=[_sfx_event("ACOU_SLAM", onset_seconds=0.5)])
+            _, events, _ = mixer.mix(samples, _SR, config)
+            assert len(events) == 1  # synthetic fallback used
+
+
+# ---------------------------------------------------------------------------
+# AugmentationResult.acoustic_scene_dict (types.py)
+# ---------------------------------------------------------------------------
+
+
+class TestAugmentationResult:
+    def test_acoustic_scene_dict_structure(self):
+        from synthbanshee.augment.types import AugmentationResult, AugmentedEvent
+
+        result = AugmentationResult(
+            samples=np.zeros(100, dtype=np.float32),
+            sample_rate=_SR,
+            room_type="small_bedroom",
+            device="phone_in_hand",
+            ir_source="pyroomacoustics",
+            speaker_distance_meters=1.5,
+            snr_db_actual=18.3,
+            events=[
+                AugmentedEvent(type="tv_ambient", onset_s=0.0, offset_s=2.0, level_db=-30.5),
+            ],
+        )
+        d = result.acoustic_scene_dict
+        assert d["room_type"] == "small_bedroom"
+        assert d["device"] == "phone_in_hand"
+        assert d["snr_db_actual"] == pytest.approx(18.3, abs=0.01)
+        assert len(d["background_events"]) == 1
+        assert d["background_events"][0]["type"] == "tv_ambient"
+        assert d["background_events"][0]["onset_s"] == pytest.approx(0.0)
+        assert d["background_events"][0]["offset_s"] == pytest.approx(2.0)
+
+    def test_acoustic_scene_dict_empty_events(self):
+        from synthbanshee.augment.types import AugmentationResult
+
+        result = AugmentationResult(
+            samples=np.zeros(100, dtype=np.float32),
+            sample_rate=_SR,
+            room_type="clinic_office",
+            device="pi_budget_mic",
+            ir_source="pyroomacoustics",
+            speaker_distance_meters=2.0,
+            snr_db_actual=25.0,
+        )
+        d = result.acoustic_scene_dict
+        assert d["background_events"] == []

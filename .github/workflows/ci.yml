@@ -33,6 +33,7 @@ jobs:
           uv pip install \
             pydantic pyyaml jinja2 soundfile numpy scipy \
             click rich jsonlines \
+            pyroomacoustics \
             pytest pytest-asyncio pytest-cov
 
       - name: Install package

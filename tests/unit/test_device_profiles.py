@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -157,3 +159,19 @@ def test_pi_budget_mic_adds_hum_to_silence():
     silence = np.zeros(_N, dtype=np.float32)
     out = profiler.apply(silence, _SR, "pi_budget_mic")
     assert np.max(np.abs(out)) > 0.0
+
+
+def test_highpass_skipped_when_hz_is_zero():
+    """Cover the False branch of 'if hp_hz > 0' using a patched profile."""
+    profiler = DeviceProfiler()
+    fake_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    with patch.dict("synthbanshee.augment.device_profiles._PROFILES", {"zero_hp": fake_profile}):
+        out = profiler.apply(_make_samples(), _SR, "zero_hp")
+    assert out.shape == (_N,)
+    assert out.dtype == np.float32

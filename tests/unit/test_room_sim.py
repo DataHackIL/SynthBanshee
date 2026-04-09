@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -160,3 +162,28 @@ def test_silent_input_produces_silent_output():
     out = sim.apply(silence, _SR, config, rng_seed=0)
     # After convolving silence with any RIR the result must still be (near) silence
     assert np.max(np.abs(out)) < 1e-6
+
+
+def test_output_zero_padded_when_reverbed_shorter_than_input():
+    """Cover the zero-pad branch when the simulated signal is shorter than input."""
+
+    sim = RoomSimulator()
+    samples = _make_samples()
+    config = _make_config()
+
+    # Patch ShoeBox so mic_array.signals[0] is shorter than the input
+    short_reverb = np.zeros(_N // 2, dtype=np.float32)
+    mock_room = MagicMock()
+    mock_room.mic_array.signals = [short_reverb]
+
+    with (
+        patch("pyroomacoustics.ShoeBox", return_value=mock_room),
+        patch("pyroomacoustics.inverse_sabine", return_value=(0.5, 8)),
+        patch("pyroomacoustics.Material", return_value=MagicMock()),
+    ):
+        out = sim.apply(samples, _SR, config, rng_seed=0)
+
+    assert len(out) == _N
+    assert out.dtype == np.float32
+    # Tail should be zero-padded
+    assert np.all(out[_N // 2 :] == 0.0)
