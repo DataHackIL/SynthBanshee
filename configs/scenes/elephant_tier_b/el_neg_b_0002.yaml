@@ -23,7 +23,7 @@ elephant:
   attack_type: null
 target_duration_minutes: 2.5
 acoustic_scene:
-  room_type: open_office
+  room_type: open_office_corridor
   device: pi_budget_mic
   speaker_distance_meters: 1.8
   victim_distance_meters: 1.4

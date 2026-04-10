@@ -28,11 +28,11 @@ data/
       {clip_id}.wav
       {clip_id}.txt         ← transcript (UTF-8, Hebrew in he-IL clips)
       {clip_id}.json        ← per-clip metadata (see §5)
+      {clip_id}.jsonl       ← per-clip strong labels, one event per line (see §5.2)
 
 metadata/
-  {split}_manifest.csv      ← clip-level manifest for train/val/test splits
+  {split}_manifest.csv      ← clip-level manifest for train/val/test splits (see §5.3)
   {split}_labels_weak.jsonl ← weak (clip-level) labels
-  {split}_labels_strong.jsonl ← strong (event-level) labels with onset/offset
 
 configs/
   scenes/                   ← scene YAML configs used to generate each clip
@@ -308,7 +308,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
 
 ### 5.2 Per-Event Strong Labels (JSONL)
 
-One record per labeled event, stored in `metadata/{split}_labels_strong.jsonl`. Each line is a JSON object:
+One record per labeled event, stored **per-clip** as `{clip_id}.jsonl` in the same directory as the corresponding `.wav`, `.txt`, and `.json` files. The pipeline writes this file automatically at generation time (Stage 4). Each line is a JSON object:
 
 ```json
 {
@@ -337,13 +337,14 @@ One manifest CSV per generation run, written to the output directory (e.g. `data
 One row per clip, for fast dataset loading:
 
 ```
-clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path
+clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path, strong_labels_path
 ```
 
 - `speaker_ids`: pipe-separated list of `speaker_id` values (e.g. `AGG_M_30-45_001|VIC_F_25-40_002`)
 - `quality_flags`: comma-separated list of flag strings, empty string if none
 - `split`: `train` | `val` | `test`, or empty string if unassigned
-- `wav_path`: path to the `.wav` file; `.txt` and `.json` share the same stem
+- `wav_path`: path to the `.wav` file; `.txt`, `.json`, and `.jsonl` share the same stem
+- `strong_labels_path`: path to the per-clip `.jsonl` strong-labels file, or empty string if absent
 - `language` is implicit in the `data/{language_code}/` directory structure and omitted from the manifest
 - `violence_categories` and the redundant `txt_path`/`json_path` columns from the original spec are superseded by this schema
 
