@@ -1162,8 +1162,7 @@ class TestGenerateBatchParallel:
         assert "fail_fast" in result.output.lower() or "aborting" in result.output.lower()
 
     def test_parallel_failure_without_fail_fast(self, tmp_path):
-        """Parallel path with fail_fast=false and a failing clip: covers the
-        False branch of 'if run_cfg.fail_fast:' inside the lock block (762->752)."""
+        """Parallel batch generation reports a failing clip when fail_fast is disabled."""
         scenes_dir = tmp_path / "scenes"
         scenes_dir.mkdir()
         self._write_neu_scene(scenes_dir, 0)  # only 1 scene → 1 future
@@ -1200,9 +1199,9 @@ class TestGenerateBatchParallel:
         assert result.exit_code != 0
 
     def test_parallel_subsequent_failures_after_stop_event(self, tmp_path):
-        """When fail_fast=true in parallel mode and 3 clips all fail, the first
-        failure sets stop_event; the remaining failures are processed with
-        stop_event already set, exercising the elif False branch (766->752)."""
+        """With fail_fast=true and multiple parallel failures, clips that complete
+        after the first failure is recorded are silently skipped rather than
+        double-counted in the failed list."""
         scenes_dir = tmp_path / "scenes"
         scenes_dir.mkdir()
         for i in range(3):
