@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — child tantrum; parents coordinate calmly while child screams in background.
+   Typology: NEG  Slots: tantrum_trigger, child_age
+   Purpose: hard negative — child screaming is DIST_CHILD acoustic event; parents not violent.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Child Tantrum
+Tantrum trigger:   {{ script_slots.get('tantrum_trigger', 'bedtime_refusal') }}
+Child age:         {{ script_slots.get('child_age', '3') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (mirrors tantrum arc, not adult conflict)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A young child is having a tantrum in the background. The two adults (parents/caregivers)
+are talking to each other — and occasionally to the child — to manage the situation.
+  1. Onset — child begins to fuss; parents acknowledge it.
+  2. Escalation — child screams; adults speak slightly louder to be heard over the noise.
+  3. Intervention — one parent goes to the child or both try verbal de-escalation of child.
+  4. Resolution — child calms or is removed from the scene; adults exchange brief relief.
+IMPORTANT: the adult speakers must remain COOPERATIVE with each other throughout.
+Mild exasperation directed at the SITUATION is acceptable; directed hostility is not.
+The child's cries are the ACOUSTIC CONFUSOR.
+
+{{ common_rules(target_duration_minutes, [
+  "The adults may call out to the child by name or use diminutives ('ילד שלי', 'נשמה').",
+  "Short, interrupted sentences are realistic when speaking over a screaming child.",
+  "No adult speaker should raise their voice at the other adult — only at/for the child."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,33 @@
+# Phase 3 — Tier C generation run: She-Proves project
+# Target: 500 hard-negative (confusor) clips — acoustically intense but non-violent.
+# All clips use violence_typology NEG; scene configs must include an acoustic_scene block.
+# See docs/implementation_plan.md §3 for context on Tier C confusors.
+#
+# She-Proves confusor scenes: 2.5–3.5 min, all phone device types.
+# Room types: apartment_kitchen, living_room, small_bedroom.
+# IMPORTANT: expert review of templates recommended before large-scale generation
+# (see implementation_plan.md §3.1).
+
+run_id: tier_c_500_she_proves
+project: she_proves
+tier: C
+language: he
+random_seed: 43
+output_dir: data/he
+scene_configs_dir: configs/scenes/she_proves_tier_c
+
+# --- Per-typology clip count targets (total: 500) ---
+# Tier C is exclusively NEG (hard negatives) — no SV/IT clips in this tier.
+targets:
+  - violence_typology: NEG   # All confusor clips
+    count: 500
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false

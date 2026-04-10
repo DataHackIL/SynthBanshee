@@ -1,0 +1,37 @@
+scene_id: EL_NEG_C_0006
+project: elephant_in_the_room
+language: he
+violence_typology: NEG
+tier: C
+random_seed: 606
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/confusor_grief_disclosure.j2
+script_slots:
+  scene_type: routine_followup
+  loss_type: bereavement
+  office_setting: clinic_office
+intensity_arc: [1, 2, 3, 2, 1, 1]
+elephant:
+  scene_type: routine_followup
+  alert_triggered: false
+  alert_at_phase: null
+  alert_onset_fraction: null
+  attack_type: null
+target_duration_minutes: 2.5
+acoustic_scene:
+  room_type: clinic_office
+  device: pi_budget_mic
+  speaker_distance_meters: 1.0
+  victim_distance_meters: 0.8
+  snr_target_db: 24
+  rt60_range: [0.14, 0.26]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -44
+      loop: true
+output_dir: data/he

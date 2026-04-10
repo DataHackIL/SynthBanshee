@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — medical emergency scare (not violence); panic and raised voices from fear.
+   Typology: NEG  Slots: emergency_type, who_affected
+   Purpose: hard negative — panic vocalisations + fast commands with no interpersonal aggression.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Medical Emergency Alarm
+Emergency type:    {{ script_slots.get('emergency_type', 'choking_incident') }}
+Who is affected:   {{ script_slots.get('who_affected', 'child') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (spike at emergency onset, rapid de-escalation once safe)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A sudden medical scare causes panic. Both partners react with fear and urgency — not aggression.
+  1. Normal moment — relaxed domestic scene just before the emergency.
+  2. Alarm — one partner notices the emergency and cries out; the other rushes over.
+  3. Panic peak — fast commands, shouted names, urgent speech. No inter-partner hostility.
+  4. Intervention — one partner takes action (calls emergency services, performs first aid).
+  5. Resolution — the immediate danger passes; shaken but relieved conversation.
+IMPORTANT: urgency, fear, and raised voices are the ACOUSTIC CONFUSOR here. The two
+partners must cooperate under stress — they are not in conflict with each other at any point.
+
+{{ common_rules(target_duration_minutes, [
+  "Commands should be short and directive — typical of real emergency responses.",
+  "One speaker may dial emergency services (מד״א); include realistic Hebrew phrases.",
+  "After the crisis passes, emotional release (near-tears, shaky voices) is realistic."
+]) }}
+{{ output_format() }}

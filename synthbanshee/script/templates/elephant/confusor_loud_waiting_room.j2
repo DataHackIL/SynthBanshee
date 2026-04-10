@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — chaotic waiting room; multiple people talking; social worker manages the crowd.
+   Typology: NEG  Slots: office_setting, crowd_cause
+   Purpose: hard negative — high ambient noise + raised voices in a crowded office context.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Loud Waiting Room
+Office setting:    {{ script_slots.get('office_setting', 'open_office_corridor') }}
+Crowd cause:       {{ script_slots.get('crowd_cause', 'system_outage_long_wait') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (noisy throughout; no dramatic peak)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The waiting room is unusually busy. Multiple clients are impatient. The social worker manages it.
+  1. Arrival — social worker enters the waiting area; immediately deals with noise and questions.
+  2. Multiple demands — several clients speak at once; social worker addresses them one by one.
+  3. Friction — one client speaks loudly about the wait; social worker acknowledges and explains.
+  4. Stabilisation — the social worker calms the room; promises updates; crowd noise diminishes.
+  5. Resolution — the immediate situation is managed; the worker returns to their duties.
+IMPORTANT: The acoustic confusor here is overlapping speech + ambient noise + raised voices
+from impatience — none of which constitutes interpersonal violence. No single person is
+threatening the social worker; the frustration is collective and situational.
+
+{{ common_rules(target_duration_minutes, [
+  "The social worker speaks over background noise — naturally higher volume, not aggression.",
+  "Client frustration is about waiting, not about the social worker personally.",
+  "The scene should feel like a busy public office, not a confrontation."
+]) }}
+{{ output_format() }}

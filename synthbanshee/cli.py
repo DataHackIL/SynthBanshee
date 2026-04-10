@@ -180,7 +180,7 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
-    # Stage 3b — Acoustic Augmentation (Tier B only)
+    # Stage 3b — Acoustic Augmentation (Tier B and Tier C)
     # 5b. Room simulation → device profile → noise mix
     #
     # Stage 3 receives the fully preprocessed (16 kHz, mono, silence-padded) WAV.
@@ -192,7 +192,7 @@ def _run_generate_pipeline(
     # intentionally so the placed events align with audible speech, not with silence.)
     acoustic_scene_meta = None
     _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
-    if scene.tier == "B" and scene.acoustic_scene is not None:
+    if scene.tier in ("B", "C") and scene.acoustic_scene is not None:
         try:
             import numpy as _np
             import soundfile as _sf
@@ -311,7 +311,7 @@ def _run_generate_pipeline(
                 emotional_state=turn.emotional_state,
             )
         )
-    # Stage 3b ACOU_* SFX events (Tier B only). Their onset/offset times are
+    # Stage 3b ACOU_* SFX events (Tier B and Tier C). Their onset/offset times are
     # already in padded-audio coordinates — no pad_s shift needed.
     for aug_ev in _aug_acou_events:
         events.append(

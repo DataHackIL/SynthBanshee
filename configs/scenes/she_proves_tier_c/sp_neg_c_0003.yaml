@@ -1,0 +1,34 @@
+scene_id: SP_NEG_C_0003
+project: she_proves
+language: he
+violence_typology: NEG
+tier: C
+random_seed: 503
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+  - speaker_id: VIC_F_25-40_002
+    role: VIC
+script_template: synthbanshee/script/templates/she_proves/confusor_cooking_accident.j2
+script_slots:
+  meal: dinner
+  accident_type: pot_dropped
+intensity_arc: [1, 1, 4, 3, 1, 1]
+target_duration_minutes: 2.5
+acoustic_scene:
+  room_type: apartment_kitchen
+  device: phone_on_table
+  speaker_distance_meters: 1.2
+  victim_distance_meters: 1.0
+  snr_target_db: 18
+  rt60_range: [0.16, 0.28]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -40
+      loop: true
+    - type: ACOU_FALL
+      onset_at_phase: peak
+      onset_offset_seconds: 0.5
+      asset_path: null
+output_dir: data/he

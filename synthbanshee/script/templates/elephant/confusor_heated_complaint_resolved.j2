@@ -1,0 +1,40 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — heated complaint session that is fully resolved without violence.
+   Typology: NEG  Slots: scene_type, complaint_subject, office_setting, resolution_type
+   Purpose: hard negative — sustained loud confrontation that never crosses the violence threshold.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Heated Complaint (Fully Resolved)
+Scene type:        {{ script_slots.get('scene_type', 'benefits_dispute') }}
+Complaint subject: {{ script_slots.get('complaint_subject', 'processing_error') }}
+Office setting:    {{ script_slots.get('office_setting', 'open_office_corridor') }}
+Resolution type:   {{ script_slots.get('resolution_type', 'supervisor_called') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (sustained high intensity then drops sharply at resolution)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The client has a legitimate grievance and pursues it loudly but without crossing into violence.
+  1. Confrontation — client raises the complaint at volume; worker tries to respond.
+  2. Escalation — client talks over the worker; raises objections louder; gestures in speech.
+  3. Peak — maximum volume and frustration; social worker remains calm but firm.
+  4. Resolution trigger — the resolution type from the slot occurs (supervisor arrives, error found, etc.).
+  5. Resolution — client accepts the outcome; anger subsides; formal close of the meeting.
+IMPORTANT: at peak intensity, an observer might mistake this for a pre-violence situation.
+That is the test. The client must stop short of ANY explicit threats or physical advance.
+The resolution must feel earned by the social worker's professional response.
+
+{{ common_rules(target_duration_minutes, [
+  "The client should use emphatic but non-threatening Hebrew (אני לא מוכן לקבל את זה, זה פשוט לא בסדר).",
+  "The social worker must not become defensive or raise their voice.",
+  "The resolution moment should be acoustically distinct — a clear change in tone."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,39 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — frustrated client who has been waiting; vents loudly then accepts resolution.
+   Typology: NEG  Slots: scene_type, wait_duration, office_setting
+   Purpose: hard negative — extends neu_frustrated_waiting_client into a higher-intensity confusor.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Frustrated Waiting Client (Intense Venting)
+Scene type:        {{ script_slots.get('scene_type', 'intake_interview') }}
+Wait duration:     {{ script_slots.get('wait_duration', 'two_hours') }}
+Office setting:    {{ script_slots.get('office_setting', 'welfare_office') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (intense venting in first half; drops once addressed)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A client has been waiting much longer than promised and confronts the social worker about it.
+  1. Confrontation — client approaches the worker with clear anger about the wait time.
+  2. Venting — client speaks loudly and rapidly; lists grievances; the worker can barely interject.
+  3. Intense peak — the client's frustration reaches its highest point; they may raise their hands, pace.
+  4. Social worker acknowledgement — genuine apology and explanation; the worker takes responsibility.
+  5. Resolution — client's frustration drops noticeably; the appointment proceeds.
+IMPORTANT: the client is venting about a legitimate service failure, not attacking the person.
+No threats, no physical approach, no coercive language. The acoustic energy of the vent
+phase is the CONFUSOR — it should sound loud and confrontational without being violent.
+
+{{ common_rules(target_duration_minutes, [
+  "The client's language should be forceful but not profane or threatening.",
+  "The social worker should NOT become defensive — model professional grace under pressure.",
+  "The resolution must feel authentic — the client is genuinely mollified, not just silenced."
+]) }}
+{{ output_format() }}

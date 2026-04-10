@@ -1,0 +1,31 @@
+scene_id: SP_NEG_C_0002
+project: she_proves
+language: he
+violence_typology: NEG
+tier: C
+random_seed: 502
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+  - speaker_id: VIC_F_25-40_002
+    role: VIC
+script_template: synthbanshee/script/templates/she_proves/confusor_sports_tv_yelling.j2
+script_slots:
+  sport: football
+  team: Maccabi_Tel_Aviv
+  match_moment: last_minute_goal
+intensity_arc: [1, 2, 3, 4, 4, 2, 1]
+target_duration_minutes: 3.0
+acoustic_scene:
+  room_type: living_room
+  device: phone_in_hand
+  speaker_distance_meters: 2.0
+  victim_distance_meters: 1.8
+  snr_target_db: 16
+  rt60_range: [0.28, 0.50]
+  background_events:
+    - type: tv_ambient
+      onset_seconds: 0.0
+      level_db: -22
+      loop: true
+output_dir: data/he

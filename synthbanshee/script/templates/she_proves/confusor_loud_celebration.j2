@@ -1,0 +1,36 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — loud celebration (birthday, promotion, good news); joyful shouting.
+   Typology: NEG  Slots: occasion, participants
+   Purpose: hard negative — peak volume + rapid speech + exclamations; no violence.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Loud Celebration
+Occasion:          {{ script_slots.get('occasion', 'job_promotion') }}
+Participants:      {{ script_slots.get('participants', 'couple') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (loud throughout; sustained positive excitement)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The couple is celebrating good news or a milestone together at home.
+  1. Announcement — one partner delivers the good news with excitement.
+  2. Reaction — the other partner reacts with loud joy; both speak rapidly and overlap.
+  3. Celebration — toasts, exclamations, physical energy communicated through speech pace.
+  4. Planning / reflection — still elevated but more conversational as they absorb the news.
+IMPORTANT: sustained high vocal energy is deliberate. A classifier that flags sustained
+loud speech as violence will fail on this clip. Both speakers are joyful throughout.
+
+{{ common_rules(target_duration_minutes, [
+  "Include Hebrew celebration phrases (מזל טוב, כל הכבוד, אני לא מאמין/ת).",
+  "Overlapping speech is natural — neither speaker waits for the other to finish.",
+  "No negative content whatsoever — this is pure positive emotional noise."
+]) }}
+{{ output_format() }}
