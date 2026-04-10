@@ -1159,6 +1159,89 @@ class TestGenerateBatchParallel:
         assert result.exit_code != 0
         assert "fail_fast" in result.output.lower() or "aborting" in result.output.lower()
 
+    def test_parallel_failure_without_fail_fast(self, tmp_path):
+        """Parallel path with fail_fast=false and a failing clip: covers the
+        False branch of 'if run_cfg.fail_fast:' inside the lock block (762->752)."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        self._write_neu_scene(scenes_dir, 0)  # only 1 scene → 1 future
+
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )  # fail_fast: false (default in template)
+
+        with patch(
+            "synthbanshee.cli._run_generate_pipeline",
+            return_value=(None, ["render error"]),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--workers",
+                    "2",
+                ],
+            )
+
+        assert result.exit_code != 0
+
+    def test_parallel_subsequent_failures_after_stop_event(self, tmp_path):
+        """When fail_fast=true in parallel mode and 3 clips all fail, the first
+        failure sets stop_event; the remaining failures are processed with
+        stop_event already set, exercising the elif False branch (766->752)."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        for i in range(3):
+            self._write_neu_scene(scenes_dir, i)
+
+        # count: 3 so all three scenes are selected and submitted as futures
+        run_cfg_yaml = (
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            )
+            .replace("count: 2", "count: 3")
+            .replace("fail_fast: false", "fail_fast: true")
+        )
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(run_cfg_yaml, encoding="utf-8")
+
+        # Patch _render_one directly so all three futures return immediately and
+        # deterministically with a failure, regardless of stop_event state.
+        with patch(
+            "synthbanshee.cli._render_one",
+            return_value=(None, ["render failed"]),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--workers",
+                    "3",
+                ],
+            )
+
+        assert result.exit_code != 0
+
 
 # ---------------------------------------------------------------------------
 # _render_one — direct unit tests
