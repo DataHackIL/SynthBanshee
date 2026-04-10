@@ -1157,7 +1157,7 @@ class TestRunGeneratePipelineTierB:
         scene = meta["acoustic_scene"]
         assert scene["room_type"] == "small_bedroom"
         assert scene["device"] == "phone_in_hand"
-        assert scene["ir_source"] == "pyroomacoustics"  # value from AcousticSceneConfig default
+        assert scene["ir_source"] == "pyroomacoustics_ism"
         assert scene["speaker_distance_meters"] == 1.5
 
     def test_tier_b_snr_db_actual_in_metadata(self, tmp_path):
@@ -1252,3 +1252,24 @@ class TestRunGeneratePipelineTierB:
         assert wav is not None, errors
         data, _ = _sf.read(str(wav))
         assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_pad_regions_zeroed_after_augmentation(self, tmp_path):
+        """Ambient energy in silence-pad regions is zeroed before write-back.
+
+        Covers the validate_audio() head/tail silence requirement: even when
+        NoiseMixer fills the entire clip (including padding) with ambient noise,
+        the written WAV must have silence in the first/last 0.5 s.
+        """
+        import soundfile as _sf
+
+        sr = 16_000
+        pad = int(0.5 * sr)
+        total = sr * 6  # 6 s preprocessed length
+        # Build audio where the pad regions are NOT silent — simulating ambient bleed
+        noisy_pad_audio = np.full(total, 0.1, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=noisy_pad_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
+        # First and last 0.5 s must be silent after Stage 3 pad-zeroing
+        assert np.all(data[:pad] == 0.0), "head pad should be zeroed"
+        assert np.all(data[-pad:] == 0.0), "tail pad should be zeroed"

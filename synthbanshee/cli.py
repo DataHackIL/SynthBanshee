@@ -219,6 +219,13 @@ def _run_generate_pipeline(
                     _np.float32
                 )
 
+            # Restore silence padding regions that ambient mixing or room reverb tails
+            # may have contaminated.  validate_audio() requires the first and last
+            # silence_pad_applied_s seconds to remain below −40 dBFS.
+            pad_n = int(result.silence_pad_applied_s * audio_sr)
+            aug_samples[:pad_n] = 0.0
+            aug_samples[-pad_n:] = 0.0
+
             # Peak-normalize augmented signal to −1.0 dBFS
             peak = float(_np.max(_np.abs(aug_samples)))
             if peak > 0.0:
@@ -226,11 +233,10 @@ def _run_generate_pipeline(
                 aug_samples = (aug_samples * (target_peak / peak)).astype(_np.float32)
             _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
 
-            ir_src = getattr(scene.acoustic_scene, "ir_source", None) or "pyroomacoustics_ism"
             acoustic_scene_meta = ClipAcousticScene(
                 room_type=scene.acoustic_scene.room_type,
                 device=scene.acoustic_scene.device,
-                ir_source=ir_src,
+                ir_source="pyroomacoustics_ism",
                 speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
                 snr_db_actual=round(snr_actual, 2),
                 background_events=[
