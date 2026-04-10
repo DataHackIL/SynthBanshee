@@ -1,0 +1,43 @@
+scene_id: EL_IT_B_0001
+project: elephant_in_the_room
+language: he
+violence_typology: IT
+tier: B
+random_seed: 201
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/it_benefits_denial_escalation.j2
+script_slots:
+  scene_type: intake_interview
+  dispute_subject: disability_allowance
+  office_setting: clinic_office
+  trigger: repeated_denial
+intensity_arc: [1, 2, 3, 4, 5]
+elephant:
+  scene_type: intake_interview
+  alert_triggered: true
+  alert_at_phase: peak
+  alert_onset_fraction: 0.68
+  attack_type: PHYS_SOFT
+target_duration_minutes: 2.0
+min_pre_alert_seconds: 50
+acoustic_scene:
+  room_type: clinic_office
+  device: pi_budget_mic
+  speaker_distance_meters: 1.0
+  victim_distance_meters: 0.7
+  snr_target_db: 24
+  rt60_range: [0.14, 0.26]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -42
+      loop: true
+    - type: ACOU_SLAM
+      onset_at_phase: peak
+      onset_offset_seconds: 2.0
+      asset_path: null
+output_dir: data/he

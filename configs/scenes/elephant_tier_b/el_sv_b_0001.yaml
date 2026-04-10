@@ -1,0 +1,47 @@
+scene_id: EL_SV_B_0001
+project: elephant_in_the_room
+language: he
+violence_typology: SV
+tier: B
+random_seed: 101
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/sv_physical_threat_to_worker.j2
+script_slots:
+  scene_type: benefits_dispute
+  dispute_subject: housing_assistance
+  office_setting: clinic_office
+  trigger: application_denied
+intensity_arc: [1, 2, 3, 4, 5]
+elephant:
+  scene_type: benefits_dispute
+  alert_triggered: true
+  alert_at_phase: peak
+  alert_onset_fraction: 0.65
+  attack_type: PHYS_HARD
+target_duration_minutes: 2.5
+min_pre_alert_seconds: 60
+acoustic_scene:
+  room_type: clinic_office
+  device: pi_budget_mic
+  speaker_distance_meters: 1.2
+  victim_distance_meters: 0.8
+  snr_target_db: 22
+  rt60_range: [0.15, 0.28]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -40
+      loop: true
+    - type: ACOU_SLAM
+      onset_at_phase: escalation
+      onset_offset_seconds: 6.0
+      asset_path: null
+    - type: ACOU_FALL
+      onset_at_phase: peak
+      onset_offset_seconds: 2.0
+      asset_path: null
+output_dir: data/he

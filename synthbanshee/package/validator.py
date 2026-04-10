@@ -52,6 +52,7 @@ def validate_clip(clip_path: Path | str) -> ValidationResult:
     parent = clip_path.parent
     txt_path = parent / f"{stem}.txt"
     json_path = parent / f"{stem}.json"
+    jsonl_path = parent / f"{stem}.jsonl"
 
     # ------------------------------------------------------------------
     # 1. Filename constraints (spec §2.5)
@@ -109,6 +110,12 @@ def validate_clip(clip_path: Path | str) -> ValidationResult:
         txt_path.read_text(encoding="utf-8")
     except Exception as exc:
         errors.append(f"Cannot read transcript: {exc}")
+
+    # ------------------------------------------------------------------
+    # 6. Strong labels JSONL (warning only — not a hard spec requirement)
+    # ------------------------------------------------------------------
+    if not jsonl_path.exists():
+        warnings.append(f"Strong labels JSONL missing: {jsonl_path}")
 
     return ValidationResult(
         is_valid=len(errors) == 0,

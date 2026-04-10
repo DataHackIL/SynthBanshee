@@ -1253,6 +1253,19 @@ class TestRunGeneratePipelineTierB:
         data, _ = _sf.read(str(wav))
         assert abs(len(data) / sr - 6.0) < 0.05
 
+    def test_tier_b_strong_labels_jsonl_written(self, tmp_path):
+        """Stage 7b writes a .jsonl strong-labels file alongside the clip WAV."""
+        wav, errors = self._run_tier_b(tmp_path)
+        assert wav is not None, errors
+        jsonl_path = wav.with_suffix(".jsonl")
+        assert jsonl_path.exists(), f"Expected strong labels JSONL at {jsonl_path}"
+        # Each line must be valid JSON
+        import json as _json
+
+        lines = jsonl_path.read_text(encoding="utf-8").strip().splitlines()
+        for line in lines:
+            _json.loads(line)  # raises on malformed JSON
+
     def test_tier_b_pad_regions_zeroed_after_augmentation(self, tmp_path):
         """Ambient energy in silence-pad regions is zeroed before write-back.
 

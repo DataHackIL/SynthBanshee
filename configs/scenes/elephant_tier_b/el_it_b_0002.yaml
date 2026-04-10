@@ -1,0 +1,47 @@
+scene_id: EL_IT_B_0002
+project: elephant_in_the_room
+language: he
+violence_typology: IT
+tier: B
+random_seed: 202
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/it_child_custody_confrontation.j2
+script_slots:
+  scene_type: benefits_dispute
+  dispute_subject: child_custody_order
+  office_setting: welfare_office
+  trigger: court_order_served
+intensity_arc: [2, 3, 4, 5, 4]
+elephant:
+  scene_type: benefits_dispute
+  alert_triggered: true
+  alert_at_phase: peak
+  alert_onset_fraction: 0.62
+  attack_type: PHYS_HARD
+target_duration_minutes: 2.5
+min_pre_alert_seconds: 55
+acoustic_scene:
+  room_type: welfare_office
+  device: pi_budget_mic
+  speaker_distance_meters: 1.3
+  victim_distance_meters: 0.9
+  snr_target_db: 21
+  rt60_range: [0.16, 0.30]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -40
+      loop: true
+    - type: ACOU_FOOT
+      onset_at_phase: escalation
+      onset_offset_seconds: 3.0
+      asset_path: null
+    - type: ACOU_SLAM
+      onset_at_phase: peak
+      onset_offset_seconds: 1.0
+      asset_path: null
+output_dir: data/he

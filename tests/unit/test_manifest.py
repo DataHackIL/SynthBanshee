@@ -103,6 +103,7 @@ class TestManifestRow:
             quality_flags="",
             split="train",
             wav_path="data/he/test_clip.wav",
+            strong_labels_path="",
         )
         assert row.clip_id == "test_clip"
         assert row.split == "train"
@@ -257,6 +258,27 @@ class TestGenerateManifest:
         rows = generate_manifest(tmp_path, out, clip_ids=None)
 
         assert {r.clip_id for r in rows} == {"clip_a_00", "clip_b_00"}
+
+    def test_strong_labels_path_populated_when_jsonl_exists(self, tmp_path):
+        """strong_labels_path is the .jsonl path when the file exists alongside the clip."""
+        clip_dir = tmp_path / "spk_000"
+        wav = _write_valid_clip(clip_dir, "clip_000_00")
+        jsonl_path = wav.with_suffix(".jsonl")
+        jsonl_path.write_text('{"clip_id":"clip_000_00"}\n', encoding="utf-8")
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out)
+
+        assert rows[0].strong_labels_path == str(jsonl_path)
+
+    def test_strong_labels_path_empty_when_jsonl_absent(self, tmp_path):
+        """strong_labels_path is empty string when no .jsonl exists alongside the clip."""
+        _write_valid_clip(tmp_path / "spk_000", "clip_000_00")
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out)
+
+        assert rows[0].strong_labels_path == ""
 
     def test_json_without_sibling_wav_is_skipped(self, tmp_path):
         """A metadata JSON whose sibling .wav does not exist is excluded from the manifest."""

@@ -320,6 +320,10 @@ def _run_generate_pipeline(
 
     event_labels = label_gen.generate_event_labels(f"{clip_id}_00", events)
 
+    # 7b. Write per-clip strong labels JSONL alongside the WAV
+    clip_jsonl = speaker_dir / f"{clip_id}_00.jsonl"
+    label_gen.write_strong_labels_jsonl(event_labels, clip_jsonl)
+
     # 8. Write clip metadata JSON
     speakers_meta = [
         SpeakerInfo(
