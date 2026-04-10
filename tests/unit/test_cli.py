@@ -1077,6 +1077,7 @@ class TestRunGeneratePipelineTierB:
         snr_actual: float = 12.0,
         aug_side_effect=None,
         aug_all_zeros: bool = False,
+        aug_audio_override: np.ndarray | None = None,
     ):
         """Helper: run Tier B pipeline with mocked TTS + mocked augmentation stack.
 
@@ -1094,7 +1095,9 @@ class TestRunGeneratePipelineTierB:
         pad = int(0.5 * sr)
         # Build aug_audio to match the preprocessed WAV length (6 s = 5 s + 2 × 0.5 s pad).
         total = mixed.samples.shape[0] + 2 * pad  # 6 × 16 000 = 96 000 samples
-        if aug_all_zeros:
+        if aug_audio_override is not None:
+            aug_audio = aug_audio_override
+        elif aug_all_zeros:
             aug_audio = np.zeros(total, dtype=np.float32)
         else:
             aug_audio = np.zeros(total, dtype=np.float32)
@@ -1224,4 +1227,28 @@ class TestRunGeneratePipelineTierB:
         assert wav is not None, errors
         data, sr = _sf.read(str(wav))
         # Preprocessed duration = MixedScene 5 s + 2 × 0.5 s pad = 6 s
+        assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_aug_samples_trimmed_when_too_long(self, tmp_path):
+        """aug_samples longer than the input WAV are trimmed to n_orig (line 215-216)."""
+        import soundfile as _sf
+
+        sr = 16_000
+        # 7 s > 6 s expected preprocessed length — exercises the > n_orig trim branch
+        long_audio = np.zeros(sr * 7, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=long_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
+        assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_aug_samples_padded_when_too_short(self, tmp_path):
+        """aug_samples shorter than the input WAV are zero-padded to n_orig (line 217-220)."""
+        import soundfile as _sf
+
+        sr = 16_000
+        # 3 s < 6 s expected preprocessed length — exercises the < n_orig pad branch
+        short_audio = np.zeros(sr * 3, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=short_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
         assert abs(len(data) / sr - 6.0) < 0.05
