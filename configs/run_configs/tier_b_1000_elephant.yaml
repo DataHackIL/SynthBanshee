@@ -1,0 +1,37 @@
+# Phase 2 — Tier B generation run: Elephant in the Room project
+# Target: 1 000 acoustically augmented clips (room IR + device profile + noise mix).
+# Scene configs must exist in scene_configs_dir before running.
+# Each scene config must include an acoustic_scene block (required for Tier B).
+# See docs/implementation_plan.md §2 for scale targets.
+#
+# Elephant scenes: 1–4 min, pi_budget_mic device profile.
+# Room types: clinic_office, welfare_office, open_office_corridor.
+
+run_id: tier_b_1000_elephant
+project: elephant_in_the_room
+tier: B
+language: he
+random_seed: 17
+output_dir: data/he
+scene_configs_dir: configs/scenes/elephant_tier_b
+
+# --- Per-typology clip count targets (total: 1 000) ---
+targets:
+  - violence_typology: SV    # Situational Violence (client attacks worker)
+    count: 300
+  - violence_typology: IT    # Intimidation / verbal threat escalation
+    count: 300
+  - violence_typology: NEG   # Negative / animated-but-non-violent confusor
+    count: 300
+  - violence_typology: NEU   # Neutral / routine intake sessions
+    count: 100
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false

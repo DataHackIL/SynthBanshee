@@ -1030,3 +1030,246 @@ class TestDeriveEventType:
     def test_unknown_typology_defaults_to_ambient(self):
         t1, t2 = _derive_event_type("UNKNOWN", 3)
         assert t1 == "NONE" and t2 == "NONE_AMBIENT"
+
+
+# ---------------------------------------------------------------------------
+# Tier B pipeline — Stage 3 acoustic augmentation branch
+# ---------------------------------------------------------------------------
+
+_TIER_B_SCENE_YAML = """\
+scene_id: SP_SV_B_TEST01
+project: she_proves
+language: he
+violence_typology: SV
+tier: B
+random_seed: 0
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+script_template: synthbanshee/script/templates/she_proves/neutral_domestic_routine.j2
+script_slots: {}
+intensity_arc: [2, 3, 5]
+target_duration_minutes: 3.0
+acoustic_scene:
+  room_type: small_bedroom
+  device: phone_in_hand
+  speaker_distance_meters: 1.5
+  victim_distance_meters: 1.0
+  snr_target_db: 15
+output_dir: data/he
+"""
+
+
+def _make_tier_b_scene_yaml(tmp_path: Path) -> Path:
+    p = tmp_path / "tier_b_scene.yaml"
+    p.write_text(_TIER_B_SCENE_YAML, encoding="utf-8")
+    return p
+
+
+class TestRunGeneratePipelineTierB:
+    """Cover the Stage 3 acoustic augmentation branch in _run_generate_pipeline."""
+
+    def _run_tier_b(
+        self,
+        tmp_path: Path,
+        *,
+        aug_events=None,
+        snr_actual: float = 12.0,
+        aug_side_effect=None,
+        aug_all_zeros: bool = False,
+        aug_audio_override: np.ndarray | None = None,
+    ):
+        """Helper: run Tier B pipeline with mocked TTS + mocked augmentation stack.
+
+        Returns (wav_path, errors).
+        """
+        from synthbanshee.augment.types import AugmentedEvent
+
+        if aug_events is None:
+            aug_events = []
+
+        turns = _make_dialogue_turns(n=1, intensity=3)
+        # MixedScene duration is 5 s; preprocess() adds 0.5 s pad at each end → 6 s WAV.
+        mixed = _make_mixed_scene(duration_s=5.0, n_turns=1)
+        sr = 16_000
+        pad = int(0.5 * sr)
+        # Build aug_audio to match the preprocessed WAV length (6 s = 5 s + 2 × 0.5 s pad).
+        total = mixed.samples.shape[0] + 2 * pad  # 6 × 16 000 = 96 000 samples
+        if aug_audio_override is not None:
+            aug_audio = aug_audio_override
+        elif aug_all_zeros:
+            aug_audio = np.zeros(total, dtype=np.float32)
+        else:
+            aug_audio = np.zeros(total, dtype=np.float32)
+            t = np.arange(total - 2 * pad, dtype=np.float32) / sr
+            aug_audio[pad : total - pad] = 0.5 * np.sin(2 * np.pi * 440 * t)
+            peak = float(np.max(np.abs(aug_audio)))
+            if peak > 0.0:
+                aug_audio = (aug_audio * (10.0 ** (-1.0 / 20.0) / peak)).astype(np.float32)
+
+        mock_aug_events = [
+            AugmentedEvent(
+                type=ev["type"],
+                onset_s=ev["onset_s"],
+                offset_s=ev["offset_s"],
+                level_db=ev["level_db"],
+            )
+            for ev in aug_events
+        ]
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+            patch("synthbanshee.augment.room_sim.RoomSimulator") as MockRoom,
+            patch("synthbanshee.augment.device_profiles.DeviceProfiler") as MockDevice,
+            patch("synthbanshee.augment.noise_mixer.NoiseMixer") as MockMixer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            MockRoom.return_value.apply.return_value = aug_audio
+            MockDevice.return_value.apply.return_value = aug_audio
+            if aug_side_effect is not None:
+                MockMixer.return_value.mix.side_effect = aug_side_effect
+            else:
+                MockMixer.return_value.mix.return_value = (aug_audio, mock_aug_events, snr_actual)
+
+            wav, errors = _run_generate_pipeline(
+                _make_tier_b_scene_yaml(tmp_path),
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+        return wav, errors
+
+    def test_tier_b_pipeline_succeeds(self, tmp_path):
+        """Tier B pipeline with mocked augmentation stack completes without error."""
+        wav, errors = self._run_tier_b(tmp_path)
+        assert wav is not None, errors
+
+    def test_tier_b_acoustic_scene_in_metadata(self, tmp_path):
+        """acoustic_scene block in metadata JSON contains room_type, device, ir_source."""
+        wav, errors = self._run_tier_b(tmp_path)
+        assert wav is not None, errors
+        json_path = wav.with_suffix(".json")
+        assert json_path.exists()
+        meta = json.loads(json_path.read_text(encoding="utf-8"))
+        scene = meta["acoustic_scene"]
+        assert scene["room_type"] == "small_bedroom"
+        assert scene["device"] == "phone_in_hand"
+        assert scene["ir_source"] == "pyroomacoustics_ism"
+        assert scene["speaker_distance_meters"] == 1.5
+
+    def test_tier_b_snr_db_actual_in_metadata(self, tmp_path):
+        """snr_db_actual is populated in acoustic_scene metadata for Tier B clips."""
+        wav, errors = self._run_tier_b(tmp_path, snr_actual=14.75)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["acoustic_scene"]["snr_db_actual"] == 14.75
+
+    def test_tier_b_acou_sfx_appear_in_weak_label(self, tmp_path):
+        """ACOU_* SFX from Stage 3 contribute 'ACOU' to weak_label.violence_categories."""
+        aug_events = [
+            {"type": "ACOU_SLAM", "onset_s": 2.5, "offset_s": 2.9, "level_db": -18.0},
+        ]
+        wav, errors = self._run_tier_b(tmp_path, aug_events=aug_events)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert "ACOU" in meta["weak_label"]["violence_categories"]
+
+    def test_tier_b_ambient_events_not_in_weak_label(self, tmp_path):
+        """Non-ACOU ambient events (tv_ambient) are NOT added as ScriptEvents."""
+        # tv_ambient is not an ACOU_* event so it should not appear in violence_categories
+        aug_events = [
+            {"type": "tv_ambient", "onset_s": 0.0, "offset_s": 5.0, "level_db": -30.0},
+        ]
+        wav, errors = self._run_tier_b(tmp_path, aug_events=aug_events)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        # ACOU should NOT appear (only VERB from the SV speech turns at intensity 3)
+        assert "ACOU" not in meta["weak_label"]["violence_categories"]
+
+    def test_tier_b_augmentation_error_returns_error(self, tmp_path):
+        """When Stage 3 augmentation raises, pipeline returns (None, [augmentation error])."""
+        wav, errors = self._run_tier_b(
+            tmp_path,
+            aug_side_effect=RuntimeError("pyroomacoustics simulation failed"),
+        )
+        assert wav is None
+        assert any("Acoustic augmentation error" in e for e in errors)
+
+    def test_tier_b_silent_augmented_output_skips_normalization(self, tmp_path):
+        """When NoiseMixer returns all-zero audio, peak==0 branch is skipped gracefully."""
+        # Covers the `if peak > 0.0` False branch (line 209 in cli.py)
+        wav, errors = self._run_tier_b(tmp_path, aug_all_zeros=True)
+        assert wav is not None, errors
+        # WAV must still exist and be the correct length (not crash on zero-peak input)
+        import soundfile as _sf
+
+        data, sr = _sf.read(str(wav))
+        assert len(data) > 0
+
+    def test_tier_b_unknown_acou_type_is_dropped(self, tmp_path):
+        """ACOU_* events with unrecognised tier2 codes are dropped, not propagated as labels."""
+        aug_events = [
+            {"type": "ACOU_UNKNOWN_XYZ", "onset_s": 1.0, "offset_s": 1.5, "level_db": -20.0},
+        ]
+        wav, errors = self._run_tier_b(tmp_path, aug_events=aug_events)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert "ACOU" not in meta["weak_label"]["violence_categories"]
+
+    def test_tier_b_output_wav_length_preserved(self, tmp_path):
+        """Stage 3 write-back keeps the WAV at exactly the preprocessed length."""
+        import soundfile as _sf
+
+        wav, errors = self._run_tier_b(tmp_path)
+        assert wav is not None, errors
+        data, sr = _sf.read(str(wav))
+        # Preprocessed duration = MixedScene 5 s + 2 × 0.5 s pad = 6 s
+        assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_aug_samples_trimmed_when_too_long(self, tmp_path):
+        """aug_samples longer than the input WAV are trimmed to n_orig (line 215-216)."""
+        import soundfile as _sf
+
+        sr = 16_000
+        # 7 s > 6 s expected preprocessed length — exercises the > n_orig trim branch
+        long_audio = np.zeros(sr * 7, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=long_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
+        assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_aug_samples_padded_when_too_short(self, tmp_path):
+        """aug_samples shorter than the input WAV are zero-padded to n_orig (line 217-220)."""
+        import soundfile as _sf
+
+        sr = 16_000
+        # 3 s < 6 s expected preprocessed length — exercises the < n_orig pad branch
+        short_audio = np.zeros(sr * 3, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=short_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
+        assert abs(len(data) / sr - 6.0) < 0.05
+
+    def test_tier_b_pad_regions_zeroed_after_augmentation(self, tmp_path):
+        """Ambient energy in silence-pad regions is zeroed before write-back.
+
+        Covers the validate_audio() head/tail silence requirement: even when
+        NoiseMixer fills the entire clip (including padding) with ambient noise,
+        the written WAV must have silence in the first/last 0.5 s.
+        """
+        import soundfile as _sf
+
+        sr = 16_000
+        pad = int(0.5 * sr)
+        total = sr * 6  # 6 s preprocessed length
+        # Build audio where the pad regions are NOT silent — simulating ambient bleed
+        noisy_pad_audio = np.full(total, 0.1, dtype=np.float32)
+        wav, errors = self._run_tier_b(tmp_path, aug_audio_override=noisy_pad_audio)
+        assert wav is not None, errors
+        data, _ = _sf.read(str(wav))
+        # First and last 0.5 s must be silent after Stage 3 pad-zeroing
+        assert np.all(data[:pad] == 0.0), "head pad should be zeroed"
+        assert np.all(data[-pad:] == 0.0), "tail pad should be zeroed"
