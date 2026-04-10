@@ -932,6 +932,235 @@ class TestGenerateBatchAdvanced:
 
 
 # ---------------------------------------------------------------------------
+# generate-batch — parallel workers (--workers / -j)
+# ---------------------------------------------------------------------------
+
+
+class TestGenerateBatchParallel:
+    """Tests for --workers N parallel rendering path."""
+
+    def _write_neu_scene(self, scenes_dir: Path, idx: int) -> Path:
+        import yaml as _yaml
+
+        scene = {
+            "scene_id": f"SP_NEU_A_{idx:04d}",
+            "project": "she_proves",
+            "language": "he",
+            "violence_typology": "NEU",
+            "tier": "A",
+            "random_seed": idx,
+            "speakers": [{"speaker_id": "AGG_M_30-45_001", "role": "AGG"}],
+            "script_template": "synthbanshee/script/templates/she_proves/neutral_domestic_routine.j2",
+            "script_slots": {},
+            "intensity_arc": [1, 1, 1],
+            "target_duration_minutes": 3.0,
+            "output_dir": "data/he",
+        }
+        p = scenes_dir / f"scene_{idx:03d}.yaml"
+        p.write_text(_yaml.dump(scene), encoding="utf-8")
+        return p
+
+    def test_workers_flag_renders_all_clips(self, tmp_path):
+        """--workers 2 renders all clips and writes a manifest, same as sequential."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        for i in range(4):
+            self._write_neu_scene(scenes_dir, i)
+
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+        manifest_path = tmp_path / "manifest.csv"
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--manifest-out",
+                    str(manifest_path),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                    "--workers",
+                    "2",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Manifest written" in result.output
+        assert manifest_path.exists()
+
+    def test_workers_shortflag(self, tmp_path):
+        """-j 2 is accepted as an alias for --workers 2."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        self._write_neu_scene(scenes_dir, 0)
+
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                    "-j",
+                    "2",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Manifest written" in result.output
+
+    def test_parallel_workers_log_message(self, tmp_path):
+        """--workers N > 1 prints a parallel rendering notice."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        self._write_neu_scene(scenes_dir, 0)
+
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                    "--workers",
+                    "3",
+                ],
+            )
+
+        assert "3 workers" in result.output
+
+    def test_workers_invalid_zero_rejected(self, tmp_path):
+        """--workers 0 is rejected by Click (IntRange min=1)."""
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(tmp_path / "scenes"),
+            ),
+            encoding="utf-8",
+        )
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "generate-batch",
+                "--run-config",
+                str(run_cfg),
+                "--workers",
+                "0",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_fail_fast_parallel_aborts(self, tmp_path):
+        """fail_fast=true with --workers 2 aborts after first failure."""
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        for i in range(3):
+            self._write_neu_scene(scenes_dir, i)
+
+        run_cfg_yaml = _BATCH_RUN_CONFIG_TEMPLATE.format(
+            output_dir=str(tmp_path / "out"),
+            scene_configs_dir=str(scenes_dir),
+        ).replace("fail_fast: false", "fail_fast: true")
+        run_cfg = tmp_path / "run.yaml"
+        run_cfg.write_text(run_cfg_yaml, encoding="utf-8")
+
+        with patch(
+            "synthbanshee.cli._run_generate_pipeline",
+            return_value=(None, ["render failed"]),
+        ):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--workers",
+                    "2",
+                ],
+            )
+
+        assert result.exit_code != 0
+        assert "fail_fast" in result.output.lower() or "aborting" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
 # _run_generate_pipeline — primary speaker path (line 61 False branch)
 # ---------------------------------------------------------------------------
 

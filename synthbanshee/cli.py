@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
@@ -537,6 +539,32 @@ def _select_configs_by_typology(
     return selected
 
 
+def _render_one(
+    scene_yaml: Path,
+    out_dir: Path,
+    cache_dir: Path,
+    dirty_dir: Path,
+    script_cache_dir: Path,
+    max_retries: int,
+    stop_event: threading.Event,
+) -> tuple[Path | None, list[str]]:
+    """Render a single clip with retries.  Thread-safe — no shared mutable state.
+
+    Returns (wav_path, messages).  Returns (None, messages) on exhausted retries
+    or if *stop_event* is set before the first attempt.
+    """
+    messages: list[str] = []
+    for _attempt in range(max_retries):
+        if stop_event.is_set():
+            return None, ["cancelled"]
+        wav_path, messages = _run_generate_pipeline(
+            scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir
+        )
+        if wav_path is not None:
+            return wav_path, messages
+    return None, messages
+
+
 @cli.command("generate-batch")
 @click.option(
     "--run-config",
@@ -586,6 +614,14 @@ def _select_configs_by_typology(
     default=False,
     help="Discover and count scene configs without rendering.",
 )
+@click.option(
+    "--workers",
+    "-j",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="Number of parallel worker threads for clip rendering.",
+)
 def generate_batch(
     run_config: Path,
     output_dir: Path | None,
@@ -594,6 +630,7 @@ def generate_batch(
     script_cache_dir: Path,
     manifest_out: Path | None,
     dry_run: bool,
+    workers: int,
 ) -> None:
     """Run a full batch generation from a run configuration YAML.
 
@@ -641,9 +678,14 @@ def generate_batch(
     out_dir = Path(output_dir or run_cfg.output_dir)
     manifest_path = manifest_out or (out_dir / "manifest.csv")
 
-    # --- Render loop ---
+    if workers > 1:
+        console.print(f"[cyan]Parallel rendering:[/cyan] {workers} workers")
+
+    # --- Render loop (thread-pool; workers=1 gives sequential behaviour) ---
     succeeded: list[Path] = []
     failed: list[tuple[Path, list[str]]] = []
+    stop_event = threading.Event()
+    lock = threading.Lock()
 
     with Progress(
         SpinnerColumn(),
@@ -653,29 +695,45 @@ def generate_batch(
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Rendering clips", total=len(selected))
-        for scene_yaml in selected:
-            wav_path: Path | None = None
-            messages: list[str] = []
-            for _attempt in range(run_cfg.max_retries):
-                wav_path, messages = _run_generate_pipeline(
-                    scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir
-                )
-                if wav_path is not None:
-                    break
-            if wav_path is None:
-                failed.append((scene_yaml, messages))
-                if run_cfg.fail_fast:
-                    progress.stop()
-                    console.print(
-                        f"[red]fail_fast: aborting after failure on {scene_yaml.name}[/red]"
-                    )
-                    for msg in messages:
-                        console.print(f"  [red]• {msg}[/red]")
-                    sys.exit(1)
-            else:
-                succeeded.append(wav_path)
-            progress.advance(task)
+        task_id = progress.add_task("Rendering clips", total=len(selected))
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_scene = {
+                executor.submit(
+                    _render_one,
+                    scene_yaml,
+                    out_dir,
+                    cache_dir,
+                    dirty_dir,
+                    script_cache_dir,
+                    run_cfg.max_retries,
+                    stop_event,
+                ): scene_yaml
+                for scene_yaml in selected
+            }
+
+            for future in as_completed(future_to_scene):
+                scene_yaml = future_to_scene[future]
+                wav_path, messages = future.result()
+                progress.advance(task_id)
+
+                with lock:
+                    if wav_path is None and not stop_event.is_set():
+                        failed.append((scene_yaml, messages))
+                        if run_cfg.fail_fast:
+                            stop_event.set()
+                            # cancel futures that have not started yet
+                            for f in future_to_scene:
+                                f.cancel()
+                    elif wav_path is not None:
+                        succeeded.append(wav_path)
+
+    if stop_event.is_set() and failed:
+        scene_yaml, messages = failed[0]
+        console.print(f"[red]fail_fast: aborting after failure on {scene_yaml.name}[/red]")
+        for msg in messages:
+            console.print(f"  [red]• {msg}[/red]")
+        sys.exit(1)
 
     # --- Split assignment ---
     from synthbanshee.labels.schema import ClipMetadata
