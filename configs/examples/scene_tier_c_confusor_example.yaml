@@ -37,7 +37,7 @@ acoustic_scene:
   room_type: apartment_living_room
   device: phone_on_table
   speaker_distance_meters: 2.0
-  ir_source: pyroomacoustics
+  ir_source: pyroomacoustics_ism
   room_dimensions_range:
     min: [4.0, 3.5, 2.4]
     max: [6.0, 5.0, 2.8]

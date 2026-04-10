@@ -277,7 +277,7 @@ Each template defines:
 
 **Acceptance criteria:** QA suite passes with < 1% clip failure rate; statistics report shows balanced distribution across stratification variables; AI teams confirm they can load the dataset.
 
-**✓ Complete** — `run_qa()` in `synthbanshee/package/qa.py` validates every clip via `validate_clip()`, re-parses `ClipMetadata`, accumulates `DatasetStats` (total/failed clips, duration, typology/split/speaker counts, quality-flagged clips), and returns a `QAReport` (pass/fail based on configurable `max_failure_rate`, default 2%). `qa-report` CLI command prints a Rich table summary and optionally writes a JSON report file; exits 1 if the report fails. `generate_manifest()` in `synthbanshee/package/manifest.py` produces a flat CSV with 11 columns (clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path).
+**✓ Complete** — `run_qa()` in `synthbanshee/package/qa.py` validates every clip via `validate_clip()`, re-parses `ClipMetadata`, accumulates `DatasetStats` (total/failed clips, duration, typology/split/speaker counts, quality-flagged clips), and returns a `QAReport` (pass/fail based on configurable `max_failure_rate`, default 2%). `qa-report` CLI command prints a Rich table summary and optionally writes a JSON report file; exits 1 if the report fails. `generate_manifest()` in `synthbanshee/package/manifest.py` produces a flat CSV with 12 columns (clip_id, project, violence_typology, tier, duration_seconds, speaker_ids, has_violence, max_intensity, quality_flags, split, wav_path, strong_labels_path).
 
 ---
 

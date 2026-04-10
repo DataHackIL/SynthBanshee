@@ -236,7 +236,7 @@ def _run_generate_pipeline(
             acoustic_scene_meta = ClipAcousticScene(
                 room_type=scene.acoustic_scene.room_type,
                 device=scene.acoustic_scene.device,
-                ir_source="pyroomacoustics_ism",
+                ir_source=scene.acoustic_scene.ir_source,
                 speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
                 snr_db_actual=round(snr_actual, 2),
                 background_events=[

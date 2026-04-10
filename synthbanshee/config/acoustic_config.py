@@ -58,7 +58,7 @@ class AcousticSceneConfig(BaseModel):
     device: str
     speaker_distance_meters: float = Field(gt=0)
     victim_distance_meters: float = Field(gt=0)
-    ir_source: str = "pyroomacoustics"
+    ir_source: str = "pyroomacoustics_ism"
     room_dimensions_range: RoomDimensionsRange | None = None
     rt60_range: Annotated[list[float], Field(min_length=2, max_length=2)] | None = None
     background_events: list[BackgroundEvent] = Field(default_factory=list)
