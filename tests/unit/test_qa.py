@@ -289,3 +289,26 @@ class TestRunQAMetadataReparseFails:
         assert report.stats.failed_clips == 1
         assert report.stats.total_clips == 0
         assert "clip_001_00" in report.failed_clip_ids
+
+    def test_clips_missing_strong_labels_counted(self, tmp_path):
+        """Clips without a sibling .jsonl increment clips_missing_strong_labels."""
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        # No .jsonl written alongside the clip
+
+        report = run_qa(tmp_path)
+
+        assert report.stats.clips_missing_strong_labels == 1
+        # Missing JSONL is a warning, not a failure — clip still passes
+        assert report.stats.total_clips == 1
+        assert report.stats.failed_clips == 0
+
+    def test_clips_with_strong_labels_not_counted(self, tmp_path):
+        """Clips with a sibling .jsonl do NOT increment clips_missing_strong_labels."""
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        wav.with_suffix(".jsonl").write_text(
+            '{"clip_id":"clip_001_00","onset":0.5,"offset":1.0}\n', encoding="utf-8"
+        )
+
+        report = run_qa(tmp_path)
+
+        assert report.stats.clips_missing_strong_labels == 0

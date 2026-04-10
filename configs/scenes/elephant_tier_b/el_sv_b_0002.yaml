@@ -1,0 +1,47 @@
+scene_id: EL_SV_B_0002
+project: elephant_in_the_room
+language: he
+violence_typology: SV
+tier: B
+random_seed: 102
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/sv_object_brandished.j2
+script_slots:
+  scene_type: crisis_visit
+  dispute_subject: child_welfare_decision
+  office_setting: welfare_office
+  trigger: removal_order
+intensity_arc: [1, 2, 4, 5, 3]
+elephant:
+  scene_type: crisis_visit
+  alert_triggered: true
+  alert_at_phase: peak
+  alert_onset_fraction: 0.60
+  attack_type: PHYS_WEAP
+target_duration_minutes: 3.0
+min_pre_alert_seconds: 60
+acoustic_scene:
+  room_type: welfare_office
+  device: pi_budget_mic
+  speaker_distance_meters: 1.5
+  victim_distance_meters: 1.0
+  snr_target_db: 20
+  rt60_range: [0.18, 0.32]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -38
+      loop: true
+    - type: ACOU_THROW
+      onset_at_phase: escalation
+      onset_offset_seconds: 5.0
+      asset_path: null
+    - type: ACOU_BREAK
+      onset_at_phase: peak
+      onset_offset_seconds: 1.5
+      asset_path: null
+output_dir: data/he

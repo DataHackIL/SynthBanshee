@@ -27,6 +27,7 @@ _MANIFEST_COLUMNS = [
     "quality_flags",
     "split",
     "wav_path",
+    "strong_labels_path",
 ]
 
 
@@ -45,6 +46,7 @@ class ManifestRow:
     quality_flags: str  # comma-separated, empty string if none
     split: str  # "train" | "val" | "test" | "" (empty if unassigned)
     wav_path: str
+    strong_labels_path: str  # path to .jsonl, empty string if absent
 
 
 def generate_manifest(
@@ -90,6 +92,7 @@ def generate_manifest(
         if not json_path.with_suffix(".wav").exists():
             continue
 
+        jsonl_path = json_path.with_suffix(".jsonl")
         rows.append(
             ManifestRow(
                 clip_id=metadata.clip_id,
@@ -103,6 +106,7 @@ def generate_manifest(
                 quality_flags=",".join(metadata.quality_flags),
                 split=(splits or {}).get(metadata.clip_id, ""),
                 wav_path=str(json_path.with_suffix(".wav")),
+                strong_labels_path=str(jsonl_path) if jsonl_path.exists() else "",
             )
         )
 
@@ -124,6 +128,7 @@ def generate_manifest(
                     "quality_flags": row.quality_flags,
                     "split": row.split,
                     "wav_path": row.wav_path,
+                    "strong_labels_path": row.strong_labels_path,
                 }
             )
 

@@ -4,14 +4,17 @@ Runs validate_clip() on every WAV in a data directory and accumulates
 aggregate statistics. Produces a QAReport that AI teams can inspect before
 loading the dataset for training.
 
-Checks performed per clip:
+Checks performed per clip (Stage 5 — Validation):
   1. All three required files present (.wav, .txt, .json)
   2. WAV: 16 kHz, mono, 16-bit PCM, −1.0 dBFS peak, ≥ 0.5 s silence padding
   3. Metadata JSON parses as ClipMetadata with is_synthetic=True
   4. Filename stem is ASCII-only lowercase
+  5. Strong labels JSONL present alongside the clip (warning — not a hard error)
 
 Dataset-level checks (via report.passed):
   - Failure rate ≤ max_failure_rate (default 2 %)
+  - clips_missing_strong_labels is reported for observability but does not
+    affect report.passed (missing JSONL is a warning, not a failure)
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ class DatasetStats:
     speaker_count: int = 0
     failed_clips: int = 0
     quality_flagged_clips: int = 0
+    clips_missing_strong_labels: int = 0  # Stage 4b JSONL absent (warning only)
 
 
 @dataclass
@@ -119,6 +123,10 @@ def run_qa(
         if metadata.quality_flags:
             stats.quality_flagged_clips += 1
             report.quality_flagged[metadata.clip_id] = list(metadata.quality_flags)
+
+        # Count Stage 4b JSONL warnings surfaced by validate_clip()
+        if any("Strong labels JSONL missing" in w for w in validation.warnings):
+            stats.clips_missing_strong_labels += 1
 
     stats.clips_by_typology = dict(_by_typology)
     stats.clips_by_split = dict(_by_split)

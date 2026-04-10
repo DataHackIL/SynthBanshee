@@ -47,7 +47,7 @@ acoustic_scene:
   device: pi_budget_mic                  # Fixed device type for Elephant
   speaker_distance_meters: 1.2          # Closer — smaller room
   victim_distance_meters: 0.8
-  ir_source: pyroomacoustics
+  ir_source: pyroomacoustics_ism
   room_dimensions_range:
     min: [2.5, 2.0, 2.4]
     max: [4.0, 3.5, 2.8]

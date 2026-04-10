@@ -62,13 +62,18 @@ All generated datasets must conform to:
 
 Every element of a generated clip — script, voices, acoustic environment, label — is determined by a declarative YAML/JSON configuration. The pipeline is a pure function of its config: given the same config and a fixed random seed, you get the same dataset. This makes it straightforward to reproduce, diff, and improve.
 
-The architecture decomposes into four independent, swappable stages:
+The architecture decomposes into five sequential stages (Stage 3 and Stage 4 each have sub-stages):
 
 ```
-ScriptConfig → [Script Generator] → dialogue JSON
-dialogue JSON → [TTS Renderer]     → per-speaker WAV segments
-segments      → [Acoustic Augmenter] → augmented scene WAV
-scene WAV     → [Label Generator]  → AVDP-schema JSONL metadata
+SceneConfig (YAML)
+  → [1]  Script Generator      → DialogueTurns      (LLM fills Jinja2 template)
+  → [2]  TTS Renderer          → MixedScene WAV     (per-speaker segments mixed)
+  → [3a] Preprocessing         → spec-compliant WAV (16 kHz, mono, normalized, silence-padded)
+  → [3b] Acoustic Augmentation → augmented WAV      (room IR, device profile, noise) — Tier B only
+  → [4a] Transcript Writer     → {clip_id}.txt      (per-turn text with onset/offset markers)
+  → [4b] Strong Label Writer   → {clip_id}.jsonl    (per-event EventLabel records)
+  → [4c] Metadata Writer       → {clip_id}.json     (ClipMetadata — weak labels, speaker info)
+  → [5]  Validator             → pass/fail + warnings
 ```
 
 Each stage is a Python module with a clean interface; teams can develop and test stages in isolation.
@@ -77,12 +82,12 @@ Each stage is a Python module with a clean interface; teams can develop and test
 
 | Stage | Primary Tools | Notes |
 |---|---|---|
-| Script generation | Claude API / GPT-4 API, Jinja2 templates, hand-authored Hebrew scene templates | LLM fills parameterized template slots; always constrained by a config schema |
-| Hebrew TTS | Azure Cognitive Services (he-IL voices, SSML), Google Cloud TTS (Chirp 3 HD, he-IL) | Azure SSML supports multi-speaker, style tags, pitch/rate/volume control; compare expressiveness in evaluation |
-| Acoustic augmentation | `pydub`, `pyroomacoustics`, `torchaudio`, `sox`/`ffmpeg` | Room IR simulation, device codec emulation, SNR degradation |
-| Soundscape / noise mixing | `Scaper`, MUSAN corpus, Freesound-licensed clips | Background TV, traffic, office chatter, appliances |
-| Label generation | Python, auto-derived from script + augmentation logs | Onset/offset precise because TTS + augmentation are fully logged |
-| Dataset packaging | Python, JSONL, CSV manifests | AVDP directory structure, manifest for weak/strong labels, split stratification |
+| 1 — Script generation | Claude API / GPT-4 API, Jinja2 templates, hand-authored Hebrew scene templates | LLM fills parameterized template slots; always constrained by a config schema |
+| 2 — Hebrew TTS | Azure Cognitive Services (he-IL voices, SSML), Google Cloud TTS (Chirp 3 HD, he-IL) | Azure SSML supports multi-speaker, style tags, pitch/rate/volume control |
+| 3a — Preprocessing | `scipy`, `soundfile` (no torchaudio) | Resample → downmix → low-pass → Wiener denoise → normalize → silence pad |
+| 3b — Acoustic augmentation | `pyroomacoustics`, `synthbanshee.augment` | Room IR simulation (ISM), device codec emulation, SNR degradation — Tier B only |
+| 4a–4c — Label generation | Python, auto-derived from script + augmentation logs | Onset/offset precise because TTS mixer + Stage 3b are fully logged |
+| 5 — Validation & packaging | Python, JSONL, CSV manifests | validate_clip(), manifest CSV, speaker-disjoint splits |
 
 #### Config Schema Sketch
 

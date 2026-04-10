@@ -103,6 +103,7 @@ def _run_generate_pipeline(
     from synthbanshee.script.generator import ScriptGenerator
     from synthbanshee.tts.renderer import TTSRenderer
 
+    # Pre-pipeline: load configs (not a numbered stage — no data transformation occurs)
     # 1. Load scene config
     try:
         scene = SceneConfig.from_yaml(config)
@@ -122,6 +123,7 @@ def _run_generate_pipeline(
         except Exception as exc:
             return None, [f"Speaker config parse error: {exc}"]
 
+    # Stage 1 — Script Generation
     # 3. Generate script
     script_gen = ScriptGenerator(cache_dir=script_cache_dir)
     try:
@@ -148,6 +150,7 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Script generation error: {exc}"]
 
+    # Stage 2 — TTS Rendering
     # 4. Render multi-speaker scene
     renderer = TTSRenderer(cache_dir=cache_dir)
     try:
@@ -160,6 +163,7 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]
 
+    # Stage 3a — Preprocessing
     # 5. Write raw mix to temp WAV, preprocess to final output path
     clip_id = scene.scene_id.lower().replace("-", "_")
     first_speaker_ref = scene.speakers[0]
@@ -176,7 +180,8 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
-    # 5b. Stage 3 (Tier B): Room simulation → device profile → noise mix
+    # Stage 3b — Acoustic Augmentation (Tier B only)
+    # 5b. Room simulation → device profile → noise mix
     #
     # Stage 3 receives the fully preprocessed (16 kHz, mono, silence-padded) WAV.
     # NoiseMixer therefore operates on padded audio, so its returned AugmentedEvent
@@ -236,7 +241,7 @@ def _run_generate_pipeline(
             acoustic_scene_meta = ClipAcousticScene(
                 room_type=scene.acoustic_scene.room_type,
                 device=scene.acoustic_scene.device,
-                ir_source="pyroomacoustics_ism",
+                ir_source=scene.acoustic_scene.ir_source,
                 speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
                 snr_db_actual=round(snr_actual, 2),
                 background_events=[
@@ -259,6 +264,7 @@ def _run_generate_pipeline(
         except Exception as exc:
             return None, [f"Acoustic augmentation error: {exc}"]
 
+    # Stage 4a — Transcript
     # 6. Write structured multi-speaker transcript
     # preprocess() prepends result.silence_pad_applied_s of silence unconditionally,
     # so all MixedScene timings must be shifted forward by that amount.
@@ -281,6 +287,7 @@ def _run_generate_pipeline(
         lines.append(f"[ACTION: {tier2} | INTENSITY: {turn.intensity}]")
     clip_txt.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
+    # Stage 4b — Strong Labels
     # 7. Build per-turn event labels from MixedScene timing (authoritative per spec)
     # Same pad_s offset applied here to match the processed audio.
     events: list[ScriptEvent] = []
@@ -304,7 +311,7 @@ def _run_generate_pipeline(
                 emotional_state=turn.emotional_state,
             )
         )
-    # Stage 3 ACOU_* SFX events (Tier B only). Their onset/offset times are
+    # Stage 3b ACOU_* SFX events (Tier B only). Their onset/offset times are
     # already in padded-audio coordinates — no pad_s shift needed.
     for aug_ev in _aug_acou_events:
         events.append(
@@ -320,6 +327,11 @@ def _run_generate_pipeline(
 
     event_labels = label_gen.generate_event_labels(f"{clip_id}_00", events)
 
+    # 7b. Write per-clip strong labels JSONL alongside the WAV (Stage 4b output)
+    clip_jsonl = speaker_dir / f"{clip_id}_00.jsonl"
+    label_gen.write_strong_labels_jsonl(event_labels, clip_jsonl)
+
+    # Stage 4c — Clip Metadata JSON
     # 8. Write clip metadata JSON
     speakers_meta = [
         SpeakerInfo(
@@ -356,6 +368,7 @@ def _run_generate_pipeline(
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 
+    # Stage 5 — Validation
     # 9. Validate
     validation = validate_clip(clip_wav)
     if not validation.is_valid:
@@ -817,6 +830,12 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
     )
     table.add_row("Unique speakers", str(stats.speaker_count))
     table.add_row("Quality-flagged", str(stats.quality_flagged_clips))
+    missing_jsonl_label = (
+        f"[yellow]{stats.clips_missing_strong_labels}[/yellow]"
+        if stats.clips_missing_strong_labels > 0
+        else "0"
+    )
+    table.add_row("Missing strong-labels JSONL (Stage 4b)", missing_jsonl_label)
     console.print(table)
 
     if stats.clips_by_typology:
@@ -854,6 +873,7 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
                 "total_duration_seconds": stats.total_duration_seconds,
                 "speaker_count": stats.speaker_count,
                 "quality_flagged_clips": stats.quality_flagged_clips,
+                "clips_missing_strong_labels": stats.clips_missing_strong_labels,
                 "clips_by_typology": stats.clips_by_typology,
                 "clips_by_split": stats.clips_by_split,
                 "clips_by_tier": stats.clips_by_tier,
