@@ -55,19 +55,25 @@ tests/
 
 All generated audio is **Hebrew (he-IL)**. Transcripts are UTF-8 Hebrew. Filenames and metadata strings must be ASCII only (no UTF-8 above U+00A1 in filenames or JSON keys/values — Hebrew text goes in transcript `.txt` files only, not in filenames or metadata string fields).
 
-## The four pipeline stages
+## The five pipeline stages
 
-Every clip is produced by four sequential stages. Keep them modular with clean interfaces.
+Every clip is produced by five sequential stages. Keep them modular with clean interfaces.
 
 ```
 SceneConfig (YAML)
-  → [1] Script Generator   → dialogue JSON  (LLM fills Jinja2 template)
-  → [2] TTS Renderer       → per-speaker WAV segments (Azure/Google he-IL)
-  → [3] Acoustic Augmenter → augmented scene WAV (room IR, device profile, noise)
-  → [4] Label Generator    → AVDP-schema JSONL (auto-derived from script + augmentation log)
+  → [1]  Script Generator      → DialogueTurns  (LLM fills Jinja2 template)
+  → [2]  TTS Renderer          → MixedScene WAV (Azure/Google he-IL, per-speaker segments mixed)
+  → [3a] Preprocessing         → spec-compliant WAV (16 kHz, mono, normalized, silence-padded)
+  → [3b] Acoustic Augmentation → augmented WAV (room IR, device profile, noise) — Tier B only
+  → [4a] Transcript Writer     → {clip_id}.txt  (per-turn text with onset/offset markers)
+  → [4b] Strong Label Writer   → {clip_id}.jsonl (per-event EventLabel records)
+  → [4c] Metadata Writer       → {clip_id}.json  (ClipMetadata — weak labels, speaker info, etc.)
+  → [5]  Validator             → pass/fail + warnings (validate_clip)
 ```
 
-The augmentation log from Stage 3 is the source of truth for SFX onset/offset times in Stage 4 labels. Don't derive label timings from anything else.
+Stage 3b runs only for Tier B scenes (those with an `acoustic_scene` block). For Tier A scenes the pipeline goes directly from Stage 3a to Stage 4a.
+
+The augmentation log produced by Stage 3b is the source of truth for SFX onset/offset times used in Stage 4b labels. Don't derive SFX label timings from anything else — only speech-turn timings come from the TTS mixer output (Stage 2).
 
 ## Key schema constraints (from spec.md)
 

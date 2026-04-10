@@ -308,7 +308,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
 
 ### 5.2 Per-Event Strong Labels (JSONL)
 
-One record per labeled event, stored **per-clip** as `{clip_id}.jsonl` in the same directory as the corresponding `.wav`, `.txt`, and `.json` files. The pipeline writes this file automatically at generation time (Stage 4). Each line is a JSON object:
+One record per labeled event, stored **per-clip** as `{clip_id}.jsonl` in the same directory as the corresponding `.wav`, `.txt`, and `.json` files. The pipeline writes this file automatically during Stage 4b (Strong Label Writer). Each line is a JSON object:
 
 ```json
 {

@@ -17,7 +17,7 @@
 
 **Labels derive from structure, not from post-hoc review.** Tier A labels are auto-generated from the scene script and augmentation log. Human review is reserved for validation, not primary labeling. This keeps the labeling bottleneck out of the critical path.
 
-**Develop in modules, test in integration.** Each pipeline stage (script generation, TTS rendering, augmentation, labeling, packaging) has its own interface and tests. Integration is a separate step.
+**Develop in modules, test in integration.** Each pipeline stage (Stage 1: script generation, Stage 2: TTS rendering, Stage 3a/3b: preprocessing and acoustic augmentation, Stage 4a–4c: labeling and transcript, Stage 5: validation and packaging) has its own interface and tests. Integration is a separate step.
 
 ---
 
