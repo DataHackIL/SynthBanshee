@@ -1,0 +1,40 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — client in emotional distress (crying, pleading) without aggression toward the worker.
+   Typology: NEG  Slots: scene_type, distress_cause, office_setting
+   Purpose: hard negative — DIST_CRY / DIST_PLEAD acoustics with no interpersonal violence.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Client in Distress (No Aggression)
+Scene type:        {{ script_slots.get('scene_type', 'crisis_visit') }}
+Distress cause:    {{ script_slots.get('distress_cause', 'domestic_situation_at_home') }}
+Office setting:    {{ script_slots.get('office_setting', 'welfare_office') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (emotional distress arc, not violence arc)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The client is in genuine emotional pain — crying, shaking, barely coherent at times.
+The social worker provides therapeutic support.
+  1. Arrival — client arrives visibly distressed; social worker receives them calmly.
+  2. Disclosure — client describes their situation; breaks down while speaking.
+  3. Distress peak — audible crying, broken sentences, pleading for help.
+  4. Support — social worker validates and stabilises; client gradually regains composure.
+  5. Action plan — concrete next steps are agreed; client leaves calmer than they arrived.
+IMPORTANT: distress vocalisations (crying, sobbing, strained voice) are the ACOUSTIC CONFUSOR.
+The client must not direct any hostility toward the social worker. This tests whether the
+classifier can distinguish victim-of-circumstance distress from victim-of-perpetrator distress.
+
+{{ common_rules(target_duration_minutes, [
+  "The social worker should NOT raise their voice at any point.",
+  "The client's distress is self-directed or situation-directed — never toward the worker.",
+  "Silences and audible breathing between broken sentences are realistic and expected."
+]) }}
+{{ output_format() }}

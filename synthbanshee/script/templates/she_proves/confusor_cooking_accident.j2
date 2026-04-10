@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — cooking accident (crockery breaking, pan dropping); partners react with alarm.
+   Typology: NEG  Slots: meal, accident_type
+   Purpose: hard negative — breaking sounds + raised voices with no interpersonal violence.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Cooking Accident
+Meal:              {{ script_slots.get('meal', 'dinner') }}
+Accident type:     {{ script_slots.get('accident_type', 'pot_dropped') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (sharp spike at the accident, returns to calm)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The couple is cooking or eating together. An accident occurs in the kitchen.
+  1. Preparation — relaxed conversation about the meal.
+  2. Accident — a sudden noise (crash, shatter, sizzle); at least one speaker exclaims loudly.
+  3. Immediate reaction — both speakers assess the situation; raised voices, mild alarm.
+  4. Resolution — they clean up or laugh it off; no lingering tension.
+IMPORTANT: the breaking/crashing sound is the ACOUSTIC CONFUSOR — it mimics violence SFX.
+There must be absolutely no interpersonal hostility; concern and perhaps mild frustration
+toward the situation are the only negative emotions permitted.
+
+{{ common_rules(target_duration_minutes, [
+  "The accident sound should be described in the dialogue (one speaker says what happened).",
+  "Use Hebrew kitchen / food vocabulary naturally.",
+  "Mild self-directed frustration ('אני כזה טיפש') is fine — directed blame at the partner is not."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,39 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — animated but ultimately non-violent intake session.
+   Typology: NEG  Slots: scene_type, dispute_subject, office_setting
+   Purpose: hard negative — loud agitated client who stays within non-violent bounds.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Animated Non-Violent Intake
+Scene type:        {{ script_slots.get('scene_type', 'intake_interview') }}
+Dispute subject:   {{ script_slots.get('dispute_subject', 'benefit_delay') }}
+Office setting:    {{ script_slots.get('office_setting', 'clinic_office') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (peaks with client frustration, resolves without violence)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A client is genuinely frustrated about a bureaucratic issue. The social worker handles it professionally.
+  1. Greeting — standard intake; client is already tense but controlled.
+  2. Frustration build — client raises their voice about the dispute subject; complaints intensify.
+  3. Peak — client is loud and agitated; speaks over the social worker; uses emphatic language.
+  4. Social worker response — calm, professional de-escalation; acknowledges the client's feelings.
+  5. Resolution — client accepts the social worker's response or a concrete next step; tension drops.
+IMPORTANT: the client must NOT make explicit threats, touch the social worker, or display
+weapon-like behaviour. Raised voice, pacing language, and strong dissatisfaction are the
+ACOUSTIC CONFUSOR. The social worker models exemplary professional conduct throughout.
+
+{{ common_rules(target_duration_minutes, [
+  "The client's frustration must be directed at the SYSTEM or SITUATION, not personally at the worker.",
+  "The social worker should use named de-escalation techniques (validation, paraphrasing, offering options).",
+  "No alert should be triggered — this clip tests false-positive resistance."
+]) }}
+{{ output_format() }}

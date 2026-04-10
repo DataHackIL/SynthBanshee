@@ -1,0 +1,39 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — social worker overhears client's agitated phone call; then checks in.
+   Typology: NEG  Slots: phone_call_subject, office_setting
+   Purpose: hard negative — one-sided loud argument (phone call) followed by routine check-in.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Agitated Phone Call Overheard
+Phone call about:  {{ script_slots.get('phone_call_subject', 'family_dispute_over_phone') }}
+Office setting:    {{ script_slots.get('office_setting', 'welfare_office') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (phone call peak in first half; check-in is calm)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+The client is in the waiting area or corridor and makes / receives a loud personal phone call.
+The social worker overhears it and — once the call ends — approaches to check in.
+  1. Phone call start — client answers or dials; listener hears only their side.
+  2. Escalation — the call becomes heated; client raises their voice at whoever is on the line.
+  3. Peak — loud, one-sided argument (only the client is audible on the mic).
+  4. Call ends — client hangs up; possibly still emotional.
+  5. Check-in — social worker approaches; brief, calm exchange; client is embarrassed or deflated.
+IMPORTANT: the agitation is directed at the phone-call counterpart, NOT the social worker.
+When the social worker enters the scene, the interaction is entirely non-threatening.
+The loud phone-call phase is the ACOUSTIC CONFUSOR.
+
+{{ common_rules(target_duration_minutes, [
+  "The phone-call half should feel naturalistic — pauses where the other person responds.",
+  "The client's language during the call may be strong but must not include explicit violence threats.",
+  "The check-in dialogue should be brief and calm — a professional welfare check."
+]) }}
+{{ output_format() }}

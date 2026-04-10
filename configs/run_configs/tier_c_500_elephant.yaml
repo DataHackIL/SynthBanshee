@@ -1,0 +1,32 @@
+# Phase 3 — Tier C generation run: Elephant in the Room project
+# Target: 500 hard-negative (confusor) clips — animated but non-violent office interactions.
+# All clips use violence_typology NEG; scene configs must include an acoustic_scene block.
+# See docs/implementation_plan.md §3 for context on Tier C confusors.
+#
+# Elephant confusor scenes: 2–2.5 min, pi_budget_mic device.
+# Room types: clinic_office, welfare_office, open_office_corridor.
+# IMPORTANT: expert review of templates recommended before large-scale generation
+# (see implementation_plan.md §3.1).
+
+run_id: tier_c_500_elephant
+project: elephant_in_the_room
+tier: C
+language: he
+random_seed: 44
+output_dir: data/he
+scene_configs_dir: configs/scenes/elephant_tier_c
+
+# --- Per-typology clip count targets (total: 500) ---
+targets:
+  - violence_typology: NEG   # All confusor clips
+    count: 500
+
+# --- Speaker-disjoint split fractions ---
+splits:
+  train: 0.70
+  val: 0.15
+  test: 0.15
+
+# --- Error handling ---
+max_retries: 3
+fail_fast: false

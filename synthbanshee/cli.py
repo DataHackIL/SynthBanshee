@@ -192,7 +192,7 @@ def _run_generate_pipeline(
     # intentionally so the placed events align with audible speech, not with silence.)
     acoustic_scene_meta = None
     _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
-    if scene.tier == "B" and scene.acoustic_scene is not None:
+    if scene.tier in ("B", "C") and scene.acoustic_scene is not None:
         try:
             import numpy as _np
             import soundfile as _sf

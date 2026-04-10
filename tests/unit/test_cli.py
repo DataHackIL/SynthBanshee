@@ -1066,6 +1066,36 @@ def _make_tier_b_scene_yaml(tmp_path: Path) -> Path:
     return p
 
 
+_TIER_C_SCENE_YAML = """\
+scene_id: SP_NEG_C_TEST01
+project: she_proves
+language: he
+violence_typology: NEG
+tier: C
+random_seed: 0
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+script_template: synthbanshee/script/templates/she_proves/confusor_heated_but_resolved.j2
+script_slots: {}
+intensity_arc: [1, 2, 3, 2, 1]
+target_duration_minutes: 3.0
+acoustic_scene:
+  room_type: apartment_kitchen
+  device: phone_on_table
+  speaker_distance_meters: 1.5
+  victim_distance_meters: 1.2
+  snr_target_db: 14
+output_dir: data/he
+"""
+
+
+def _make_tier_c_scene_yaml(tmp_path: Path) -> Path:
+    p = tmp_path / "tier_c_scene.yaml"
+    p.write_text(_TIER_C_SCENE_YAML, encoding="utf-8")
+    return p
+
+
 class TestRunGeneratePipelineTierB:
     """Cover the Stage 3 acoustic augmentation branch in _run_generate_pipeline."""
 
@@ -1286,3 +1316,99 @@ class TestRunGeneratePipelineTierB:
         # First and last 0.5 s must be silent after Stage 3 pad-zeroing
         assert np.all(data[:pad] == 0.0), "head pad should be zeroed"
         assert np.all(data[-pad:] == 0.0), "tail pad should be zeroed"
+
+
+class TestRunGeneratePipelineTierC:
+    """Tier C (hard-negative confusor) pipeline uses Stage 3b augmentation like Tier B."""
+
+    def _run_tier_c(self, tmp_path: Path):
+        turns = _make_dialogue_turns(n=1, intensity=2)
+        mixed = _make_mixed_scene(duration_s=5.0, n_turns=1)
+        sr = 16_000
+        pad = int(0.5 * sr)
+        total = mixed.samples.shape[0] + 2 * pad
+        aug_audio = np.zeros(total, dtype=np.float32)
+        t = np.arange(mixed.samples.shape[0], dtype=np.float32) / sr
+        aug_audio[pad : total - pad] = 0.3 * np.sin(2 * np.pi * 440 * t)
+        peak = float(np.max(np.abs(aug_audio)))
+        aug_audio = (aug_audio * (10.0 ** (-1.0 / 20.0) / peak)).astype(np.float32)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+            patch("synthbanshee.augment.room_sim.RoomSimulator") as MockRoom,
+            patch("synthbanshee.augment.device_profiles.DeviceProfiler") as MockDevice,
+            patch("synthbanshee.augment.noise_mixer.NoiseMixer") as MockMixer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            MockRoom.return_value.apply.return_value = aug_audio
+            MockDevice.return_value.apply.return_value = aug_audio
+            MockMixer.return_value.mix.return_value = (aug_audio, [], 16.0)
+
+            return _run_generate_pipeline(
+                _make_tier_c_scene_yaml(tmp_path),
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+
+    def test_tier_c_pipeline_succeeds(self, tmp_path):
+        """Tier C pipeline runs Stage 3b augmentation and completes without error."""
+        wav, errors = self._run_tier_c(tmp_path)
+        assert wav is not None, errors
+
+    def test_tier_c_acoustic_scene_in_metadata(self, tmp_path):
+        """Tier C clips carry an acoustic_scene block in metadata (Stage 3b ran)."""
+        wav, errors = self._run_tier_c(tmp_path)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["acoustic_scene"]["room_type"] == "apartment_kitchen"
+        assert meta["acoustic_scene"]["ir_source"] == "pyroomacoustics_ism"
+
+    def test_tier_c_violence_typology_is_neg(self, tmp_path):
+        """Tier C confusor clips carry violence_typology=NEG and no violence categories."""
+        wav, errors = self._run_tier_c(tmp_path)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta["violence_typology"] == "NEG"
+        assert meta["weak_label"]["has_violence"] is False
+
+    def test_tier_c_strong_labels_jsonl_written(self, tmp_path):
+        """Stage 4b JSONL is written for Tier C clips just as for Tier B."""
+        wav, errors = self._run_tier_c(tmp_path)
+        assert wav is not None, errors
+        assert wav.with_suffix(".jsonl").exists()
+
+    def test_tier_c_augmentation_called(self, tmp_path):
+        """RoomSimulator is invoked for Tier C scenes (Stage 3b is not Tier B exclusive)."""
+        turns = _make_dialogue_turns(n=1, intensity=2)
+        mixed = _make_mixed_scene(duration_s=5.0, n_turns=1)
+        sr = 16_000
+        pad = int(0.5 * sr)
+        total = mixed.samples.shape[0] + 2 * pad
+        aug_audio = np.zeros(total, dtype=np.float32)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+            patch("synthbanshee.augment.room_sim.RoomSimulator") as MockRoom,
+            patch("synthbanshee.augment.device_profiles.DeviceProfiler") as MockDevice,
+            patch("synthbanshee.augment.noise_mixer.NoiseMixer") as MockMixer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            MockRoom.return_value.apply.return_value = aug_audio
+            MockDevice.return_value.apply.return_value = aug_audio
+            MockMixer.return_value.mix.return_value = (aug_audio, [], 16.0)
+
+            wav, errors = _run_generate_pipeline(
+                _make_tier_c_scene_yaml(tmp_path),
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+            assert wav is not None, errors
+            MockRoom.return_value.apply.assert_called_once()

@@ -1,0 +1,40 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — heated argument that resolves completely before any violence.
+   Typology: NEG  Slots: relationship, grievance, resolution_type
+   Purpose: hard negative — high vocal energy + resolution; extends negative_argument_deescalation
+   with a more intense peak before resolution.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Heated Argument (Fully Resolved)
+Relationship:      {{ script_slots.get('relationship', 'spouses') }}
+Grievance:         {{ script_slots.get('grievance', 'parenting_disagreement') }}
+Resolution type:   {{ script_slots.get('resolution_type', 'mutual_apology') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (higher peak than NEG baseline; full resolution at end)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+A genuine argument — louder and more sustained than everyday bickering — but it resolves.
+  1. Trigger — a real grievance is raised with emotion.
+  2. Counter — the other partner pushes back hard; both raise their voices.
+  3. Peak — shouting, talking over each other, sentences cut off. Intensity 3–4.
+  4. Crack — one partner shifts tone: a vulnerable admission, a realisation, or an apology.
+  5. Resolution — both speakers de-escalate; the resolution type from the slot is enacted.
+IMPORTANT: no physical violence, no explicit threats of harm, no coercive control language.
+The argument content is about a genuine shared issue — parenting, money, time — NOT about
+dominance or control. Both partners have legitimate perspectives.
+
+{{ common_rules(target_duration_minutes, [
+  "The peak must be loud enough to challenge a volume-based classifier.",
+  "The resolution must be genuine — not a sudden topic change or fake calm.",
+  "Interruptions and overlapping turns should be marked with '--' at the cut-off point."
+]) }}
+{{ output_format() }}

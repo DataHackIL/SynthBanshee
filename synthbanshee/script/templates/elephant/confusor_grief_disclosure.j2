@@ -1,0 +1,39 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — client discloses personal loss or grief in session; social worker provides support.
+   Typology: NEG  Slots: scene_type, loss_type, office_setting
+   Purpose: hard negative — DIST_CRY and DIST_PLEAD acoustics in a therapeutic context.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           elephant_in_the_room (welfare/clinic office monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Grief Disclosure in Session
+Scene type:        {{ script_slots.get('scene_type', 'routine_followup') }}
+Loss type:         {{ script_slots.get('loss_type', 'bereavement') }}
+Office setting:    {{ script_slots.get('office_setting', 'clinic_office') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (emotional depth arc, not violence arc)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+During a routine session, the client discloses a significant personal loss or painful life event.
+  1. Opening — routine session start; the social worker checks in on the client's week.
+  2. Disclosure — client begins to describe the loss; voice becomes strained and emotional.
+  3. Distress — client cries or becomes visibly overwhelmed; speech becomes halting.
+  4. Therapeutic response — social worker uses reflective listening, validates grief, offers presence.
+  5. Stabilisation — client regains enough composure to continue; session moves toward closure.
+IMPORTANT: this is grief work. The client is in pain but is NOT aggressive. The social worker
+is skilled and empathic. Crying and distress sounds are the ACOUSTIC CONFUSOR — they must
+not cause the system to flag an alert.
+
+{{ common_rules(target_duration_minutes, [
+  "The social worker should use reflective techniques (תוקף, פרפרזה, שאלות פתוחות).",
+  "The client's voice may break — stuttering, incomplete sentences, long pauses are expected.",
+  "No hostility of any kind should appear. This is a professional, caring exchange."
+]) }}
+{{ output_format() }}

@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — laughter burst / excitement; partners share a funny or thrilling moment.
+   Typology: NEG  Slots: trigger, context
+   Purpose: hard negative — laughter and squealing are acoustically close to distress.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Laughter and Excitement
+Trigger:           {{ script_slots.get('trigger', 'surprise_gift') }}
+Context:           {{ script_slots.get('context', 'living_room') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (laughter peak in the middle, warm settle at end)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Something funny or exciting happens, and both partners react with loud laughter and joy.
+  1. Setup — calm conversation or activity is interrupted by the triggering event.
+  2. Burst — both speakers laugh loudly; high-pitched vocalisations, squeals, rapid speech.
+  3. Shared reaction — they talk about what just happened while still laughing.
+  4. Wind-down — warmth and affection as laughter subsides.
+IMPORTANT: laughter and squealing can register as DIST_SCREAM acoustically. This clip
+tests whether the classifier correctly ignores positive emotional valence.
+Both speakers must be clearly positive and joyful throughout.
+
+{{ common_rules(target_duration_minutes, [
+  "Include audible laughing cues in the Hebrew text (e.g. 'הא הא הא', 'אה-אה-אה').",
+  "Short fragmented sentences are natural — people can't speak straight when laughing.",
+  "Affectionate language and physical closeness cues are encouraged."
+]) }}
+{{ output_format() }}

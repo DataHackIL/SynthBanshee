@@ -1,0 +1,37 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — grief crying; one partner mourns a loss and the other comforts them.
+   Typology: NEG  Slots: loss_type, relationship_to_deceased
+   Purpose: hard negative — crying / sobbing sounds that a classifier must NOT flag as distress.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Grief Crying
+Loss type:         {{ script_slots.get('loss_type', 'bereavement') }}
+Relationship:      {{ script_slots.get('relationship_to_deceased', 'parent') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (emotional peaks, not violence peaks)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+One partner has suffered a loss or received difficult news. The other offers comfort.
+  1. Disclosure — the grieving partner shares the news or expresses their pain.
+  2. Emotional peak — audible sobbing, broken sentences, raised vocal pitch from grief.
+  3. Comfort — the other partner soothes with words and presence.
+  4. Settling — grief subsides somewhat; quiet, tender exchange.
+IMPORTANT: this clip must contain NO interpersonal violence or coercion. The crying and
+distress sounds are the ACOUSTIC CONFUSOR — a model that flags DIST_CRY should not
+flag this clip as violence. Grief is not victimisation.
+
+{{ common_rules(target_duration_minutes, [
+  "The grieving speaker may be barely audible at times — broken sentences, sighs, silences.",
+  "The comforting speaker should use gentle, warm Hebrew phrases.",
+  "Under no circumstances should either speaker express hostility toward the other."
+]) }}
+{{ output_format() }}

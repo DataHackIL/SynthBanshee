@@ -1,0 +1,36 @@
+scene_id: EL_NEG_C_0005
+project: elephant_in_the_room
+language: he
+violence_typology: NEG
+tier: C
+random_seed: 605
+speakers:
+  - speaker_id: BEN_M_40-55_003
+    role: AGG
+  - speaker_id: SW_F_30-45_001
+    role: VIC
+script_template: synthbanshee/script/templates/elephant/confusor_loud_waiting_room.j2
+script_slots:
+  office_setting: open_office_corridor
+  crowd_cause: system_outage_long_wait
+intensity_arc: [2, 2, 3, 3, 2, 1]
+elephant:
+  scene_type: routine_followup
+  alert_triggered: false
+  alert_at_phase: null
+  alert_onset_fraction: null
+  attack_type: null
+target_duration_minutes: 2.0
+acoustic_scene:
+  room_type: open_office_corridor
+  device: pi_budget_mic
+  speaker_distance_meters: 2.5
+  victim_distance_meters: 2.0
+  snr_target_db: 14
+  rt60_range: [0.22, 0.40]
+  background_events:
+    - type: hvac_hum
+      onset_seconds: 0.0
+      level_db: -34
+      loop: true
+output_dir: data/he

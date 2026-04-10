@@ -1,0 +1,38 @@
+{% from "_partials.j2" import speakers_block, common_rules, output_format %}
+{# Confusor — sports broadcast on TV; both partners react loudly to the game.
+   Typology: NEG  Slots: team, sport, match_moment
+   Purpose: hard negative — shouting/excitement that a classifier must NOT flag.
+#}
+You are a professional Hebrew dialogue writer creating training data for a domestic-violence audio detection system.
+
+Write a realistic Hebrew dialogue. All text must be in Hebrew (UTF-8).
+
+SCENE PARAMETERS
+================
+Scene ID:          {{ scene_id }}
+Project:           she_proves (smartphone passive monitoring)
+Violence typology: {{ violence_typology }} — Confusor / Sports TV Yelling
+Sport:             {{ script_slots.get('sport', 'football') }}
+Team:              {{ script_slots.get('team', 'Maccabi_Tel_Aviv') }}
+Match moment:      {{ script_slots.get('match_moment', 'last_minute_goal') }}
+Target duration:   {{ target_duration_minutes }} minutes
+Intensity arc:     {{ intensity_arc }} (peaks sharply at exciting match moment, then drops)
+
+{{ speakers_block(speakers) }}
+SCENE STRUCTURE GUIDANCE
+=========================
+Partners are watching a live sports match together. The excitement is real and loud.
+  1. Pre-game — casual commentary, mild anticipation.
+  2. Tension — the score is close; both speakers grow louder and more agitated.
+  3. Peak moment — a goal / key play causes shouting, jumping, possibly knocking something over.
+  4. Aftermath — elation or disappointment; normal speech resumes quickly.
+IMPORTANT: this clip must contain NO threats, coercion, or interpersonal aggression.
+The volume and vocal effort must rival a genuine violence scene — that is the entire
+point of this confusor. A classifier relying only on loudness WILL be fooled by this clip.
+
+{{ common_rules(target_duration_minutes, [
+  "Exclamations should include sports-specific Hebrew phrases (גוול! ,אוף ,כדור!).",
+  "One speaker may knock an object (cup, remote) — the sound is incidental, not aggressive.",
+  "Both speakers must clearly share the same emotional state (excitement or disappointment)."
+]) }}
+{{ output_format() }}
