@@ -994,3 +994,113 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
             f"{report.failure_rate:.1%} > {max_failure_rate:.1%}"
         )
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# iaa-report
+# ---------------------------------------------------------------------------
+
+
+@cli.command("iaa-report")
+@click.argument("annotations_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option(
+    "--total-clips",
+    type=int,
+    required=True,
+    help="Total number of clips in the dataset (for coverage fraction calculation).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Write IAA report to this JSON file (default: print to console only).",
+)
+def iaa_report(annotations_dir: Path, total_clips: int, output: Path | None) -> None:
+    """Compute inter-annotator agreement from paired JSONL annotation files.
+
+    ANNOTATIONS_DIR must contain subdirectories named after clip IDs, each
+    with exactly two JSONL files — one per annotator.  The command reads every
+    EventLabel from each file, computes Cohen's Kappa per event-category group
+    (PHYS, VERB, DIST, ACOU, EMOT) and linearly-weighted kappa for intensity
+    ratings, then reports pass/fail against the spec.md §6.2 thresholds.
+
+    Example layout::
+
+        annotations/
+          clip_001/
+            annotator_a.jsonl
+            annotator_b.jsonl
+          clip_002/
+            annotator_a.jsonl
+            annotator_b.jsonl
+    """
+    from synthbanshee.labels.iaa import run_iaa
+    from synthbanshee.labels.schema import EventLabel
+
+    pairs: list[tuple[list[EventLabel], list[EventLabel]]] = []
+    clip_ids: list[str] = []
+
+    for clip_dir in sorted(annotations_dir.iterdir()):
+        if not clip_dir.is_dir():
+            continue
+        jsonl_files = sorted(clip_dir.glob("*.jsonl"))
+        if len(jsonl_files) != 2:
+            console.print(
+                f"[yellow]Skipping {clip_dir.name}: expected 2 JSONL files,"
+                f" found {len(jsonl_files)}[/yellow]"
+            )
+            continue
+        events_a: list[EventLabel] = []
+        events_b: list[EventLabel] = []
+        try:
+            for line in jsonl_files[0].read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    events_a.append(EventLabel.model_validate_json(line))
+            for line in jsonl_files[1].read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line:
+                    events_b.append(EventLabel.model_validate_json(line))
+        except Exception as exc:
+            console.print(f"[yellow]Skipping {clip_dir.name}: parse error — {exc}[/yellow]")
+            continue
+        pairs.append((events_a, events_b))
+        clip_ids.append(clip_dir.name)
+
+    if not pairs:
+        console.print("[red]No valid annotation pairs found.[/red]")
+        sys.exit(1)
+
+    console.print(f"[cyan]Computing IAA for {len(pairs)} clip pairs...[/cyan]")
+    report = run_iaa(pairs, clip_ids, total_clips=total_clips)
+
+    console.print(report.summary())
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        report_dict = {
+            "n_clips_reviewed": report.n_clips_reviewed,
+            "total_clips": report.total_clips,
+            "coverage_fraction": report.coverage_fraction,
+            "meets_coverage": report.meets_coverage,
+            "passes": report.passes,
+            "disagreement_clip_ids": report.disagreement_clip_ids,
+            "category_results": [
+                {
+                    "category": r.category,
+                    "kappa": r.kappa,
+                    "n_observations": r.n_observations,
+                    "target_kappa": r.target_kappa,
+                    "min_kappa": r.min_kappa,
+                    "meets_target": r.meets_target,
+                    "meets_minimum": r.meets_minimum,
+                }
+                for r in report.category_results
+            ],
+        }
+        output.write_text(json.dumps(report_dict, indent=2), encoding="utf-8")
+        console.print(f"[bold green]IAA report written:[/bold green] {output}")
+
+    if not report.passes:
+        sys.exit(1)
