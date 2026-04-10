@@ -1097,7 +1097,9 @@ class TestGenerateBatchParallel:
                 ],
             )
 
+        assert result.exit_code == 0, result.output
         assert "3 workers" in result.output
+        assert "Manifest written" in result.output
 
     def test_workers_invalid_zero_rejected(self, tmp_path):
         """--workers 0 is rejected by Click (IntRange min=1)."""
