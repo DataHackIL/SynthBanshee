@@ -1161,6 +1161,89 @@ class TestGenerateBatchParallel:
 
 
 # ---------------------------------------------------------------------------
+# _render_one — direct unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestRenderOne:
+    """Direct unit tests for the _render_one() helper."""
+
+    def test_stop_event_returns_cancelled_immediately(self, tmp_path):
+        """When stop_event is already set, _render_one returns (None, ['cancelled'])
+        without ever calling _run_generate_pipeline."""
+        import threading
+
+        from synthbanshee.cli import _render_one
+
+        stop = threading.Event()
+        stop.set()
+
+        with patch("synthbanshee.cli._run_generate_pipeline") as mock_pipeline:
+            wav, messages = _render_one(
+                tmp_path / "dummy.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+                max_retries=3,
+                stop_event=stop,
+            )
+
+        assert wav is None
+        assert messages == ["cancelled"]
+        mock_pipeline.assert_not_called()
+
+    def test_success_on_first_attempt(self, tmp_path):
+        """_render_one returns the wav path immediately on a successful render."""
+        import threading
+
+        from synthbanshee.cli import _render_one
+
+        fake_wav = tmp_path / "clip.wav"
+        fake_wav.write_bytes(b"fake")
+        stop = threading.Event()
+
+        with patch("synthbanshee.cli._run_generate_pipeline", return_value=(fake_wav, [])):
+            wav, messages = _render_one(
+                tmp_path / "scene.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+                max_retries=3,
+                stop_event=stop,
+            )
+
+        assert wav == fake_wav
+        assert messages == []
+
+    def test_exhausted_retries_returns_none(self, tmp_path):
+        """_render_one returns (None, messages) after exhausting all retries."""
+        import threading
+
+        from synthbanshee.cli import _render_one
+
+        stop = threading.Event()
+
+        with patch(
+            "synthbanshee.cli._run_generate_pipeline",
+            return_value=(None, ["render error"]),
+        ):
+            wav, messages = _render_one(
+                tmp_path / "scene.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+                max_retries=2,
+                stop_event=stop,
+            )
+
+        assert wav is None
+        assert messages == ["render error"]
+
+
+# ---------------------------------------------------------------------------
 # _run_generate_pipeline — primary speaker path (line 61 False branch)
 # ---------------------------------------------------------------------------
 

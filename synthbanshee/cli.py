@@ -13,7 +13,7 @@ import json
 import sys
 import tempfile
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import click
@@ -548,10 +548,17 @@ def _render_one(
     max_retries: int,
     stop_event: threading.Event,
 ) -> tuple[Path | None, list[str]]:
-    """Render a single clip with retries.  Thread-safe — no shared mutable state.
+    """Render a single clip with retries.
 
-    Returns (wav_path, messages).  Returns (None, messages) on exhausted retries
-    or if *stop_event* is set before the first attempt.
+    Thread-safety: this function itself holds no shared in-memory mutable state.
+    On-disk cache directories (TTS, scripts) are shared across workers; cache
+    writes are keyed by content hash so concurrent writes for the same key are
+    idempotent (same bytes written by multiple threads produce the same result).
+    Output paths are unique per clip_id, so file writes never collide.
+
+    Returns (wav_path, messages).  Returns (None, ["cancelled"]) immediately if
+    *stop_event* is set before the first attempt, or (None, messages) on
+    exhausted retries.
     """
     messages: list[str] = []
     for _attempt in range(max_retries):
@@ -681,11 +688,9 @@ def generate_batch(
     if workers > 1:
         console.print(f"[cyan]Parallel rendering:[/cyan] {workers} workers")
 
-    # --- Render loop (thread-pool; workers=1 gives sequential behaviour) ---
+    # --- Render loop ---
     succeeded: list[Path] = []
     failed: list[tuple[Path, list[str]]] = []
-    stop_event = threading.Event()
-    lock = threading.Lock()
 
     with Progress(
         SpinnerColumn(),
@@ -697,43 +702,76 @@ def generate_batch(
     ) as progress:
         task_id = progress.add_task("Rendering clips", total=len(selected))
 
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_scene = {
-                executor.submit(
-                    _render_one,
+        if workers == 1:
+            # Sequential path — exact pre-parallelisation behaviour; no thread
+            # overhead, no signal-handling differences, debugger-friendly.
+            _no_stop = threading.Event()
+            for scene_yaml in selected:
+                wav_path, messages = _render_one(
                     scene_yaml,
                     out_dir,
                     cache_dir,
                     dirty_dir,
                     script_cache_dir,
                     run_cfg.max_retries,
-                    stop_event,
-                ): scene_yaml
-                for scene_yaml in selected
-            }
-
-            for future in as_completed(future_to_scene):
-                scene_yaml = future_to_scene[future]
-                wav_path, messages = future.result()
+                    _no_stop,
+                )
                 progress.advance(task_id)
+                if wav_path is None:
+                    failed.append((scene_yaml, messages))
+                    if run_cfg.fail_fast:
+                        progress.stop()
+                        console.print(
+                            f"[red]fail_fast: aborting after failure on {scene_yaml.name}[/red]"
+                        )
+                        for msg in messages:
+                            console.print(f"  [red]• {msg}[/red]")
+                        sys.exit(1)
+                else:
+                    succeeded.append(wav_path)
+        else:
+            # Parallel path — ThreadPoolExecutor; workers > 1 only.
+            stop_event = threading.Event()
+            lock = threading.Lock()
 
-                with lock:
-                    if wav_path is None and not stop_event.is_set():
-                        failed.append((scene_yaml, messages))
-                        if run_cfg.fail_fast:
-                            stop_event.set()
-                            # cancel futures that have not started yet
-                            for f in future_to_scene:
-                                f.cancel()
-                    elif wav_path is not None:
-                        succeeded.append(wav_path)
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                future_to_scene = {
+                    executor.submit(
+                        _render_one,
+                        scene_yaml,
+                        out_dir,
+                        cache_dir,
+                        dirty_dir,
+                        script_cache_dir,
+                        run_cfg.max_retries,
+                        stop_event,
+                    ): scene_yaml
+                    for scene_yaml in selected
+                }
 
-    if stop_event.is_set() and failed:
-        scene_yaml, messages = failed[0]
-        console.print(f"[red]fail_fast: aborting after failure on {scene_yaml.name}[/red]")
-        for msg in messages:
-            console.print(f"  [red]• {msg}[/red]")
-        sys.exit(1)
+                for future in as_completed(future_to_scene):
+                    scene_yaml = future_to_scene[future]
+                    progress.advance(task_id)
+                    try:
+                        wav_path, messages = future.result()
+                    except CancelledError:
+                        continue
+                    with lock:
+                        if wav_path is None and not stop_event.is_set():
+                            failed.append((scene_yaml, messages))
+                            if run_cfg.fail_fast:
+                                stop_event.set()
+                                for f in future_to_scene:
+                                    f.cancel()
+                        elif wav_path is not None:
+                            succeeded.append(wav_path)
+
+            if stop_event.is_set() and failed:
+                scene_yaml, messages = failed[0]
+                console.print(f"[red]fail_fast: aborting after failure on {scene_yaml.name}[/red]")
+                for msg in messages:
+                    console.print(f"  [red]• {msg}[/red]")
+                sys.exit(1)
 
     # --- Split assignment ---
     from synthbanshee.labels.schema import ClipMetadata
