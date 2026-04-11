@@ -1102,3 +1102,106 @@ def iaa_report(annotations_dir: Path, total_clips: int, output: Path | None) -> 
 
     if not report.passes:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# dataset-card
+# ---------------------------------------------------------------------------
+
+
+@cli.command("dataset-card")
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--version", "-v", required=True, help="Dataset version string, e.g. 'v1.0'.")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write the dataset card to this file (default: print to stdout).",
+)
+def dataset_card(data_dir: Path, version: str, output: Path | None) -> None:
+    """Generate a HuggingFace-format dataset card from DATA_DIR.
+
+    Runs the QA suite on DATA_DIR to gather dataset statistics, then renders
+    a Markdown dataset card with YAML frontmatter suitable for uploading to
+    the HuggingFace Hub.
+    """
+    from synthbanshee.package.dataset_card import generate_dataset_card
+    from synthbanshee.package.qa import run_qa
+
+    console.print(f"[cyan]Running QA on {data_dir} …[/cyan]")
+    qa_report = run_qa(data_dir)
+
+    card_text = generate_dataset_card(qa_report, version)
+
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(card_text, encoding="utf-8")
+        console.print(f"[bold green]Dataset card written:[/bold green] {output}")
+    else:
+        console.print(card_text)
+
+
+# ---------------------------------------------------------------------------
+# package-dataset
+# ---------------------------------------------------------------------------
+
+
+@cli.command("package-dataset")
+@click.argument("data_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument("output_dir", type=click.Path(file_okay=False, path_type=Path))
+@click.option("--version", "-v", required=True, help="Dataset version string, e.g. 'v1.0'.")
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Create the archive even if the QA suite reports failures.",
+)
+def package_dataset(data_dir: Path, output_dir: Path, version: str, *, force: bool) -> None:
+    """Package DATA_DIR into a versioned archive in OUTPUT_DIR.
+
+    Steps:
+      1. Run QA suite on DATA_DIR.
+      2. Abort if QA fails (unless --force).
+      3. Generate a HuggingFace dataset card.
+      4. Create OUTPUT_DIR/avdp_synth_{version}.tar.gz (dirty files excluded).
+      5. Write SHA256SUMS.txt and the archive .sha256 sidecar alongside it.
+      6. Write DATASET_CARD.md into OUTPUT_DIR.
+    """
+    from synthbanshee.package.archiver import create_archive
+    from synthbanshee.package.dataset_card import generate_dataset_card
+    from synthbanshee.package.qa import run_qa
+
+    console.print(f"[cyan]Running QA on {data_dir} …[/cyan]")
+    qa_report = run_qa(data_dir)
+
+    status = "[bold green]PASS[/bold green]" if qa_report.passed else "[bold red]FAIL[/bold red]"
+    console.print(
+        f"QA: {status} — {qa_report.stats.total_clips:,} clips,"
+        f" {qa_report.stats.failed_clips} failed"
+        f" ({qa_report.failure_rate:.1%} failure rate)"
+    )
+
+    if not qa_report.passed and not force:
+        console.print("[red]Aborting: QA failed. Use --force to package anyway.[/red]")
+        sys.exit(1)
+
+    card_text = generate_dataset_card(qa_report, version)
+
+    archive_name = f"avdp_synth_{version}.tar.gz"
+    archive_path = output_dir / archive_name
+
+    console.print(f"[cyan]Creating archive {archive_path} …[/cyan]")
+    result = create_archive(data_dir, archive_path, dataset_card_text=card_text)
+
+    card_out = output_dir / "DATASET_CARD.md"
+    card_out.write_text(card_text, encoding="utf-8")
+
+    size_mb = result.total_bytes / (1024 * 1024)
+    console.print(
+        f"[bold green]Archive written:[/bold green] {result.archive_path}\n"
+        f"  Files: {result.file_count:,}  Uncompressed: {size_mb:.1f} MB\n"
+        f"  SHA-256: {result.checksum}\n"
+        f"  Manifest: {result.manifest_path}\n"
+        f"  Card: {card_out}"
+    )

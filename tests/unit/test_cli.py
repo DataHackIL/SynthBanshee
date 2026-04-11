@@ -1992,3 +1992,125 @@ class TestIAAReport:
         assert "category_results" in report_data
         assert report_data["n_clips_reviewed"] == 20
         assert "IAA report written" in result.output
+
+
+# ---------------------------------------------------------------------------
+# dataset-card and package-dataset commands
+# ---------------------------------------------------------------------------
+
+
+def _make_empty_data_dir(base: Path) -> Path:
+    """Return an empty data directory (QA passes with 0 clips)."""
+    data_dir = base / "data"
+    data_dir.mkdir()
+    return data_dir
+
+
+class TestDatasetCardCommand:
+    def test_prints_card_to_stdout(self, tmp_path):
+        data_dir = _make_empty_data_dir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["dataset-card", str(data_dir), "--version", "v1.0"])
+        assert result.exit_code == 0, result.output
+        assert "AVDP Synthetic Dataset" in result.output
+        assert "v1.0" in result.output
+
+    def test_writes_card_to_file(self, tmp_path):
+        data_dir = _make_empty_data_dir(tmp_path)
+        out = tmp_path / "card.md"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["dataset-card", str(data_dir), "--version", "v1.0", "--output", str(out)],
+        )
+        assert result.exit_code == 0, result.output
+        assert out.exists()
+        assert "AVDP Synthetic Dataset" in out.read_text()
+        assert "Dataset card written" in result.output
+
+    def test_short_version_flag(self, tmp_path):
+        data_dir = _make_empty_data_dir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["dataset-card", str(data_dir), "-v", "v2.0"])
+        assert result.exit_code == 0, result.output
+        assert "v2.0" in result.output
+
+
+class TestPackageDatasetCommand:
+    def test_creates_archive_and_card(self, tmp_path):
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
+        )
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "avdp_synth_v1.0.tar.gz").exists()
+        assert (out_dir / "DATASET_CARD.md").exists()
+        assert (out_dir / "SHA256SUMS.txt").exists()
+        assert "Archive written" in result.output
+
+    def test_qa_fail_aborts_without_force(self, tmp_path):
+        """QA failure (failure_rate > 2%) causes exit 1 without --force."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        from unittest.mock import patch
+
+        from synthbanshee.package.qa import DatasetStats, QAReport
+
+        failing_report = QAReport(
+            data_dir=str(data_dir),
+            stats=DatasetStats(total_clips=10, failed_clips=5),
+            passed=False,
+            failure_rate=0.5,
+        )
+        with patch("synthbanshee.package.qa.run_qa", return_value=failing_report):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
+            )
+        assert result.exit_code == 1
+        assert "Aborting" in result.output
+        assert not (out_dir / "avdp_synth_v1.0.tar.gz").exists()
+
+    def test_force_flag_packages_despite_qa_failure(self, tmp_path):
+        """--force creates the archive even when QA fails."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        from unittest.mock import patch
+
+        from synthbanshee.package.qa import DatasetStats, QAReport
+
+        failing_report = QAReport(
+            data_dir=str(data_dir),
+            stats=DatasetStats(total_clips=10, failed_clips=5),
+            passed=False,
+            failure_rate=0.5,
+        )
+        with patch("synthbanshee.package.qa.run_qa", return_value=failing_report):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "package-dataset",
+                    str(data_dir),
+                    str(out_dir),
+                    "--version",
+                    "v1.0",
+                    "--force",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert (out_dir / "avdp_synth_v1.0.tar.gz").exists()
+
+    def test_sha256_sidecar_written(self, tmp_path):
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        runner = CliRunner()
+        runner.invoke(
+            cli,
+            ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
+        )
+        assert (out_dir / "avdp_synth_v1.0.tar.gz.sha256").exists()

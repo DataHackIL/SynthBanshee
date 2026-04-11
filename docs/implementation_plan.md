@@ -3,8 +3,8 @@
 **Project:** Audio Violence Dataset Project (AVDP)
 **Initiatives:** She-Proves · Elephant in the Room
 **Organization:** DataHack / DataForBetter (datahack.org.il)
-**Status:** Phase 0 complete (2026-04-07) — Phase 1 complete (2026-04-08)
-**Date:** 2026-04-06 (updated 2026-04-08)
+**Status:** Phase 0 complete (2026-04-07) — Phase 1 complete (2026-04-08) — Phase 3.4 complete (2026-04-11)
+**Date:** 2026-04-06 (updated 2026-04-11)
 **Companion documents:** `design_approaches.md`, `spec.md`
 
 ---
@@ -411,6 +411,8 @@ These are Phase 3 targets. Phase 1 (Tier A only, 500/project) is sufficient to s
 - Write dataset card (HuggingFace format) documenting: generation methodology, class distribution, known limitations, intended use, license
 - Upload to shared storage; notify AI teams
 
+**✓ Complete** — `synthbanshee/package/archiver.py`: `create_archive()` builds a `.tar.gz` of the data directory (dirty files excluded), writes a per-file `SHA256SUMS.txt` manifest and a `.sha256` sidecar for the archive. `synthbanshee/package/dataset_card.py`: `generate_dataset_card()` renders a HuggingFace-format card from a `QAReport` (YAML frontmatter + stats tables + methodology + limitations + BibTeX). Two new CLI commands: `dataset-card` (generate and print/save card) and `package-dataset` (QA → card → archive in one step, with `--force` to override QA failures). Upload to shared storage is an ops step outside the codebase.
+
 ---
 
 ## Phase 4 — Scene Graph Layer (Months 4–6, Parallel Track)
@@ -499,9 +501,9 @@ Caching TTS outputs (same text + same voice = same file) will substantially redu
 |---|---|---|---|
 | M0: Happy path test passing | Week 3 | Single spec-compliant clip generated end-to-end | **Done** |
 | M1: Tier A dataset delivered | Week 7 | 500 clips/project, Tier A, AI teams can train baselines | **Done** |
-| M2: Template expert review complete | Week 9 | 20+ templates/project reviewed by Rakman Institute |
-| M3: Tier B dataset delivered | Week 11 | 1,000–1,500 clips/project, Tier B augmented |
-| M4: Phase 1 complete dataset | Week 16 | 4,000 clips/project, all tiers, IAA done, dataset card published |
+| M2: Template expert review complete | Week 9 | 20+ templates/project reviewed by Rakman Institute | Code complete; field review is an ops dependency |
+| M3: Tier B dataset delivered | Week 11 | 1,000–1,500 clips/project, Tier B augmented | Code complete; generation run is an ops step |
+| M4: Phase 1 complete dataset | Week 16 | 4,000 clips/project, all tiers, IAA done, dataset card published | Code complete; generation run + upload are ops steps |
 | M5: Scene graph layer (Phase 4) | Month 6 | Graph-driven escalation labels available |
 
 ---
