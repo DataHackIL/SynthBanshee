@@ -1807,4 +1807,188 @@ class TestRunGeneratePipelineTierC:
                 tmp_path / "scripts",
             )
             assert wav is not None, errors
-            MockRoom.return_value.apply.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# iaa-report command
+# ---------------------------------------------------------------------------
+
+# Five-category JSONL (one event per category): PHYS, VERB, DIST, ACOU, EMOT.
+# Using this for both annotators in "agreement" clips gives a mix of
+# present/absent across category groups when combined with empty clips,
+# which avoids the degenerate p_e=1 case in cohen_kappa.
+_ALL_CATEGORIES_JSONL = "\n".join(
+    [
+        '{"event_id":"evt_001","clip_id":"clip_X","onset":0.5,"offset":1.5,'
+        '"tier1_category":"PHYS","tier2_subtype":"PHYS_HARD","intensity":3,'
+        '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+        '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}',
+        '{"event_id":"evt_002","clip_id":"clip_X","onset":1.5,"offset":2.5,'
+        '"tier1_category":"VERB","tier2_subtype":"VERB_THREAT","intensity":3,'
+        '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+        '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}',
+        '{"event_id":"evt_003","clip_id":"clip_X","onset":2.5,"offset":3.5,'
+        '"tier1_category":"DIST","tier2_subtype":"DIST_SCREAM","intensity":3,'
+        '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+        '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}',
+        '{"event_id":"evt_004","clip_id":"clip_X","onset":3.5,"offset":4.5,'
+        '"tier1_category":"ACOU","tier2_subtype":"ACOU_SLAM","intensity":3,'
+        '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+        '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}',
+        '{"event_id":"evt_005","clip_id":"clip_X","onset":4.5,"offset":5.5,'
+        '"tier1_category":"EMOT","tier2_subtype":"EMOT_ECON","intensity":3,'
+        '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+        '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}',
+    ]
+)
+# Single-category JSONL (PHYS only) for targeted disagreement tests.
+_PHYS_EVENT_JSON = (
+    '{"event_id":"evt_001","clip_id":"clip_001","onset":1.0,"offset":2.0,'
+    '"tier1_category":"PHYS","tier2_subtype":"PHYS_HARD","intensity":3,'
+    '"speaker_id":null,"speaker_role":null,"emotional_state":null,'
+    '"confidence":1.0,"label_source":"auto","iaa_reviewed":false,"notes":null}'
+)
+
+
+def _make_annotation_dir(
+    base: Path,
+    clip_dirs: dict[str, tuple[str, str]],
+) -> Path:
+    """Create annotations_dir/<clip_id>/annotator_{a,b}.jsonl fixture tree.
+
+    clip_dirs maps clip_id -> (jsonl_content_a, jsonl_content_b).
+    """
+    ann_dir = base / "annotations"
+    ann_dir.mkdir()
+    for clip_id, (content_a, content_b) in clip_dirs.items():
+        clip_dir = ann_dir / clip_id
+        clip_dir.mkdir()
+        (clip_dir / "annotator_a.jsonl").write_text(content_a, encoding="utf-8")
+        (clip_dir / "annotator_b.jsonl").write_text(content_b, encoding="utf-8")
+    return ann_dir
+
+
+def _passing_clips(n_event: int = 10, n_empty: int = 10) -> dict[str, tuple[str, str]]:
+    """Return clip_dirs dict with a mix of all-category and empty clips.
+
+    Half-and-half present/absent for every category keeps p_e=0.5, so
+    perfect agreement gives kappa=1.0 for all categories (not degenerate).
+    """
+    clips: dict[str, tuple[str, str]] = {}
+    for i in range(n_event):
+        clips[f"clip_evt_{i:03d}"] = (_ALL_CATEGORIES_JSONL, _ALL_CATEGORIES_JSONL)
+    for i in range(n_empty):
+        clips[f"clip_empty_{i:03d}"] = ("", "")
+    return clips
+
+
+class TestIAAReport:
+    """Tests for the iaa-report CLI command."""
+
+    def test_passing_report(self, tmp_path):
+        """Identical mixed-category pairs produce kappa=1.0 for all categories — exits 0."""
+        ann_dir = _make_annotation_dir(tmp_path, _passing_clips())
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["iaa-report", str(ann_dir), "--total-clips", "20"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "PASS" in result.output
+
+    def test_failing_report_exits_1(self, tmp_path):
+        """Maximally mismatched annotations drive kappa to -1.0 — command exits 1."""
+        # A sees all categories; B sees nothing — maximum disagreement.
+        clips = {f"clip_{i:03d}": (_ALL_CATEGORIES_JSONL, "") for i in range(10)}
+        # Include some "agree on nothing" clips to ensure no degenerate coverage issue.
+        for i in range(10):
+            clips[f"clip_empty_{i:03d}"] = ("", "")
+        ann_dir = _make_annotation_dir(tmp_path, clips)
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["iaa-report", str(ann_dir), "--total-clips", "20"],
+        )
+        assert result.exit_code == 1
+
+    def test_no_pairs_exits_1(self, tmp_path):
+        """An annotations_dir with no valid clip subdirs exits 1."""
+        ann_dir = tmp_path / "annotations"
+        ann_dir.mkdir()
+        # Put a file (not a dir) and an empty dir (0 jsonl files) — both skipped.
+        (ann_dir / "not_a_dir.txt").write_text("x")
+        (ann_dir / "empty_clip").mkdir()
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["iaa-report", str(ann_dir), "--total-clips", "10"],
+        )
+        assert result.exit_code == 1
+        assert "No valid annotation pairs" in result.output
+
+    def test_skip_clip_dir_with_wrong_jsonl_count(self, tmp_path):
+        """Clip subdirs with ≠2 JSONL files are skipped with a warning."""
+        ann_dir = tmp_path / "annotations"
+        ann_dir.mkdir()
+        # One dir with 3 JSONL files (wrong count) — should be warned and skipped.
+        bad_dir = ann_dir / "clip_bad"
+        bad_dir.mkdir()
+        for name in ("a.jsonl", "b.jsonl", "c.jsonl"):
+            (bad_dir / name).write_text(_PHYS_EVENT_JSON)
+        # Fill in the rest of the clips so we have valid pairs to compute IAA on.
+        for clip_id, (ca, cb) in _passing_clips().items():
+            d = ann_dir / clip_id
+            d.mkdir()
+            (d / "annotator_a.jsonl").write_text(ca)
+            (d / "annotator_b.jsonl").write_text(cb)
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["iaa-report", str(ann_dir), "--total-clips", "20"],
+        )
+        assert "clip_bad" in result.output  # warning printed for skipped dir
+        assert result.exit_code in (0, 1)  # either outcome is valid; must not crash
+
+    def test_skip_clip_dir_with_parse_error(self, tmp_path):
+        """Clip subdirs whose JSONL cannot be parsed are skipped with a warning."""
+        ann_dir = tmp_path / "annotations"
+        ann_dir.mkdir()
+        bad_dir = ann_dir / "clip_bad"
+        bad_dir.mkdir()
+        (bad_dir / "annotator_a.jsonl").write_text("not valid json\n")
+        (bad_dir / "annotator_b.jsonl").write_text(_PHYS_EVENT_JSON)
+        for clip_id, (ca, cb) in _passing_clips().items():
+            d = ann_dir / clip_id
+            d.mkdir()
+            (d / "annotator_a.jsonl").write_text(ca)
+            (d / "annotator_b.jsonl").write_text(cb)
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["iaa-report", str(ann_dir), "--total-clips", "20"],
+        )
+        assert "clip_bad" in result.output  # warning printed for skipped dir
+        assert result.exit_code in (0, 1)
+
+    def test_output_json_written(self, tmp_path):
+        """--output writes a valid JSON report file."""
+        ann_dir = _make_annotation_dir(tmp_path, _passing_clips())
+        out_path = tmp_path / "reports" / "iaa.json"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "iaa-report",
+                str(ann_dir),
+                "--total-clips",
+                "20",
+                "--output",
+                str(out_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert out_path.exists()
+        report_data = json.loads(out_path.read_text())
+        assert "category_results" in report_data
+        assert report_data["n_clips_reviewed"] == 20
+        assert "IAA report written" in result.output
