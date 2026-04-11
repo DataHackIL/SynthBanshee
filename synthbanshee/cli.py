@@ -1035,8 +1035,14 @@ def iaa_report(annotations_dir: Path, total_clips: int, output: Path | None) -> 
             annotator_a.jsonl
             annotator_b.jsonl
     """
+    import jsonlines
+
     from synthbanshee.labels.iaa import run_iaa
     from synthbanshee.labels.schema import EventLabel
+
+    def _read_jsonl(path: Path) -> list[EventLabel]:
+        with jsonlines.open(path) as reader:
+            return [EventLabel.model_validate(record) for record in reader]
 
     pairs: list[tuple[list[EventLabel], list[EventLabel]]] = []
     clip_ids: list[str] = []
@@ -1051,17 +1057,9 @@ def iaa_report(annotations_dir: Path, total_clips: int, output: Path | None) -> 
                 f" found {len(jsonl_files)}[/yellow]"
             )
             continue
-        events_a: list[EventLabel] = []
-        events_b: list[EventLabel] = []
         try:
-            for line in jsonl_files[0].read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line:
-                    events_a.append(EventLabel.model_validate_json(line))
-            for line in jsonl_files[1].read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line:
-                    events_b.append(EventLabel.model_validate_json(line))
+            events_a = _read_jsonl(jsonl_files[0])
+            events_b = _read_jsonl(jsonl_files[1])
         except Exception as exc:
             console.print(f"[yellow]Skipping {clip_dir.name}: parse error — {exc}[/yellow]")
             continue

@@ -117,15 +117,22 @@ def linear_weighted_kappa(
         max_val: Maximum possible label value (inclusive).
 
     Returns:
-        Weighted kappa in [-1, 1].  Returns 0.0 for degenerate cases.
+        Weighted kappa in [-1, 1].
+        Returns 0.0 for empty input.
+        Returns 1.0 when ``min_val == max_val`` (no variance possible) or when
+        all raters agree perfectly in the degenerate case where ``p_e >= 1``.
 
     Raises:
-        ValueError: if the sequences have different lengths.
+        ValueError: if the sequences have different lengths, or if any label
+            falls outside ``[min_val, max_val]``.
     """
     if len(labels_a) != len(labels_b):
         raise ValueError(
             f"Label sequences must have equal length; got {len(labels_a)} vs {len(labels_b)}"
         )
+    for val in (*labels_a, *labels_b):
+        if val < min_val or val > max_val:
+            raise ValueError(f"Label {val!r} is outside the valid range [{min_val}, {max_val}]")
     n = len(labels_a)
     if n == 0:
         return 0.0
@@ -136,7 +143,16 @@ def linear_weighted_kappa(
         return 1.0
 
     def weight(i: int, j: int) -> float:
-        return 1.0 - abs(i - j) / scale
+        # Spec §6.2 defines intensity with ±1 tolerance: off-by-one differences
+        # count as full agreement; larger gaps are penalised proportionally over
+        # the remaining span [2, scale].
+        diff = abs(i - j)
+        if diff <= 1:
+            return 1.0
+        remaining_span = scale - 1
+        if remaining_span <= 0:
+            return 1.0
+        return max(0.0, 1.0 - (diff - 1) / remaining_span)
 
     vals = list(range(min_val, max_val + 1))
     k = len(vals)

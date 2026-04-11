@@ -99,16 +99,25 @@ class TestLinearWeightedKappa:
         # min_val == max_val → degenerate, treated as perfect
         assert linear_weighted_kappa([3], [3], min_val=3, max_val=3) == pytest.approx(1.0)
 
-    def test_partial_agreement_higher_than_chance(self):
-        # Close labels (±1) should produce higher kappa than random assignment
+    def test_off_by_one_is_perfect_agreement(self):
+        # Spec §6.2 ±1 tolerance: off-by-one pairs count as full agreement,
+        # so kappa should be 1.0 when all pairs differ by at most 1.
         a = [1, 2, 3, 4, 5, 1, 2, 3]
         b = [1, 2, 3, 4, 5, 2, 3, 4]  # off-by-one on last three
         kappa = linear_weighted_kappa(a, b)
-        assert kappa > 0.0
+        assert kappa == pytest.approx(1.0)
 
     def test_mismatched_length_raises(self):
         with pytest.raises(ValueError, match="equal length"):
             linear_weighted_kappa([1, 2], [1])
+
+    def test_out_of_bounds_raises(self):
+        with pytest.raises(ValueError, match="outside the valid range"):
+            linear_weighted_kappa([1, 6], [1, 2])  # 6 > max_val=5
+
+    def test_below_min_raises(self):
+        with pytest.raises(ValueError, match="outside the valid range"):
+            linear_weighted_kappa([0, 3], [1, 3])  # 0 < min_val=1
 
 
 # ---------------------------------------------------------------------------
