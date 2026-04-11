@@ -2114,3 +2114,16 @@ class TestPackageDatasetCommand:
             ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
         )
         assert (out_dir / "avdp_synth_v1.0.tar.gz.sha256").exists()
+
+    def test_invalid_version_rejected(self, tmp_path):
+        """Version strings with path separators or spaces are rejected before QA runs."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        runner = CliRunner()
+        for bad_version in ("../evil", "v1 0", "v1/0"):
+            result = runner.invoke(
+                cli,
+                ["package-dataset", str(data_dir), str(out_dir), "--version", bad_version],
+            )
+            assert result.exit_code != 0, f"Expected failure for version {bad_version!r}"
+            assert not (out_dir / f"avdp_synth_{bad_version}.tar.gz").exists()

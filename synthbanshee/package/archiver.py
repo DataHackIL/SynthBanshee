@@ -69,7 +69,11 @@ def create_archive(
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    files = sorted(p for p in data_dir.rglob("*") if p.is_file() and "_dirty" not in p.stem)
+    files = sorted(
+        p
+        for p in data_dir.rglob("*")
+        if p.is_file() and not p.is_symlink() and "_dirty" not in p.stem
+    )
 
     file_checksums: list[tuple[str, str]] = []
     total_bytes = 0

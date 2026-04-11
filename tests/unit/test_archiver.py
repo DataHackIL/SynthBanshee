@@ -122,3 +122,18 @@ class TestCreateArchive:
         assert result.file_count == 0
         assert result.total_bytes == 0
         assert out.exists()
+
+    def test_symlinks_excluded(self, tmp_path):
+        """Symlinks inside data_dir must not be included in the archive."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        real_file = data_dir / "real.wav"
+        real_file.write_bytes(b"real")
+        link = data_dir / "link.wav"
+        link.symlink_to(real_file)
+        out = tmp_path / "dataset.tar.gz"
+        result = create_archive(data_dir, out)
+        assert result.file_count == 1  # only real.wav
+        with tarfile.open(out, "r:gz") as tar:
+            names = tar.getnames()
+        assert not any("link" in n for n in names)
