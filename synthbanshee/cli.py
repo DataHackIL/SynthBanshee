@@ -1005,7 +1005,7 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
 @click.argument("annotations_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option(
     "--total-clips",
-    type=int,
+    type=click.IntRange(min=1),
     required=True,
     help="Total number of clips in the dataset (for coverage fraction calculation).",
 )

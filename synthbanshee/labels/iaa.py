@@ -105,10 +105,13 @@ def linear_weighted_kappa(
     min_val: int = 1,
     max_val: int = _INTENSITY_MAX,
 ) -> float:
-    """Compute linearly-weighted Cohen's Kappa for ordinal labels.
+    """Compute Cohen's Kappa for ordinal labels using the spec's ±1 tolerance.
 
-    Disagreements are penalised proportionally to their distance:
-    weight(i, j) = 1 - |i - j| / (max_val - min_val).
+    The weighting is **not** the standard linear formula ``1 - |i-j| / scale``.
+    Instead, ratings that differ by at most 1 are treated as full agreement:
+    ``weight(i, j) = 1.0`` when ``|i - j| <= 1``.  For larger gaps the penalty
+    decreases linearly based on the distance beyond the ±1 tolerance, reaching
+    0.0 at the maximum possible disagreement (spec.md §6.2).
 
     Args:
         labels_a: Ordinal labels from annotator A.
@@ -149,10 +152,9 @@ def linear_weighted_kappa(
         diff = abs(i - j)
         if diff <= 1:
             return 1.0
-        remaining_span = scale - 1
-        if remaining_span <= 0:
-            return 1.0
-        return max(0.0, 1.0 - (diff - 1) / remaining_span)
+        # remaining_span = scale - 1 >= 1 is guaranteed here: scale >= 2
+        # (scale==0 exits early above; scale==1 means max diff==1 so diff<=1 always).
+        return max(0.0, 1.0 - (diff - 1) / (scale - 1))
 
     vals = list(range(min_val, max_val + 1))
     k = len(vals)
@@ -309,6 +311,22 @@ class IAAReport:
 # ---------------------------------------------------------------------------
 
 _CATEGORY_PREFIXES = ["PHYS", "VERB", "DIST", "ACOU", "EMOT"]
+
+
+# Validate prefixes against taxonomy at import time so a rename in
+# configs/taxonomy.yaml causes an immediate, loud failure here.
+def _validate_category_prefixes() -> None:
+    from synthbanshee.config.taxonomy import tier1_category_codes
+
+    valid = tier1_category_codes()
+    for prefix in _CATEGORY_PREFIXES:
+        if prefix not in valid:
+            raise ValueError(
+                f"IAA category prefix {prefix!r} not found in taxonomy tier-1 codes: {sorted(valid)}"
+            )
+
+
+_validate_category_prefixes()
 
 
 def run_iaa(

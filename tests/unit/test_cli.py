@@ -1897,8 +1897,8 @@ class TestIAAReport:
         assert "PASS" in result.output
 
     def test_failing_report_exits_1(self, tmp_path):
-        """Maximally mismatched annotations drive kappa to -1.0 — command exits 1."""
-        # A sees all categories; B sees nothing — maximum disagreement.
+        """Mismatched annotations drive kappa below minimum thresholds — command exits 1."""
+        # A sees all categories; B sees nothing — half the clips disagree.
         clips = {f"clip_{i:03d}": (_ALL_CATEGORIES_JSONL, "") for i in range(10)}
         # Include some "agree on nothing" clips to ensure no degenerate coverage issue.
         for i in range(10):
@@ -1947,7 +1947,7 @@ class TestIAAReport:
             ["iaa-report", str(ann_dir), "--total-clips", "20"],
         )
         assert "clip_bad" in result.output  # warning printed for skipped dir
-        assert result.exit_code in (0, 1)  # either outcome is valid; must not crash
+        assert result.exit_code == 0  # _passing_clips() still satisfy thresholds
 
     def test_skip_clip_dir_with_parse_error(self, tmp_path):
         """Clip subdirs whose JSONL cannot be parsed are skipped with a warning."""
@@ -1968,7 +1968,7 @@ class TestIAAReport:
             ["iaa-report", str(ann_dir), "--total-clips", "20"],
         )
         assert "clip_bad" in result.output  # warning printed for skipped dir
-        assert result.exit_code in (0, 1)
+        assert result.exit_code == 0  # _passing_clips() still satisfy thresholds
 
     def test_output_json_written(self, tmp_path):
         """--output writes a valid JSON report file."""
