@@ -2056,7 +2056,7 @@ class TestPackageDatasetCommand:
         assert result.exit_code == 0, result.output
         assert (out_dir / "avdp_synth_v1.0.tar.gz").exists()
         assert (out_dir / "DATASET_CARD.md").exists()
-        assert (out_dir / "SHA256SUMS.txt").exists()
+        assert (out_dir / "avdp_synth_v1.0_SHA256SUMS.txt").exists()
         assert "Archive written" in result.output
 
     def test_qa_fail_aborts_without_force(self, tmp_path):

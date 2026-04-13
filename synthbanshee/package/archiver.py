@@ -80,7 +80,8 @@ def create_archive(
 
     with tarfile.open(output_path, "w:gz") as tar:
         for file_path in files:
-            rel = str(file_path.relative_to(data_dir.parent))
+            rel_path = file_path.relative_to(data_dir.parent)
+            rel = rel_path.as_posix()
             file_checksums.append((rel, _file_sha256(file_path)))
             total_bytes += file_path.stat().st_size
             tar.add(file_path, arcname=rel)
@@ -93,8 +94,9 @@ def create_archive(
             card_digest = hashlib.sha256(card_bytes).hexdigest()
             file_checksums.append(("DATASET_CARD.md", card_digest))
 
-    # SHA256SUMS.txt alongside the archive
-    manifest_path = output_path.with_name("SHA256SUMS.txt")
+    # Per-release manifest alongside the archive (versioned to avoid collisions)
+    archive_stem = output_path.with_suffix("").with_suffix("").name
+    manifest_path = output_path.with_name(f"{archive_stem}_SHA256SUMS.txt")
     manifest_path.write_text(
         "".join(f"{digest}  {rel}\n" for rel, digest in file_checksums),
         encoding="utf-8",

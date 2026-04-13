@@ -1192,8 +1192,10 @@ def package_dataset(data_dir: Path, output_dir: Path, version: str, *, force: bo
     qa_report = run_qa(data_dir)
 
     status = "[bold green]PASS[/bold green]" if qa_report.passed else "[bold red]FAIL[/bold red]"
+    total_attempted = qa_report.stats.total_clips + qa_report.stats.failed_clips
     console.print(
-        f"QA: {status} — {qa_report.stats.total_clips:,} clips,"
+        f"QA: {status} — {total_attempted:,} clips attempted,"
+        f" {qa_report.stats.total_clips:,} passed,"
         f" {qa_report.stats.failed_clips} failed"
         f" ({qa_report.failure_rate:.1%} failure rate)"
     )

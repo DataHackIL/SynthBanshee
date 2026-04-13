@@ -83,6 +83,8 @@ class TestCreateArchive:
         out = tmp_path / "dataset.tar.gz"
         result = create_archive(data_dir, out)
         assert result.manifest_path.exists()
+        # Manifest filename is versioned alongside the archive (not a fixed name)
+        assert result.manifest_path.name == "dataset_SHA256SUMS.txt"
         lines = result.manifest_path.read_text().splitlines()
         assert len(lines) == 4  # one per clean file; no card
         # Each line: "<hex>  <path>"
@@ -102,11 +104,11 @@ class TestCreateArchive:
             assert member.read().decode() == card
 
     def test_dataset_card_in_manifest(self, tmp_path):
-        """DATASET_CARD.md must appear in SHA256SUMS.txt when card is provided."""
+        """DATASET_CARD.md must appear in the versioned manifest when card is provided."""
         data_dir = _make_data_dir(tmp_path)
         out = tmp_path / "dataset.tar.gz"
-        create_archive(data_dir, out, dataset_card_text="# Card")
-        lines = (out.with_name("SHA256SUMS.txt")).read_text().splitlines()
+        result = create_archive(data_dir, out, dataset_card_text="# Card")
+        lines = result.manifest_path.read_text().splitlines()
         assert any("DATASET_CARD.md" in line for line in lines)
         # 4 data files + 1 card entry = 5
         assert len(lines) == 5
