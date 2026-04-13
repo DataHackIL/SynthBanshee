@@ -1126,8 +1126,16 @@ def dataset_card(data_dir: Path, version: str, output: Path | None) -> None:
     a Markdown dataset card with YAML frontmatter suitable for uploading to
     the HuggingFace Hub.
     """
+    import re
+
     from synthbanshee.package.dataset_card import generate_dataset_card
     from synthbanshee.package.qa import run_qa
+
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", version):
+        raise click.BadParameter(
+            "version must contain only alphanumerics, dots, hyphens, and underscores (e.g. 'v1.0')",
+            param_hint="'--version'",
+        )
 
     console.print(f"[cyan]Running QA on {data_dir} …[/cyan]")
     qa_report = run_qa(data_dir)

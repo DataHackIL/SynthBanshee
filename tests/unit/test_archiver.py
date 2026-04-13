@@ -84,7 +84,7 @@ class TestCreateArchive:
         result = create_archive(data_dir, out)
         assert result.manifest_path.exists()
         lines = result.manifest_path.read_text().splitlines()
-        assert len(lines) == 4  # one per clean file
+        assert len(lines) == 4  # one per clean file; no card
         # Each line: "<hex>  <path>"
         for line in lines:
             digest, _, rel = line.partition("  ")
@@ -100,6 +100,16 @@ class TestCreateArchive:
             member = tar.extractfile("DATASET_CARD.md")
             assert member is not None
             assert member.read().decode() == card
+
+    def test_dataset_card_in_manifest(self, tmp_path):
+        """DATASET_CARD.md must appear in SHA256SUMS.txt when card is provided."""
+        data_dir = _make_data_dir(tmp_path)
+        out = tmp_path / "dataset.tar.gz"
+        create_archive(data_dir, out, dataset_card_text="# Card")
+        lines = (out.with_name("SHA256SUMS.txt")).read_text().splitlines()
+        assert any("DATASET_CARD.md" in line for line in lines)
+        # 4 data files + 1 card entry = 5
+        assert len(lines) == 5
 
     def test_no_dataset_card_when_none(self, tmp_path):
         data_dir = _make_data_dir(tmp_path)

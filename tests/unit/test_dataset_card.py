@@ -43,9 +43,22 @@ class TestSizeCategory:
         assert _size_category(10_000) == "10K<n<100K"
         assert _size_category(99_999) == "10K<n<100K"
 
-    def test_100k_plus(self):
+    def test_100k_to_1m(self):
         assert _size_category(100_000) == "100K<n<1M"
-        assert _size_category(500_000) == "100K<n<1M"
+        assert _size_category(999_999) == "100K<n<1M"
+
+    def test_1m_to_10m(self):
+        assert _size_category(1_000_000) == "1M<n<10M"
+        assert _size_category(9_999_999) == "1M<n<10M"
+
+    def test_10m_to_100m(self):
+        assert _size_category(10_000_000) == "10M<n<100M"
+
+    def test_100m_to_1b(self):
+        assert _size_category(100_000_000) == "100M<n<1B"
+
+    def test_above_1b(self):
+        assert _size_category(1_000_000_000) == "n>1B"
 
 
 class TestGenerateDatasetCard:
@@ -91,10 +104,10 @@ class TestGenerateDatasetCard:
         assert "**Foo**" in card
         assert "**Bar**" in card
 
-    def test_default_projects(self):
+    def test_default_projects_rendered_as_bullets(self):
         card = generate_dataset_card(_make_report(), "v1.0")
-        assert "She-Proves" in card
-        assert "Elephant in the Room" in card
+        assert "- **She-Proves**" in card
+        assert "- **Elephant in the Room**" in card
 
     def test_citation_contains_version(self):
         card = generate_dataset_card(_make_report(), "v1.0")

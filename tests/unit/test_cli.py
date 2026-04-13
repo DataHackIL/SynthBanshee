@@ -2035,6 +2035,14 @@ class TestDatasetCardCommand:
         assert result.exit_code == 0, result.output
         assert "v2.0" in result.output
 
+    def test_invalid_version_rejected(self, tmp_path):
+        """Version strings with path separators or spaces are rejected."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        runner = CliRunner()
+        for bad in ("../evil", "v1 0", "v1:0"):
+            result = runner.invoke(cli, ["dataset-card", str(data_dir), "-v", bad])
+            assert result.exit_code != 0, f"Expected failure for version {bad!r}"
+
 
 class TestPackageDatasetCommand:
     def test_creates_archive_and_card(self, tmp_path):

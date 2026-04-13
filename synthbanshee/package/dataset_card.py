@@ -21,8 +21,10 @@ def generate_dataset_card(
     Args:
         qa_report: Completed QA report from :func:`~synthbanshee.package.qa.run_qa`.
         version: Dataset version string (e.g. ``"v1.0"``).
-        projects: Human-readable project names to mention in the description.
-            Defaults to ``["She-Proves", "Elephant in the Room"]``.
+        projects: Project names to list in the dataset description bullets and
+            in the closing summary sentence.  Each entry becomes a ``- **name**``
+            bullet point.  Defaults to
+            ``["She-Proves", "Elephant in the Room"]``.
 
     Returns:
         Dataset card as a UTF-8 string (YAML frontmatter + Markdown body).
@@ -50,6 +52,7 @@ def generate_dataset_card(
         for split, cnt in sorted(stats.clips_by_split.items())
     )
 
+    project_bullets = "\n".join(f"- **{p}**" for p in projects)
     projects_str = " and ".join(f"**{p}**" for p in projects)
     cite_version = version.replace(".", "_")
 
@@ -75,13 +78,10 @@ size_categories:
 
 ## Dataset Description
 
-Synthetic Hebrew audio dataset for two AI safety initiatives run by
+Synthetic Hebrew audio dataset for AI safety initiatives run by
 [DataHack](https://datahack.org.il):
 
-- **She-Proves** — passively monitors a smartphone for domestic violence
-  incidents and preserves audio evidence for legal use.
-- **Elephant in the Room** — a Raspberry Pi–class device in clinic/welfare
-  offices that alerts security when a social worker is being attacked.
+{project_bullets}
 
 All audio is **fully synthetic** (`is_synthetic: true` in every clip's
 metadata). A real-data pipeline using actor recordings is planned for a future
@@ -214,4 +214,12 @@ def _size_category(n_clips: int) -> str:
         return "1K<n<10K"
     if n_clips < 100_000:
         return "10K<n<100K"
-    return "100K<n<1M"
+    if n_clips < 1_000_000:
+        return "100K<n<1M"
+    if n_clips < 10_000_000:
+        return "1M<n<10M"
+    if n_clips < 100_000_000:
+        return "10M<n<100M"
+    if n_clips < 1_000_000_000:
+        return "100M<n<1B"
+    return "n>1B"

@@ -90,6 +90,8 @@ def create_archive(
             info = tarfile.TarInfo(name="DATASET_CARD.md")
             info.size = len(card_bytes)
             tar.addfile(info, io.BytesIO(card_bytes))
+            card_digest = hashlib.sha256(card_bytes).hexdigest()
+            file_checksums.append(("DATASET_CARD.md", card_digest))
 
     # SHA256SUMS.txt alongside the archive
     manifest_path = output_path.with_name("SHA256SUMS.txt")
