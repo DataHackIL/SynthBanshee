@@ -54,9 +54,10 @@ class AzureProvider:
         speech_config.set_speech_synthesis_output_format(
             speechsdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm
         )
-        # Stream output into memory
-        audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=False)
-        return speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        # audio_config=None: capture to result.audio_data only; no speaker device required.
+        # use_default_speaker=False triggers "default speaker needs to be explicitly activated"
+        # on macOS when no audio subsystem is available.
+        return speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
 
     def synthesize(self, ssml: str) -> bytes:
         """Synthesize SSML and return raw WAV bytes (Riff24Khz16BitMonoPcm).
