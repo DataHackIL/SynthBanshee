@@ -315,6 +315,18 @@ def _run_generate_pipeline(
     # Stage 4b — Strong Labels
     # 7. Build per-turn event labels from MixedScene timing (authoritative per spec)
     # Same pad_s offset applied here to match the processed audio.
+    from synthbanshee.config.taxonomy import emotional_state_values as _valid_emotions
+
+    _known_emotions = set(_valid_emotions())
+
+    def _normalize_emotion(state: str) -> str:
+        """Map LLM-generated emotional states to valid taxonomy values.
+
+        Falls back to 'neutral' for any value the LLM produces that is not in
+        the taxonomy (e.g. 'calm' before it was added, 'relaxed', 'happy').
+        """
+        return state if state in _known_emotions else "neutral"
+
     events: list[ScriptEvent] = []
     for i, turn in enumerate(turns):
         raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
@@ -333,7 +345,7 @@ def _run_generate_pipeline(
                 intensity=turn.intensity,
                 speaker_id=turn.speaker_id,
                 speaker_role=role,
-                emotional_state=turn.emotional_state,
+                emotional_state=_normalize_emotion(turn.emotional_state),
             )
         )
     # Stage 3b ACOU_* SFX events (Tier B and Tier C). Their onset/offset times are
