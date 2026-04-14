@@ -191,6 +191,39 @@ class TestGenerateCommand:
         wav_files = list((tmp_path / "out").rglob("*.wav"))
         assert len(wav_files) >= 1
 
+    def test_full_generate_verbose(self, tmp_path):
+        """--verbose flag exercises the vlog code path (cli.py lines 100-101)."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "--config",
+                    str(SCENES_DIR / "test_scene_001.yaml"),
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                    "--verbose",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Stage" in result.output
+
 
 # ---------------------------------------------------------------------------
 # validate command

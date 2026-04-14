@@ -155,7 +155,7 @@ def _run_generate_pipeline(
                 for spk in speakers.values()
             ],
             random_seed=scene.random_seed,
-            verbose_log=vlog,
+            verbose_log=vlog if verbose else None,
         )
     except Exception as exc:
         return None, [f"Script generation error: {exc}"]
@@ -172,7 +172,7 @@ def _run_generate_pipeline(
             speakers=speakers,
             disfluency=True,
             rng_seed=scene.random_seed,
-            verbose_log=vlog,
+            verbose_log=vlog if verbose else None,
         )
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]
@@ -323,7 +323,7 @@ def _run_generate_pipeline(
         """Map LLM-generated emotional states to valid taxonomy values.
 
         Falls back to 'neutral' for any value the LLM produces that is not in
-        the taxonomy (e.g. 'calm' before it was added, 'relaxed', 'happy').
+        the taxonomy (e.g. 'relaxed', 'happy', 'worried').
         """
         return state if state in _known_emotions else "neutral"
 

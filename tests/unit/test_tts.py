@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import struct
+import sys
 import wave
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -162,6 +163,40 @@ class TestAzureProvider:
         provider = AzureProvider(subscription_key="", region="eastus")
         assert not provider.is_configured()
 
+    def test_get_synthesizer_passes_audio_config_none(self, monkeypatch):
+        """Regression: _get_synthesizer must use audio_config=None for headless synthesis.
+
+        Using AudioOutputConfig(use_default_speaker=False) triggers
+        "default speaker needs to be explicitly activated" on macOS.
+        """
+        import types
+
+        mock_synthesizer_cls = MagicMock()
+        mock_speech_config = MagicMock()
+
+        # Build a proper module object so the import machinery accepts it.
+        fake_sdk = types.ModuleType("azure.cognitiveservices.speech")
+        fake_sdk.SpeechConfig = MagicMock(return_value=mock_speech_config)
+        fake_sdk.SpeechSynthesizer = mock_synthesizer_cls
+        fake_sdk.SpeechSynthesisOutputFormat = MagicMock()
+        fake_sdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm = "mock_format"
+
+        # Patch the full dotted import path — parent packages must also be present
+        # or the import statement raises ImportError before reaching the leaf module.
+        monkeypatch.setitem(sys.modules, "azure", types.ModuleType("azure"))
+        monkeypatch.setitem(
+            sys.modules, "azure.cognitiveservices", types.ModuleType("azure.cognitiveservices")
+        )
+        monkeypatch.setitem(sys.modules, "azure.cognitiveservices.speech", fake_sdk)
+
+        provider = AzureProvider(subscription_key="key", region="eastus")
+        provider._get_synthesizer()
+
+        mock_synthesizer_cls.assert_called_once_with(
+            speech_config=mock_speech_config,
+            audio_config=None,
+        )
+
 
 # ---------------------------------------------------------------------------
 # TTSRenderer tests (mocked)
@@ -212,3 +247,18 @@ class TestTTSRenderer:
         assert result_path == out
         assert out.exists()
         assert out.stat().st_size > 0
+
+    def test_render_scene_verbose_log(self, tmp_path):
+        """verbose_log callable receives per-turn status messages during render_scene."""
+        from synthbanshee.script.types import DialogueTurn
+
+        renderer = self._make_renderer(tmp_path)
+        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        turns = [DialogueTurn(speaker_id="AGG_M_30-45_001", text="שלום", intensity=1)]
+        speakers = {"AGG_M_30-45_001": speaker}
+
+        log_messages: list[str] = []
+        renderer.render_scene(turns, speakers, verbose_log=log_messages.append)
+
+        assert len(log_messages) >= 1
+        assert any("turn" in m for m in log_messages)
