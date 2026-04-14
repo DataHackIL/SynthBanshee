@@ -11,6 +11,7 @@ Spec reference: docs/implementation_plan.md §0.3
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
-_DEFAULT_CACHE_DIR = Path("assets/speech")
+_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_CACHE_DIR", "assets/speech"))
 
 
 class TTSRenderer:

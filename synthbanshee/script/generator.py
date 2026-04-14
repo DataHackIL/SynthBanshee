@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import unicodedata
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
 
-_DEFAULT_CACHE_DIR = Path("assets/scripts")
+_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR", "assets/scripts"))
 _DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
 _DEFAULT_OPENAI_MODEL = "gpt-4o"
 

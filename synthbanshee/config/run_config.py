@@ -10,6 +10,7 @@ A run config specifies everything needed to orchestrate a batch generation:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal, Self
 
@@ -62,7 +63,7 @@ class RunConfig(BaseModel):
     tier: Literal["A", "B", "C"] = "A"
     language: str = "he"
     random_seed: int = 42
-    output_dir: str = "data/he"
+    output_dir: str = os.environ.get("SYNTHBANSHEE_DATA_DIR", "data/he")
     scene_configs_dir: str = "configs/scenes"
     targets: list[TypologyTarget] = Field(min_length=1)
     splits: SplitFractions = Field(default_factory=SplitFractions)
