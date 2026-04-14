@@ -22,7 +22,7 @@ from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
 
-_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR", "assets/scripts"))
+_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR") or "assets/scripts")
 _DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
 _DEFAULT_OPENAI_MODEL = "gpt-4o"
 

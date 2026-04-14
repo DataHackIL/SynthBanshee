@@ -183,10 +183,13 @@ class TestAzureProvider:
 
         # Patch the full dotted import path — parent packages must also be present
         # or the import statement raises ImportError before reaching the leaf module.
-        monkeypatch.setitem(sys.modules, "azure", types.ModuleType("azure"))
-        monkeypatch.setitem(
-            sys.modules, "azure.cognitiveservices", types.ModuleType("azure.cognitiveservices")
-        )
+        # __path__ must be set so Python treats them as packages (not plain modules).
+        azure_stub = types.ModuleType("azure")
+        azure_stub.__path__ = []  # type: ignore[attr-defined]
+        azure_cog_stub = types.ModuleType("azure.cognitiveservices")
+        azure_cog_stub.__path__ = []  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "azure", azure_stub)
+        monkeypatch.setitem(sys.modules, "azure.cognitiveservices", azure_cog_stub)
         monkeypatch.setitem(sys.modules, "azure.cognitiveservices.speech", fake_sdk)
 
         provider = AzureProvider(subscription_key="key", region="eastus")

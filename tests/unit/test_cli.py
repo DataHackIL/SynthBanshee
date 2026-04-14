@@ -192,7 +192,7 @@ class TestGenerateCommand:
         assert len(wav_files) >= 1
 
     def test_full_generate_verbose(self, tmp_path):
-        """--verbose flag exercises the vlog code path (cli.py lines 100-101)."""
+        """--verbose flag exercises the vlog code path in _run_generate_pipeline."""
         turns = _make_dialogue_turns(n=1)
         mixed = _make_mixed_scene(n_turns=1)
 
@@ -935,7 +935,9 @@ class TestGenerateBatchAdvanced:
         fake_wav.write_bytes(b"fake")
         call_count = [0]
 
-        def _fail_then_succeed(config, out_dir, cache_dir, dirty_dir, script_cache_dir):
+        def _fail_then_succeed(
+            config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=False
+        ):
             call_count[0] += 1
             if call_count[0] == 1:
                 return None, ["transient render error"]

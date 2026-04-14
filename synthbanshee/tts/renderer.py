@@ -20,7 +20,7 @@ from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
-_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_CACHE_DIR", "assets/speech"))
+_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_CACHE_DIR") or "assets/speech")
 
 
 class TTSRenderer:

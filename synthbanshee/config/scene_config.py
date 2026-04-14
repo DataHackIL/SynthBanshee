@@ -97,7 +97,9 @@ class SceneConfig(BaseModel):
     min_pre_alert_seconds: float | None = None
     acoustic_scene: AcousticSceneConfig | None = None
     prosody: dict[str, ProsodyBounds] = Field(default_factory=dict)
-    output_dir: str = os.environ.get("SYNTHBANSHEE_DATA_DIR", "data/he")
+    output_dir: str = Field(
+        default_factory=lambda: os.environ.get("SYNTHBANSHEE_DATA_DIR") or "data/he"
+    )
 
     @field_validator("project")
     @classmethod

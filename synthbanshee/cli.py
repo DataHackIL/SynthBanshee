@@ -322,10 +322,12 @@ def _run_generate_pipeline(
     def _normalize_emotion(state: str) -> str:
         """Map LLM-generated emotional states to valid taxonomy values.
 
-        Falls back to 'neutral' for any value the LLM produces that is not in
-        the taxonomy (e.g. 'relaxed', 'happy', 'worried').
+        Strips whitespace and lowercases before lookup so that common LLM
+        output variations like 'Calm', 'ANGER', or 'neutral ' are handled
+        correctly. Falls back to 'neutral' for values not in the taxonomy
+        (e.g. 'relaxed', 'happy', 'worried').
         """
-        return state if state in _known_emotions else "neutral"
+        return state.strip().lower() if state.strip().lower() in _known_emotions else "neutral"
 
     events: list[ScriptEvent] = []
     for i, turn in enumerate(turns):
@@ -597,6 +599,7 @@ def _render_one(
     script_cache_dir: Path,
     max_retries: int,
     stop_event: threading.Event,
+    verbose: bool = False,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -615,7 +618,7 @@ def _render_one(
         if stop_event.is_set():
             return None, ["cancelled"]
         wav_path, messages = _run_generate_pipeline(
-            scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir
+            scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=verbose
         )
         if wav_path is not None:
             return wav_path, messages
@@ -679,6 +682,13 @@ def _render_one(
     show_default=True,
     help="Number of parallel worker threads for clip rendering.",
 )
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Print per-turn TTS and script generation details.",
+)
 def generate_batch(
     run_config: Path,
     output_dir: Path | None,
@@ -688,6 +698,7 @@ def generate_batch(
     manifest_out: Path | None,
     dry_run: bool,
     workers: int,
+    verbose: bool,
 ) -> None:
     """Run a full batch generation from a run configuration YAML.
 
@@ -765,6 +776,7 @@ def generate_batch(
                     script_cache_dir,
                     run_cfg.max_retries,
                     _no_stop,
+                    verbose=verbose,
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -795,6 +807,7 @@ def generate_batch(
                         script_cache_dir,
                         run_cfg.max_retries,
                         stop_event,
+                        verbose,
                     ): scene_yaml
                     for scene_yaml in selected
                 }

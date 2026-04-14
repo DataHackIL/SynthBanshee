@@ -63,7 +63,9 @@ class RunConfig(BaseModel):
     tier: Literal["A", "B", "C"] = "A"
     language: str = "he"
     random_seed: int = 42
-    output_dir: str = os.environ.get("SYNTHBANSHEE_DATA_DIR", "data/he")
+    output_dir: str = Field(
+        default_factory=lambda: os.environ.get("SYNTHBANSHEE_DATA_DIR") or "data/he"
+    )
     scene_configs_dir: str = "configs/scenes"
     targets: list[TypologyTarget] = Field(min_length=1)
     splits: SplitFractions = Field(default_factory=SplitFractions)
