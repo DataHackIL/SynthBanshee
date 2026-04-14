@@ -89,11 +89,17 @@ def _run_generate_pipeline(
     cache_dir: Path,
     dirty_dir: Path,
     script_cache_dir: Path,
+    verbose: bool = False,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
     Returns (wav_path, errors/warnings). wav_path is None on failure.
     """
+
+    def vlog(msg: str) -> None:
+        if verbose:
+            console.print(msg)
+
     import soundfile as sf
 
     from synthbanshee.augment.preprocessing import preprocess
@@ -127,6 +133,7 @@ def _run_generate_pipeline(
 
     # Stage 1 — Script Generation
     # 3. Generate script
+    vlog("[bold]Stage 1[/bold] — Script generation")
     script_gen = ScriptGenerator(cache_dir=script_cache_dir)
     try:
         turns = script_gen.generate(
@@ -148,12 +155,16 @@ def _run_generate_pipeline(
                 for spk in speakers.values()
             ],
             random_seed=scene.random_seed,
+            verbose_log=vlog,
         )
     except Exception as exc:
         return None, [f"Script generation error: {exc}"]
 
+    vlog(f"  [dim]script: {len(turns)} turns[/dim]")
+
     # Stage 2 — TTS Rendering
     # 4. Render multi-speaker scene
+    vlog(f"[bold]Stage 2[/bold] — TTS rendering ({len(turns)} turns)")
     renderer = TTSRenderer(cache_dir=cache_dir)
     try:
         mixed = renderer.render_scene(
@@ -161,11 +172,15 @@ def _run_generate_pipeline(
             speakers=speakers,
             disfluency=True,
             rng_seed=scene.random_seed,
+            verbose_log=vlog,
         )
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]
 
+    vlog(f"  [dim]scene mixed: {mixed.duration_s:.1f} s[/dim]")
+
     # Stage 3a — Preprocessing
+    vlog("[bold]Stage 3a[/bold] — Preprocessing")
     # 5. Write raw mix to temp WAV, preprocess to final output path
     clip_id = scene.scene_id.lower().replace("-", "_")
     first_speaker_ref = scene.speakers[0]
@@ -182,6 +197,12 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
+    vlog(
+        f"  [dim]preprocess: {result.sample_rate} Hz, {result.duration_seconds:.1f} s,"
+        f" peak={result.peak_dbfs:.1f} dBFS, pad={result.silence_pad_applied_s:.2f} s/side"
+        f" — steps: {', '.join(result.steps_applied)}[/dim]"
+    )
+
     # Stage 3b — Acoustic Augmentation (Tier B and Tier C)
     # 5b. Room simulation → device profile → noise mix
     #
@@ -195,6 +216,7 @@ def _run_generate_pipeline(
     acoustic_scene_meta = None
     _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
     if scene.tier in ("B", "C") and scene.acoustic_scene is not None:
+        vlog("[bold]Stage 3b[/bold] — Acoustic augmentation")
         try:
             import numpy as _np
             import soundfile as _sf
@@ -267,6 +289,7 @@ def _run_generate_pipeline(
             return None, [f"Acoustic augmentation error: {exc}"]
 
     # Stage 4a — Transcript
+    vlog("[bold]Stage 4[/bold] — Transcript, labels, metadata")
     # 6. Write structured multi-speaker transcript
     # preprocess() prepends result.silence_pad_applied_s of silence unconditionally,
     # so all MixedScene timings must be shifted forward by that amount.
@@ -370,12 +393,19 @@ def _run_generate_pipeline(
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 
+    vlog(
+        f"  [dim]wrote: {clip_txt.name} ({len(turns)} turns),"
+        f" {clip_jsonl.name} ({len(event_labels)} events),"
+        f" {clip_json.name}[/dim]"
+    )
+
     # Stage 5 — Validation
-    # 9. Validate
+    vlog("[bold]Stage 5[/bold] — Validation")
     validation = validate_clip(clip_wav)
     if not validation.is_valid:
         return None, validation.errors
 
+    vlog(f"  [dim]clip valid: {clip_wav}[/dim]")
     return clip_wav, list(validation.warnings)
 
 
@@ -437,6 +467,13 @@ def cli() -> None:
     default=False,
     help="Parse and validate config only; do not render.",
 )
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Print per-stage and per-turn progress (cache hits, preprocessing steps, etc.).",
+)
 def generate(
     config: Path,
     output_dir: Path | None,
@@ -444,6 +481,7 @@ def generate(
     dirty_dir: Path,
     script_cache_dir: Path,
     dry_run: bool,
+    verbose: bool,
 ) -> None:
     """Generate a synthetic clip from a scene YAML config."""
     from synthbanshee.config.scene_config import SceneConfig
@@ -468,7 +506,7 @@ def generate(
 
     console.print("[cyan]Running generate pipeline...[/cyan]")
     wav_path, messages = _run_generate_pipeline(
-        config, out_dir, cache_dir, dirty_dir, script_cache_dir
+        config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=verbose
     )
 
     if wav_path is None:

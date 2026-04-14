@@ -16,6 +16,7 @@ import json
 import math
 import re
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
@@ -308,6 +309,7 @@ class ScriptGenerator:
         target_duration_minutes: float,
         speakers: list[dict],
         random_seed: int = 0,
+        verbose_log: Callable[[str], None] | None = None,
     ) -> list[DialogueTurn]:
         """Generate a dialogue script for the given scene parameters.
 
@@ -335,8 +337,12 @@ class ScriptGenerator:
 
         cached = self._load_from_cache(key)
         if cached is not None:
+            if verbose_log is not None:
+                verbose_log(f"  [dim]script: cache hit ({len(cached)} turns)[/dim]")
             return cached
 
+        if verbose_log is not None:
+            verbose_log(f"  [dim]script: cache miss — calling {self._provider}/{self._model}[/dim]")
         prompt = self._render_prompt(
             template_path=script_template,
             scene_id=scene_id,

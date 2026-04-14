@@ -180,25 +180,28 @@ class TestTTSRenderer:
     def test_render_utterance_returns_bytes(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
-        wav_bytes, key = renderer.render_utterance("hello", speaker, intensity=3)
+        wav_bytes, key, hit = renderer.render_utterance("hello", speaker, intensity=3)
         assert isinstance(wav_bytes, bytes)
         assert len(key) == 64  # SHA-256 hex digest
+        assert hit is False  # first call — not a cache hit
 
     def test_cache_hit_on_second_call(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
 
-        wav1, key1 = renderer.render_utterance("hello", speaker, intensity=1)
-        wav2, key2 = renderer.render_utterance("hello", speaker, intensity=1)
+        wav1, key1, hit1 = renderer.render_utterance("hello", speaker, intensity=1)
+        wav2, key2, hit2 = renderer.render_utterance("hello", speaker, intensity=1)
         assert key1 == key2
         assert wav1 == wav2
+        assert hit1 is False  # first call — miss
+        assert hit2 is True  # second call — cache hit
 
     def test_different_text_different_key(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
 
-        _, key1 = renderer.render_utterance("hello", speaker, intensity=1)
-        _, key2 = renderer.render_utterance("world", speaker, intensity=1)
+        _, key1, _ = renderer.render_utterance("hello", speaker, intensity=1)
+        _, key2, _ = renderer.render_utterance("world", speaker, intensity=1)
         assert key1 != key2
 
     def test_render_to_file(self, tmp_path):

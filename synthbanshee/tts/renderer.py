@@ -11,6 +11,7 @@ Spec reference: docs/implementation_plan.md §0.3
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
 
 from synthbanshee.config.speaker_config import SpeakerConfig
@@ -71,8 +72,8 @@ class TTSRenderer:
         *,
         randomize: bool = False,
         rng_seed: int | None = None,
-    ) -> tuple[bytes, str]:
-        """Render a single utterance and return (wav_bytes, cache_key).
+    ) -> tuple[bytes, str, bool]:
+        """Render a single utterance and return (wav_bytes, cache_key, cache_hit).
 
         Args:
             text: Hebrew utterance text (UTF-8). Must not contain Hebrew in
@@ -83,7 +84,8 @@ class TTSRenderer:
             rng_seed: Random seed for reproducible prosody variation.
 
         Returns:
-            Tuple of (raw WAV bytes, cache key string).
+            Tuple of (raw WAV bytes, cache key string, cache_hit bool).
+            cache_hit is True when the result was served from disk cache.
         """
         style_entry = speaker.style_for_intensity(intensity)
 
@@ -115,11 +117,11 @@ class TTSRenderer:
         cache_key = self._cache_key(ssml)
         cached = self._load_from_cache(cache_key)
         if cached is not None:
-            return cached, cache_key
+            return cached, cache_key, True
 
         wav_bytes = self._provider.synthesize(ssml)
         self._save_to_cache(cache_key, wav_bytes)
-        return wav_bytes, cache_key
+        return wav_bytes, cache_key, False
 
     def render_utterance_to_file(
         self,
@@ -132,7 +134,7 @@ class TTSRenderer:
 
         Returns the output path.
         """
-        wav_bytes, _ = self.render_utterance(text, speaker, intensity)
+        wav_bytes, _, _hit = self.render_utterance(text, speaker, intensity)
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(wav_bytes)
@@ -146,6 +148,7 @@ class TTSRenderer:
         randomize: bool = False,
         rng_seed: int | None = None,
         disfluency: bool = False,
+        verbose_log: Callable[[str], None] | None = None,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -177,7 +180,7 @@ class TTSRenderer:
         mixer = SceneMixer()
 
         segments: list[tuple[bytes, float, str]] = []
-        for turn in turns:
+        for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
             text = turn.text
             if disfluency:
@@ -186,13 +189,20 @@ class TTSRenderer:
                     prob=speaker.disfluency.filled_pause_prob,
                     rng_seed=rng.randint(0, 2**31),
                 )
-            wav_bytes, _ = self.render_utterance(
+            wav_bytes, _, hit = self.render_utterance(
                 text,
                 speaker,
                 turn.intensity,
                 randomize=randomize,
                 rng_seed=rng.randint(0, 2**31) if randomize else None,
             )
+            if verbose_log is not None:
+                status = "cache" if hit else "Azure"
+                verbose_log(
+                    f"  [dim]turn {i + 1:02d}/{len(turns):02d}"
+                    f" [{turn.speaker_id}] intensity={turn.intensity}"
+                    f" → {status}[/dim]"
+                )
             segments.append((wav_bytes, turn.pause_before_s, turn.speaker_id))
 
         return mixer.mix_sequential(segments)
