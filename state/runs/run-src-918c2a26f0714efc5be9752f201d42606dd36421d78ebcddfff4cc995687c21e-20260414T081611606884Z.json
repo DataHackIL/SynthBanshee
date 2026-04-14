@@ -1,0 +1,22 @@
+{
+  "errors": [],
+  "finished_at": "2026-04-14T08:16:11+00:00",
+  "input_refs": [
+    "state/manifests/sources/src-918c2a26f0714efc5be9752f201d42606dd36421d78ebcddfff4cc995687c21e.json",
+    "raw/sources/src-918c2a26f0714efc5be9752f201d42606dd36421d78ebcddfff4cc995687c21e/AGENTS.md"
+  ],
+  "job_id": "ingest-src-918c2a26f0714efc5be9752f201d42606dd36421d78ebcddfff4cc995687c21e",
+  "job_type": "ingest_source",
+  "kind": "run",
+  "output_refs": [
+    "wiki/sources/src-918c2a26f0714efc5be9752f201d42606dd36421d78ebcddfff4cc995687c21e.md",
+    "wiki/index.md",
+    "wiki/log.md"
+  ],
+  "pipeline_version": "0.1.0a0",
+  "run_id": "run-src-918c2a26f0714efc5be9752f201d42606dd36421d78ebcddfff4cc995687c21e-20260414T081611606884Z",
+  "schema_version": "1",
+  "started_at": "2026-04-14T08:16:11+00:00",
+  "status": "succeeded",
+  "warnings": []
+}

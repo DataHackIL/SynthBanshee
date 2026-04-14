@@ -1,0 +1,20 @@
+{
+  "added_at": "2026-04-14T08:16:07+00:00",
+  "checksum": "d1be9adac6401711e3ca3e4da37738b69acbb55d97386931a14fa871dda4117e",
+  "derived_artifacts": [],
+  "kind": "source",
+  "last_run_id": "run-src-d1be9adac6401711e3ca3e4da37738b69acbb55d97386931a14fa871dda4117e-20260414T081611526097Z",
+  "linked_pages": [
+    "wiki/sources/src-d1be9adac6401711e3ca3e4da37738b69acbb55d97386931a14fa871dda4117e.md"
+  ],
+  "origin_url": null,
+  "original_path": "docs/design_approaches.md",
+  "path": "raw/sources/src-d1be9adac6401711e3ca3e4da37738b69acbb55d97386931a14fa871dda4117e/design_approaches.md",
+  "pipeline_version": "0.1.0a0",
+  "review_state": "unreviewed",
+  "schema_version": "1",
+  "source_id": "src-d1be9adac6401711e3ca3e4da37738b69acbb55d97386931a14fa871dda4117e",
+  "source_type": "md",
+  "status": "ingested",
+  "title": "design approaches"
+}

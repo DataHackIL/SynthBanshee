@@ -1,0 +1,20 @@
+{
+  "added_at": "2026-04-14T08:16:02+00:00",
+  "checksum": "a1045d5673b5f9bcc063e16fc2c35f7ee9724147bf13a457c03cf26afb237dab",
+  "derived_artifacts": [],
+  "kind": "source",
+  "last_run_id": "run-src-a1045d5673b5f9bcc063e16fc2c35f7ee9724147bf13a457c03cf26afb237dab-20260414T081604124545Z",
+  "linked_pages": [
+    "wiki/sources/src-a1045d5673b5f9bcc063e16fc2c35f7ee9724147bf13a457c03cf26afb237dab.md"
+  ],
+  "origin_url": null,
+  "original_path": "README.md",
+  "path": "raw/sources/src-a1045d5673b5f9bcc063e16fc2c35f7ee9724147bf13a457c03cf26afb237dab/README.md",
+  "pipeline_version": "0.1.0a0",
+  "review_state": "unreviewed",
+  "schema_version": "1",
+  "source_id": "src-a1045d5673b5f9bcc063e16fc2c35f7ee9724147bf13a457c03cf26afb237dab",
+  "source_type": "md",
+  "status": "ingested",
+  "title": "README"
+}

@@ -1,0 +1,20 @@
+{
+  "added_at": "2026-04-14T08:16:07+00:00",
+  "checksum": "ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721",
+  "derived_artifacts": [],
+  "kind": "source",
+  "last_run_id": "run-src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721-20260414T081611445095Z",
+  "linked_pages": [
+    "wiki/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721.md"
+  ],
+  "origin_url": null,
+  "original_path": "docs/implementation_plan.md",
+  "path": "raw/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721/implementation_plan.md",
+  "pipeline_version": "0.1.0a0",
+  "review_state": "unreviewed",
+  "schema_version": "1",
+  "source_id": "src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721",
+  "source_type": "md",
+  "status": "ingested",
+  "title": "implementation plan"
+}

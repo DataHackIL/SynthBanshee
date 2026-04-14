@@ -1,0 +1,20 @@
+{
+  "added_at": "2026-04-14T08:16:07+00:00",
+  "checksum": "c6982fa7beb5f328926108b51f5e69aeeaffe0cbf06c031ed050387722751ed4",
+  "derived_artifacts": [],
+  "kind": "source",
+  "last_run_id": "run-src-c6982fa7beb5f328926108b51f5e69aeeaffe0cbf06c031ed050387722751ed4-20260414T081611358907Z",
+  "linked_pages": [
+    "wiki/sources/src-c6982fa7beb5f328926108b51f5e69aeeaffe0cbf06c031ed050387722751ed4.md"
+  ],
+  "origin_url": null,
+  "original_path": "docs/spec.md",
+  "path": "raw/sources/src-c6982fa7beb5f328926108b51f5e69aeeaffe0cbf06c031ed050387722751ed4/spec.md",
+  "pipeline_version": "0.1.0a0",
+  "review_state": "unreviewed",
+  "schema_version": "1",
+  "source_id": "src-c6982fa7beb5f328926108b51f5e69aeeaffe0cbf06c031ed050387722751ed4",
+  "source_type": "md",
+  "status": "ingested",
+  "title": "spec"
+}

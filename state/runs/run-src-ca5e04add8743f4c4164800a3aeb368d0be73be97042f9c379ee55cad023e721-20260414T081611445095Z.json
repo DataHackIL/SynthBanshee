@@ -1,0 +1,22 @@
+{
+  "errors": [],
+  "finished_at": "2026-04-14T08:16:11+00:00",
+  "input_refs": [
+    "state/manifests/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721.json",
+    "raw/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721/implementation_plan.md"
+  ],
+  "job_id": "ingest-src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721",
+  "job_type": "ingest_source",
+  "kind": "run",
+  "output_refs": [
+    "wiki/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721.md",
+    "wiki/index.md",
+    "wiki/log.md"
+  ],
+  "pipeline_version": "0.1.0a0",
+  "run_id": "run-src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721-20260414T081611445095Z",
+  "schema_version": "1",
+  "started_at": "2026-04-14T08:16:11+00:00",
+  "status": "succeeded",
+  "warnings": []
+}

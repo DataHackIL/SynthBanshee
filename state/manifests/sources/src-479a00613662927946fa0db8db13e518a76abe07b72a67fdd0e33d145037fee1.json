@@ -1,0 +1,20 @@
+{
+  "added_at": "2026-04-14T08:16:07+00:00",
+  "checksum": "479a00613662927946fa0db8db13e518a76abe07b72a67fdd0e33d145037fee1",
+  "derived_artifacts": [],
+  "kind": "source",
+  "last_run_id": "run-src-479a00613662927946fa0db8db13e518a76abe07b72a67fdd0e33d145037fee1-20260414T081611687293Z",
+  "linked_pages": [
+    "wiki/sources/src-479a00613662927946fa0db8db13e518a76abe07b72a67fdd0e33d145037fee1.md"
+  ],
+  "origin_url": null,
+  "original_path": "configs/taxonomy.yaml",
+  "path": "raw/sources/src-479a00613662927946fa0db8db13e518a76abe07b72a67fdd0e33d145037fee1/taxonomy.yaml",
+  "pipeline_version": "0.1.0a0",
+  "review_state": "unreviewed",
+  "schema_version": "1",
+  "source_id": "src-479a00613662927946fa0db8db13e518a76abe07b72a67fdd0e33d145037fee1",
+  "source_type": "yaml",
+  "status": "ingested",
+  "title": "taxonomy"
+}
