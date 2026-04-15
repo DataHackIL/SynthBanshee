@@ -25,22 +25,22 @@ style_map:
   2:                                # Frustrated — clipped, short answers
     style: "General"
     rate_multiplier: 1.05
-    pitch_delta_st: +1
+    pitch_delta_st: 0               # M2a: anger → faster, not higher; M3 handles loudness
     volume_delta_db: +2
   3:                                # Agitated — loud, accusatory, interrupting
     style: "angry"
     rate_multiplier: 1.15
-    pitch_delta_st: +2
+    pitch_delta_st: 0               # M2a: stay flat; rate carries urgency
     volume_delta_db: +5
   4:                                # Pre-attack — threatening, pacing energy
     style: "angry"
     rate_multiplier: 1.20
-    pitch_delta_st: +3
+    pitch_delta_st: +1              # M2a: minimal rise only at extreme ends
     volume_delta_db: +9
   5:                                # Attack — shouting, physical sounds added by augmenter
     style: "angry"
     rate_multiplier: 1.30
-    pitch_delta_st: +4
+    pitch_delta_st: +1              # M2a: hard cap; RMS escalation via M3
     volume_delta_db: +13
 
 disfluency:

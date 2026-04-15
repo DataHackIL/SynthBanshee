@@ -36,22 +36,22 @@ style_map:
   2:                                # Moderate — slight edge, clipped responses
     style: "General"
     rate_multiplier: 1.05
-    pitch_delta_st: +1
+    pitch_delta_st: 0               # M2a: AGG anger → faster + louder (M3), not higher pitch
     volume_delta_db: +2
   3:                                # Active conflict — raised voice, contemptuous
     style: "angry"
     rate_multiplier: 1.15
-    pitch_delta_st: +2
+    pitch_delta_st: 0               # M2a: stay flat; rate carries urgency
     volume_delta_db: +5
   4:                                # Escalated — aggressive, loud
     style: "angry"
     rate_multiplier: 1.20
-    pitch_delta_st: +3
+    pitch_delta_st: +1              # M2a: minimal rise only at extreme ends
     volume_delta_db: +9
   5:                                # Extreme — shouting, near-clipping
     style: "angry"
     rate_multiplier: 1.25
-    pitch_delta_st: +4
+    pitch_delta_st: +1              # M2a: hard cap; RMS escalation via M3
     volume_delta_db: +13
 
 # --- Disfluency profile ---
