@@ -1,14 +1,14 @@
 Note: Whenever Shay's feedback contradicts that of an LLM, the feedback by Shay should be trusted as significantly more reliable, him being the only human reviewer.
 
 <shay feedback>
-Ok, I'm listeing now, and here are a few feedbacks:
+Ok, I'm listening now, and here are a few feedbacks:
 1. There are common gender mistake. The husband keeps inflecting/conjugating his wife in the male form whenever the male and female form is written the same (except nikud ניקוד, which we don't use). E.g. שלך (yours) is always pronounced "shel'kha" instead of "she'lakh", הלכת pronounced "halakhta" instead of "halakht", etc.
 2. Both speaker voices are too high, especially the woman's voice. Worse, the pitch is not consistent, and generally goes higher the more the conversation progresses.
-3. Speech is way to slow for normal day to day speech.
-4. Speech has a metalic/robotic twang to it.
+3. Speech is way too slow for normal day to day speech.
+4. Speech has a metallic/robotic twang to it.
 5. Emotional tone is very lacking (not completely, but very much so).
 
-This is in constrast to the script, which is surprisngly well written, and has a very natural flow to it.
+This is in contrast to the script, which is surprisingly well written, and has a very natural flow to it.
 
 </shay feedback>
 

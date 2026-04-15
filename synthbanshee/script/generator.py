@@ -22,7 +22,6 @@ from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
 
-_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR") or "assets/scripts")
 _DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
 _DEFAULT_OPENAI_MODEL = "gpt-4o"
 
@@ -141,7 +140,11 @@ class ScriptGenerator:
         self._model = model or (
             _DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else _DEFAULT_OPENAI_MODEL
         )
-        self._cache_dir = Path(cache_dir if cache_dir is not None else _DEFAULT_CACHE_DIR)
+        self._cache_dir = Path(
+            cache_dir
+            if cache_dir is not None
+            else os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR") or "assets/scripts"
+        )
 
     # ------------------------------------------------------------------
     # Cache

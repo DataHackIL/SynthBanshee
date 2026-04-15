@@ -20,8 +20,6 @@ from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
-_DEFAULT_CACHE_DIR = Path(os.environ.get("SYNTHBANSHEE_CACHE_DIR") or "assets/speech")
-
 
 class TTSRenderer:
     """Render TTS utterances with a file-system render cache.
@@ -36,7 +34,11 @@ class TTSRenderer:
         cache_dir: Path | str | None = None,
     ) -> None:
         self._provider = provider or AzureProvider()
-        self._cache_dir = Path(cache_dir if cache_dir is not None else _DEFAULT_CACHE_DIR)
+        self._cache_dir = Path(
+            cache_dir
+            if cache_dir is not None
+            else os.environ.get("SYNTHBANSHEE_CACHE_DIR") or "assets/speech"
+        )
         self._ssml_builder = SSMLBuilder()
 
     # ------------------------------------------------------------------

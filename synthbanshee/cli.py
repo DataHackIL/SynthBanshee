@@ -471,6 +471,7 @@ def cli() -> None:
     type=click.Path(path_type=Path),
     default=Path("assets/speech"),
     show_default=True,
+    envvar="SYNTHBANSHEE_CACHE_DIR",
     help="TTS render cache directory.",
 )
 @click.option(
@@ -485,6 +486,7 @@ def cli() -> None:
     type=click.Path(path_type=Path),
     default=Path("assets/scripts"),
     show_default=True,
+    envvar="SYNTHBANSHEE_SCRIPT_CACHE_DIR",
     help="LLM script generation cache directory.",
 )
 @click.option(
@@ -657,6 +659,7 @@ def _render_one(
     type=click.Path(path_type=Path),
     default=Path("assets/speech"),
     show_default=True,
+    envvar="SYNTHBANSHEE_CACHE_DIR",
     help="TTS render cache directory.",
 )
 @click.option(
@@ -671,6 +674,7 @@ def _render_one(
     type=click.Path(path_type=Path),
     default=Path("assets/scripts"),
     show_default=True,
+    envvar="SYNTHBANSHEE_SCRIPT_CACHE_DIR",
     help="LLM script generation cache directory.",
 )
 @click.option(
