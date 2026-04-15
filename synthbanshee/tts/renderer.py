@@ -33,10 +33,10 @@ class TTSRenderer:
     def __init__(
         self,
         provider: AzureProvider | None = None,
-        cache_dir: Path | str = _DEFAULT_CACHE_DIR,
+        cache_dir: Path | str | None = None,
     ) -> None:
         self._provider = provider or AzureProvider()
-        self._cache_dir = Path(cache_dir)
+        self._cache_dir = Path(cache_dir if cache_dir is not None else _DEFAULT_CACHE_DIR)
         self._ssml_builder = SSMLBuilder()
 
     # ------------------------------------------------------------------
@@ -198,7 +198,7 @@ class TTSRenderer:
                 rng_seed=rng.randint(0, 2**31) if randomize else None,
             )
             if verbose_log is not None:
-                status = "cache" if hit else "Azure"
+                status = "cache hit" if hit else "rendered"
                 verbose_log(
                     f"  [dim]turn {i + 1:02d}/{len(turns):02d}"
                     f" [{turn.speaker_id}] intensity={turn.intensity}"

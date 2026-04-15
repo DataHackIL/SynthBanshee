@@ -133,7 +133,7 @@ class ScriptGenerator:
         self,
         provider: str = "anthropic",
         model: str | None = None,
-        cache_dir: Path | str = _DEFAULT_CACHE_DIR,
+        cache_dir: Path | str | None = None,
     ) -> None:
         if provider not in {"anthropic", "openai"}:
             raise ValueError(f"provider must be 'anthropic' or 'openai', got {provider!r}")
@@ -141,7 +141,7 @@ class ScriptGenerator:
         self._model = model or (
             _DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else _DEFAULT_OPENAI_MODEL
         )
-        self._cache_dir = Path(cache_dir)
+        self._cache_dir = Path(cache_dir if cache_dir is not None else _DEFAULT_CACHE_DIR)
 
     # ------------------------------------------------------------------
     # Cache

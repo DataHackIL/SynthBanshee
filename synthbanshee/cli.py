@@ -319,16 +319,22 @@ def _run_generate_pipeline(
 
     _known_emotions = set(_valid_emotions())
 
-    def _normalize_emotion(state: str) -> str:
+    def _normalize_emotion(state: str) -> tuple[str, bool]:
         """Map LLM-generated emotional states to valid taxonomy values.
 
         Strips whitespace and lowercases before lookup so that common LLM
         output variations like 'Calm', 'ANGER', or 'neutral ' are handled
         correctly. Falls back to 'neutral' for values not in the taxonomy
         (e.g. 'relaxed', 'happy', 'worried').
-        """
-        return state.strip().lower() if state.strip().lower() in _known_emotions else "neutral"
 
+        Returns (normalized_state, fallback_used).
+        """
+        normalized = state.strip().lower()
+        if normalized in _known_emotions:
+            return normalized, False
+        return "neutral", True
+
+    messages: list[str] = []
     events: list[ScriptEvent] = []
     for i, turn in enumerate(turns):
         raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
@@ -338,6 +344,12 @@ def _run_generate_pipeline(
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
         tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
+        emotion, fallback = _normalize_emotion(turn.emotional_state)
+        if fallback:
+            messages.append(
+                f"turn[{i}]: emotional_state {turn.emotional_state!r} not in taxonomy"
+                f" — mapped to 'neutral'"
+            )
         events.append(
             ScriptEvent(
                 tier1_category=tier1,
@@ -347,7 +359,7 @@ def _run_generate_pipeline(
                 intensity=turn.intensity,
                 speaker_id=turn.speaker_id,
                 speaker_role=role,
-                emotional_state=_normalize_emotion(turn.emotional_state),
+                emotional_state=emotion,
             )
         )
     # Stage 3b ACOU_* SFX events (Tier B and Tier C). Their onset/offset times are
@@ -420,7 +432,7 @@ def _run_generate_pipeline(
         return None, validation.errors
 
     vlog(f"  [dim]clip valid: {clip_wav}[/dim]")
-    return clip_wav, list(validation.warnings)
+    return clip_wav, messages + list(validation.warnings)
 
 
 # ---------------------------------------------------------------------------
