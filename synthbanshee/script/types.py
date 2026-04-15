@@ -13,10 +13,18 @@ class DialogueTurn:
 
     Attributes:
         speaker_id: Matches a SpeakerConfig.speaker_id in the scene.
-        text: Hebrew UTF-8 utterance text. Never placed in filenames.
+        text: Original Hebrew UTF-8 text as produced by the LLM.  This is
+            the authoritative source of record and is never mutated after
+            creation.  Also accessible as ``text_original``.
         intensity: 1–5, drives SSML style selection in TTSRenderer.
         pause_before_s: Silence gap (seconds) inserted before this turn in the mix.
         emotional_state: LLM-generated hint; used as a secondary style cue.
+        text_spoken: Post-normalization text actually sent to TTS.  Populated
+            by the Hebrew gender-disambiguation step (M1); defaults to ``text``
+            when no normalization has been applied.
+        normalization_rules_triggered: Ordered list of disambiguation rule IDs
+            applied to produce ``text_spoken`` (e.g. ``["POSS_SHEL", "PREP_LAKH"]``).
+            Empty when ``text_spoken == text``.
     """
 
     speaker_id: str
@@ -24,6 +32,18 @@ class DialogueTurn:
     intensity: int
     pause_before_s: float = 0.3
     emotional_state: str = "neutral"
+    text_spoken: str = ""
+    normalization_rules_triggered: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        # Default text_spoken to the original LLM text when not explicitly set.
+        if not self.text_spoken:
+            self.text_spoken = self.text
+
+    @property
+    def text_original(self) -> str:
+        """Alias for ``text``; the unmodified LLM output."""
+        return self.text
 
 
 @dataclass
