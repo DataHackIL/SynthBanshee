@@ -708,6 +708,13 @@ def _render_one(
     help="Number of parallel worker threads for clip rendering.",
 )
 @click.option(
+    "--max-clips",
+    "-n",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Cap the number of clips rendered (useful for wet tests / smoke tests).",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -723,6 +730,7 @@ def generate_batch(
     manifest_out: Path | None,
     dry_run: bool,
     workers: int,
+    max_clips: int | None,
     verbose: bool,
 ) -> None:
     """Run a full batch generation from a run configuration YAML.
@@ -762,6 +770,12 @@ def generate_batch(
         f"Found [bold]{len(all_configs)}[/bold] matching configs; "
         f"selected [bold]{len(selected)}[/bold] for this run."
     )
+
+    if max_clips is not None and len(selected) > max_clips:
+        selected = selected[:max_clips]
+        console.print(
+            f"[yellow]--max-clips {max_clips}: truncated to {len(selected)} clip(s).[/yellow]"
+        )
 
     if dry_run:
         _print_selection_summary(selected)
