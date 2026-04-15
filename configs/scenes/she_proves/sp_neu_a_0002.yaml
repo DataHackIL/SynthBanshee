@@ -18,4 +18,3 @@ she_proves:
   incident_phases: []
   post_incident_phases: []
 target_duration_minutes: 3.5
-output_dir: data/he

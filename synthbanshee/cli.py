@@ -473,7 +473,8 @@ def cli() -> None:
     "-o",
     type=click.Path(path_type=Path),
     default=None,
-    help="Override output directory (default: from config).",
+    envvar="SYNTHBANSHEE_DATA_DIR",
+    help="Override output directory (default: from config or $SYNTHBANSHEE_DATA_DIR).",
 )
 @click.option(
     "--cache-dir",
@@ -661,7 +662,8 @@ def _render_one(
     "-o",
     type=click.Path(path_type=Path),
     default=None,
-    help="Override output directory (default: from run config).",
+    envvar="SYNTHBANSHEE_DATA_DIR",
+    help="Override output directory (default: from run config or $SYNTHBANSHEE_DATA_DIR).",
 )
 @click.option(
     "--cache-dir",

@@ -22,4 +22,3 @@ she_proves:
   post_incident_phases: [aftermath]
 target_duration_minutes: 3.5
 min_pre_incident_seconds: 60
-output_dir: data/he

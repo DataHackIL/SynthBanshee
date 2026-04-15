@@ -21,4 +21,3 @@ she_proves:
   incident_phases: [escalation]
   post_incident_phases: [de-escalation]
 target_duration_minutes: 3.5
-output_dir: data/he

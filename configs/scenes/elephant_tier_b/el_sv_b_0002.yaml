@@ -44,4 +44,3 @@ acoustic_scene:
       onset_at_phase: peak
       onset_offset_seconds: 1.5
       asset_path: null
-output_dir: data/he

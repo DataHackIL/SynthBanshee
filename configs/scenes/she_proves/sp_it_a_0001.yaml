@@ -22,4 +22,3 @@ she_proves:
   post_incident_phases: [aftermath, de-escalation]
 target_duration_minutes: 4.0
 min_pre_incident_seconds: 80
-output_dir: data/he
