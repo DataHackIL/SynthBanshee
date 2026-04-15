@@ -243,10 +243,15 @@ def disambiguate_turns(
 ) -> list[DialogueTurn]:
     """Apply gender disambiguation to every turn in a scene.
 
-    For each turn the addressee role is inferred as the role of the first
-    other speaker in *speaker_roles* — correct for the standard two-speaker
-    AGG/VIC scene.  For scenes with more than two speaker roles the heuristic
-    may be inaccurate; it is still better than applying no disambiguation.
+    For each turn the addressee role is inferred heuristically from the
+    other speakers in *speaker_roles*.  The function first looks for another
+    speaker whose role matches the priority order ``"VIC"``, ``"AGG"``,
+    ``"BYS"`` (excluding the current speaker's own ``speaker_id``).  If none
+    of those roles is present among the other speakers, it falls back to the
+    first other speaker role encountered.  This matches the standard
+    two-speaker AGG/VIC scene and provides a best-effort heuristic for
+    multi-speaker scenes, where the inferred addressee may still be
+    inaccurate.
 
     The original ``DialogueTurn`` objects are never mutated.  New instances
     are returned with ``text_spoken`` and ``normalization_rules_triggered``
