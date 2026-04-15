@@ -1,0 +1,25 @@
+scene_id: SP_SV_A_0001
+project: she_proves
+language: he
+violence_typology: SV
+tier: A
+random_seed: 1201
+speakers:
+  - speaker_id: AGG_M_30-45_001
+    role: AGG
+  - speaker_id: VIC_F_25-40_002
+    role: VIC
+script_template: synthbanshee/script/templates/she_proves/physical_assault_escalation.j2
+script_slots:
+  relationship: spouse
+  setting: living_room
+  grievance: money_dispute
+intensity_arc: [2, 3, 4, 5, 4, 2]
+she_proves:
+  incident_window_start_fraction: 0.30
+  pre_incident_phases: [baseline, tension]
+  incident_phases: [escalation, peak]
+  post_incident_phases: [aftermath]
+target_duration_minutes: 3.5
+min_pre_incident_seconds: 60
+output_dir: data/he
