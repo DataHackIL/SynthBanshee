@@ -190,7 +190,9 @@ class TTSRenderer:
         segments: list[tuple[bytes, float, str]] = []
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
-            text = turn.text
+            # Use text_spoken (post-gender-disambiguation) rather than the
+            # raw LLM text so that niqqud corrections reach the TTS engine.
+            text = turn.text_spoken
             if disfluency:
                 text = inject_disfluency(
                     text,
