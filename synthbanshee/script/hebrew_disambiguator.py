@@ -262,7 +262,7 @@ def disambiguate_turns(
     for turn in turns:
         addr_role = _addressee_role(turn.speaker_id)
         norm = disambiguate_for_speaker(
-            turn.text,
+            turn.text_spoken or turn.text,
             speaker_roles.get(turn.speaker_id, "UNK"),
             addr_role,
         )

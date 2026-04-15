@@ -37,7 +37,8 @@ class TestDirectionGuard:
 
     def test_agg_vic_may_modify(self):
         result = disambiguate_for_speaker("שלך", "AGG", "VIC")
-        assert result.text_spoken != "שלך" or result.normalization_rules_triggered == []
+        assert result.text_spoken == "שֶׁלָּךְ"
+        assert result.normalization_rules_triggered == ["POSS_SHEL"]
 
     def test_vic_agg_no_change(self):
         result = disambiguate_for_speaker("שלך", "VIC", "AGG")
@@ -158,7 +159,7 @@ class TestMultipleSubstitutions:
     def test_rules_triggered_list_contains_each_rule_once(self):
         text = "הלכת לשם ועשית את זה"
         result = _agg_vic(text)
-        # Even though שלך might appear twice, each rule_id appears only once
+        # Each triggered rule_id should appear at most once in the result list
         seen = result.normalization_rules_triggered
         assert len(seen) == len(set(seen)), "Duplicate rule IDs in triggered list"
 
