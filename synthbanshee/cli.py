@@ -1175,7 +1175,7 @@ def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
 
     for s in stats:
         f0_med = f"{s.f0_median_hz:.1f}" if s.f0_median_hz is not None else "—"
-        f0_std = f"{s.f0_std_hz:.1f}" if s.f0_std_hz is not None else "—"
+        f0_std = f"{s.f0_std_hz_mean:.1f}" if s.f0_std_hz_mean is not None else "—"
         table.add_row(
             s.role,
             str(s.intensity),
@@ -1207,7 +1207,7 @@ def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
         with output.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(
-                ["clip_id", "speaker_role", "intensity", "f0_median_hz", "f0_std_hz", "rms_db"]
+                ["clip_id", "speaker_role", "intensity", "f0_median_hz", "f0_std_hz_mean", "rms_db"]
             )
             for t in all_turns:
                 writer.writerow(
@@ -1216,7 +1216,9 @@ def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
                         t.speaker_role,
                         t.intensity,
                         f"{t.f0_median_hz:.2f}" if t.f0_median_hz is not None else "",
-                        f"{t.f0_std_hz:.2f}" if t.f0_std_hz is not None else "",
+                        f"{t.f0_std_hz:.2f}"
+                        if t.f0_std_hz is not None
+                        else "",  # TurnMetrics field unchanged
                         f"{t.rms_db:.2f}",
                     ]
                 )

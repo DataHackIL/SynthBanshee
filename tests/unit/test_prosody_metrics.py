@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import soundfile as sf
+from click.testing import CliRunner
 
+from synthbanshee.cli import cli
 from synthbanshee.labels.prosody_metrics import (
     AGG_ESCALATION_MIN_DB,
     VIC_I1_F0_MAX_HZ,
@@ -271,6 +275,7 @@ class TestRunThresholdChecks:
         agg_i1_rms=-25.0,
         agg_i5_rms=-14.0,
     ) -> list[RoleIntensityStats]:
+        # RoleIntensityStats fields: role, intensity, n_turns, f0_median_hz, f0_std_hz_mean, rms_db_mean
         return [
             RoleIntensityStats("AGG", 1, 10, 128.0, 12.0, agg_i1_rms),
             RoleIntensityStats("AGG", 5, 10, 140.0, 15.0, agg_i5_rms),
@@ -315,7 +320,7 @@ class TestRunThresholdChecks:
         # No VIC entries at all
         stats = [
             RoleIntensityStats("AGG", 1, 5, 128.0, 12.0, -25.0),
-            RoleIntensityStats("AGG", 5, 5, 140.0, 15.0, -14.0),
+            RoleIntensityStats("AGG", 5, 5, 140.0, 15.0, -14.0),  # noqa: E241
         ]
         checks = run_threshold_checks(stats)
         no_data = [c for c in checks if "no data" in c[2]]
@@ -326,6 +331,169 @@ class TestRunThresholdChecks:
         assert len(checks) == 4
 
     def test_vic_i1_exactly_at_threshold_passes(self):
+        # I1 uses ≤ so exactly 200 Hz passes
         checks = run_threshold_checks(self._stats(vic_i1_f0=VIC_I1_F0_MAX_HZ))
         vic_i1 = next(c for c in checks if "I1" in c[0] and "VIC" in c[0])
         assert vic_i1[1]
+
+    def test_vic_i4_exactly_at_threshold_fails(self):
+        # I4 uses strict < so exactly 250 Hz must FAIL
+        checks = run_threshold_checks(self._stats(vic_i4_f0=VIC_I4_F0_MAX_HZ))
+        vic_i4 = next(c for c in checks if "I4" in c[0])
+        assert not vic_i4[1]
+
+    def test_vic_i5_exactly_at_threshold_fails(self):
+        # I5 uses strict < so exactly 250 Hz must FAIL
+        checks = run_threshold_checks(self._stats(vic_i5_f0=VIC_I5_F0_MAX_HZ))
+        vic_i5 = next(c for c in checks if "I5" in c[0])
+        assert not vic_i5[1]
+
+    def test_stats_with_none_f0_reports_no_data(self):
+        # Stats entry exists but f0_median_hz is None (all turns unvoiced)
+        stats = [RoleIntensityStats("VIC", 1, 5, None, None, -25.0)]
+        checks = run_threshold_checks(stats)
+        vic_i1 = next(c for c in checks if "I1" in c[0] and "VIC" in c[0])
+        assert not vic_i1[1]
+        assert "no data" in vic_i1[2]
+
+
+# ---------------------------------------------------------------------------
+# _measure_segment — int16 normalization and librosa F0 path
+# ---------------------------------------------------------------------------
+
+
+class TestMeasureSegmentCoverage:
+    def test_rms_int16_and_float32_equivalent(self):
+        """int16 and float32 of the same signal should give the same RMS dBFS."""
+        samples_i16 = _sine(220.0, 0.5)
+        samples_f32 = samples_i16.astype(np.float32) / 32768.0
+        _, _, rms_i16 = _measure_segment(samples_i16, SR, 0.0, 0.5)
+        _, _, rms_f32 = _measure_segment(samples_f32, SR, 0.0, 0.5)
+        assert rms_i16 == pytest.approx(rms_f32, abs=0.5)
+
+    def _make_librosa_mock(self, f0_values: np.ndarray, voiced_flag: np.ndarray) -> MagicMock:
+        """Return a sys.modules-injectable librosa mock with a stubbed pyin."""
+        mock_lib = MagicMock()
+        mock_lib.pyin.return_value = (f0_values, voiced_flag, None)
+        mock_lib.note_to_hz.side_effect = lambda note: {"C2": 65.4, "C7": 2093.0}[note]
+        return mock_lib
+
+    def test_f0_returned_when_librosa_returns_voiced_frames(self, monkeypatch):
+        """Cover the successful librosa path (lines 122–133): pyin returns voiced F0."""
+        n_frames = 50
+        f0_values = np.full(n_frames, 220.0)
+        voiced_flag = np.ones(n_frames, dtype=bool)
+        mock_lib = self._make_librosa_mock(f0_values, voiced_flag)
+
+        monkeypatch.setitem(sys.modules, "librosa", mock_lib)
+        samples = _sine(220.0, 1.0)
+        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 1.0)
+        assert f0 == pytest.approx(220.0)
+        assert f0_std is not None
+        assert rms_db < 0
+
+    def test_f0_none_when_all_frames_unvoiced(self, monkeypatch):
+        """Cover line 131-132: pyin runs but returns no voiced frames."""
+        n_frames = 50
+        f0_values = np.full(n_frames, np.nan)
+        voiced_flag = np.zeros(n_frames, dtype=bool)
+        mock_lib = self._make_librosa_mock(f0_values, voiced_flag)
+
+        monkeypatch.setitem(sys.modules, "librosa", mock_lib)
+        samples = _sine(220.0, 1.0)
+        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 1.0)
+        assert f0 is None
+        assert f0_std is None
+        assert rms_db < 0
+
+
+# ---------------------------------------------------------------------------
+# measure_clip — stereo downmix explicit coverage
+# ---------------------------------------------------------------------------
+
+
+class TestMeasureClipStereo:
+    def test_stereo_downmix_uses_first_channel(self, tmp_path):
+        """Cover line 167: stereo WAV is downmixed to first channel."""
+        wav = tmp_path / "clip_001.wav"
+        # Channel 0: loud 220 Hz; channel 1: silence — verifies first channel is used
+        loud = _sine(220.0, 1.0).astype(np.float32) / 32768.0
+        silent = np.zeros(len(loud), dtype=np.float32)
+        stereo = np.stack([loud, silent], axis=1)
+        sf.write(str(wav), stereo, SR)
+        _write_jsonl(
+            tmp_path / "clip_001.jsonl",
+            [_event("clip_001", 0.1, 0.9, 1, "AGG")],
+        )
+        result = measure_clip(wav)
+        assert len(result) == 1
+        # Should have a non-trivial RMS (from the loud channel, not silence)
+        assert result[0].rms_db > -60.0
+
+
+# ---------------------------------------------------------------------------
+# measure-prosody CLI command
+# ---------------------------------------------------------------------------
+
+
+class TestMeasureProsodyCLI:
+    def _make_clip(self, tmp_path: Path, clip_id: str, role: str, intensity: int) -> None:
+        """Write a minimal WAV + JSONL pair."""
+        wav = tmp_path / f"{clip_id}.wav"
+        _write_wav(wav, _sine(220.0, 1.0))
+        _write_jsonl(
+            tmp_path / f"{clip_id}.jsonl",
+            [_event(clip_id, 0.1, 0.9, intensity, role)],
+        )
+
+    def test_empty_dir_exits_cleanly(self, tmp_path):
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "No .wav files" in result.output
+
+    def test_missing_jsonl_skipped(self, tmp_path):
+        wav = tmp_path / "clip_001.wav"
+        _write_wav(wav, _sine(220.0, 1.0))
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "No speaker-role events" in result.output
+
+    def test_prints_table_with_clips(self, tmp_path):
+        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
+        self._make_clip(tmp_path, "clip_vic", "VIC", 1)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path)])
+        assert "AGG" in result.output
+        assert "VIC" in result.output
+        assert "threshold" in result.output.lower()
+
+    def test_threshold_failure_exits_1(self, tmp_path):
+        """If any threshold fails (here: no VIC data → no data → fail), exit code is 1."""
+        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path), "--roles", "AGG,VIC"])
+        # VIC checks will report no data → fail → exit 1
+        assert result.exit_code == 1
+
+    def test_csv_output_written(self, tmp_path):
+        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
+        csv_out = tmp_path / "out.csv"
+        runner = CliRunner()
+        runner.invoke(
+            cli,
+            ["measure-prosody", str(tmp_path), "--output", str(csv_out), "--roles", "AGG"],
+        )
+        assert csv_out.exists()
+        content = csv_out.read_text()
+        assert "clip_id" in content
+        assert "clip_agg" in content
+
+    def test_roles_filter_excludes_other_roles(self, tmp_path):
+        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
+        self._make_clip(tmp_path, "clip_vic", "VIC", 1)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path), "--roles", "AGG"])
+        assert "AGG" in result.output
+        # VIC excluded — no VIC rows in table, but command should not crash

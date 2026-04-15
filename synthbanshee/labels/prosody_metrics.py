@@ -67,7 +67,9 @@ class RoleIntensityStats:
         n_turns: Number of turns in this bucket.
         f0_median_hz: Median of per-turn F0 medians, or ``None`` if no
             voiced turns were measured.
-        f0_std_hz: Pooled standard deviation of F0 frames, or ``None``.
+        f0_std_hz_mean: Mean of per-turn F0 standard deviations, or ``None``.
+            Note: this is the average of per-turn stddevs, not a true pooled
+            standard deviation (which would require frame-level counts).
         rms_db_mean: Mean RMS across turns in dBFS.
     """
 
@@ -75,7 +77,7 @@ class RoleIntensityStats:
     intensity: int
     n_turns: int
     f0_median_hz: float | None
-    f0_std_hz: float | None
+    f0_std_hz_mean: float | None
     rms_db_mean: float
 
 
@@ -218,7 +220,7 @@ def aggregate_metrics(turns: list[TurnMetrics]) -> list[RoleIntensityStats]:
                 intensity=intensity,
                 n_turns=len(bucket),
                 f0_median_hz=float(np.median(voiced)) if voiced else None,
-                f0_std_hz=float(np.mean(stds)) if stds else None,
+                f0_std_hz_mean=float(np.mean(stds)) if stds else None,
                 rms_db_mean=float(np.mean(rms_values)),
             )
         )
@@ -238,17 +240,23 @@ def run_threshold_checks(
 
     checks: list[tuple[str, bool, str]] = []
 
-    def _f0_check(role: str, intensity: int, max_hz: float, label: str) -> None:
+    def _f0_check(
+        role: str, intensity: int, max_hz: float, label: str, *, strict: bool = False
+    ) -> None:
         s = by_key.get((role, intensity))
         if s is None or s.f0_median_hz is None:
             checks.append((label, False, "no data"))
             return
-        passed = s.f0_median_hz <= max_hz
+        passed = s.f0_median_hz < max_hz if strict else s.f0_median_hz <= max_hz
         checks.append((label, passed, f"{s.f0_median_hz:.1f} Hz"))
 
     _f0_check("VIC", 1, VIC_I1_F0_MAX_HZ, f"VIC I1 median F0 ≤ {VIC_I1_F0_MAX_HZ:.0f} Hz")
-    _f0_check("VIC", 4, VIC_I4_F0_MAX_HZ, f"VIC I4 median F0 < {VIC_I4_F0_MAX_HZ:.0f} Hz")
-    _f0_check("VIC", 5, VIC_I5_F0_MAX_HZ, f"VIC I5 median F0 < {VIC_I5_F0_MAX_HZ:.0f} Hz")
+    _f0_check(
+        "VIC", 4, VIC_I4_F0_MAX_HZ, f"VIC I4 median F0 < {VIC_I4_F0_MAX_HZ:.0f} Hz", strict=True
+    )
+    _f0_check(
+        "VIC", 5, VIC_I5_F0_MAX_HZ, f"VIC I5 median F0 < {VIC_I5_F0_MAX_HZ:.0f} Hz", strict=True
+    )
 
     agg_i1 = by_key.get(("AGG", 1))
     agg_i5 = by_key.get(("AGG", 5))
