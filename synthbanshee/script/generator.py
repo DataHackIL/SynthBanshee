@@ -14,13 +14,19 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
 
-_DEFAULT_CACHE_DIR = Path("assets/scripts")
+# Verbose-log callback type.  Strings passed to this callback may contain
+# Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
+# (e.g. standard loggers) should strip or ignore the markup.
+_VerboseLog = Callable[[str], None]
+
 _DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
 _DEFAULT_OPENAI_MODEL = "gpt-4o"
 
@@ -131,7 +137,7 @@ class ScriptGenerator:
         self,
         provider: str = "anthropic",
         model: str | None = None,
-        cache_dir: Path | str = _DEFAULT_CACHE_DIR,
+        cache_dir: Path | str | None = None,
     ) -> None:
         if provider not in {"anthropic", "openai"}:
             raise ValueError(f"provider must be 'anthropic' or 'openai', got {provider!r}")
@@ -139,7 +145,11 @@ class ScriptGenerator:
         self._model = model or (
             _DEFAULT_ANTHROPIC_MODEL if provider == "anthropic" else _DEFAULT_OPENAI_MODEL
         )
-        self._cache_dir = Path(cache_dir)
+        self._cache_dir = Path(
+            cache_dir
+            if cache_dir is not None
+            else os.environ.get("SYNTHBANSHEE_SCRIPT_CACHE_DIR") or "assets/scripts"
+        )
 
     # ------------------------------------------------------------------
     # Cache
@@ -308,6 +318,7 @@ class ScriptGenerator:
         target_duration_minutes: float,
         speakers: list[dict],
         random_seed: int = 0,
+        verbose_log: _VerboseLog | None = None,
     ) -> list[DialogueTurn]:
         """Generate a dialogue script for the given scene parameters.
 
@@ -335,8 +346,12 @@ class ScriptGenerator:
 
         cached = self._load_from_cache(key)
         if cached is not None:
+            if verbose_log is not None:
+                verbose_log(f"  [dim]script: cache hit ({len(cached)} turns)[/dim]")
             return cached
 
+        if verbose_log is not None:
+            verbose_log(f"  [dim]script: cache miss — calling {self._provider}/{self._model}[/dim]")
         prompt = self._render_prompt(
             template_path=script_template,
             scene_id=scene_id,

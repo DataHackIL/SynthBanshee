@@ -191,6 +191,39 @@ class TestGenerateCommand:
         wav_files = list((tmp_path / "out").rglob("*.wav"))
         assert len(wav_files) >= 1
 
+    def test_full_generate_verbose(self, tmp_path):
+        """--verbose flag exercises the vlog code path in _run_generate_pipeline."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "--config",
+                    str(SCENES_DIR / "test_scene_001.yaml"),
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                    "--verbose",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "Stage" in result.output
+
 
 # ---------------------------------------------------------------------------
 # validate command
@@ -571,6 +604,37 @@ class TestRunGeneratePipeline:
         assert wav is not None
         assert "minor issue" in messages
 
+    def test_unknown_emotional_state_emits_warning(self, tmp_path):
+        """A turn with an emotional_state not in the taxonomy emits a warning message."""
+        from synthbanshee.script.types import DialogueTurn
+
+        turns = [
+            DialogueTurn(
+                speaker_id="AGG_M_30-45_001",
+                text="שלום",
+                intensity=1,
+                emotional_state="worried",  # not in taxonomy → fallback to neutral
+            )
+        ]
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, messages = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+
+        assert wav is not None
+        assert any("worried" in m and "neutral" in m for m in messages)
+
 
 # ---------------------------------------------------------------------------
 # generate command — additional failure and warning branches
@@ -902,7 +966,9 @@ class TestGenerateBatchAdvanced:
         fake_wav.write_bytes(b"fake")
         call_count = [0]
 
-        def _fail_then_succeed(config, out_dir, cache_dir, dirty_dir, script_cache_dir):
+        def _fail_then_succeed(
+            config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=False
+        ):
             call_count[0] += 1
             if call_count[0] == 1:
                 return None, ["transient render error"]

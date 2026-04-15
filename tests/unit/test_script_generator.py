@@ -222,6 +222,37 @@ class TestScriptGeneratorCache:
         )
         assert gen._cache_path(key).exists()
 
+    def test_verbose_log_called_on_cache_hit(self, tmp_path: Path):
+        """verbose_log receives a cache-hit message when the script is already cached."""
+        gen = self._make_generator(tmp_path)
+        key = gen._cache_key(
+            "TEST_001",
+            "synthbanshee/script/templates/she_proves/intimate_terror_coercive_control.j2",
+            {"relationship": "spouse", "setting": "kitchen"},
+            [1, 2, 3],
+            0,
+            ["AGG_M_30-45_001", "VIC_F_25-40_002"],
+        )
+        gen._save_to_cache(key, _VALID_TURNS)
+
+        log_messages: list[str] = []
+        with patch.object(gen, "_call_llm"):
+            gen.generate(**self._scene_kwargs(), verbose_log=log_messages.append)
+
+        assert any("cache hit" in m for m in log_messages)
+
+    def test_verbose_log_called_on_cache_miss(self, tmp_path: Path):
+        """verbose_log receives a cache-miss message when the LLM is called."""
+        gen = self._make_generator(tmp_path)
+
+        log_messages: list[str] = []
+        with patch.object(gen, "_call_llm", return_value=json.dumps(_VALID_TURNS_JSON)):
+            gen.generate(
+                **self._scene_kwargs("SCENE_VERBOSE_MISS"), verbose_log=log_messages.append
+            )
+
+        assert any("cache miss" in m for m in log_messages)
+
     def test_validation_error_raises(self, tmp_path: Path):
         gen = self._make_generator(tmp_path)
         bad_response = json.dumps(

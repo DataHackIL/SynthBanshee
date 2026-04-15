@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import struct
+import sys
 import wave
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -162,6 +163,43 @@ class TestAzureProvider:
         provider = AzureProvider(subscription_key="", region="eastus")
         assert not provider.is_configured()
 
+    def test_get_synthesizer_passes_audio_config_none(self, monkeypatch):
+        """Regression: _get_synthesizer must use audio_config=None for headless synthesis.
+
+        Using AudioOutputConfig(use_default_speaker=False) triggers
+        "default speaker needs to be explicitly activated" on macOS.
+        """
+        import types
+
+        mock_synthesizer_cls = MagicMock()
+        mock_speech_config = MagicMock()
+
+        # Build a proper module object so the import machinery accepts it.
+        fake_sdk = types.ModuleType("azure.cognitiveservices.speech")
+        fake_sdk.SpeechConfig = MagicMock(return_value=mock_speech_config)
+        fake_sdk.SpeechSynthesizer = mock_synthesizer_cls
+        fake_sdk.SpeechSynthesisOutputFormat = MagicMock()
+        fake_sdk.SpeechSynthesisOutputFormat.Riff24Khz16BitMonoPcm = "mock_format"
+
+        # Patch the full dotted import path — parent packages must also be present
+        # or the import statement raises ImportError before reaching the leaf module.
+        # __path__ must be set so Python treats them as packages (not plain modules).
+        azure_stub = types.ModuleType("azure")
+        azure_stub.__path__ = []  # type: ignore[attr-defined]
+        azure_cog_stub = types.ModuleType("azure.cognitiveservices")
+        azure_cog_stub.__path__ = []  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "azure", azure_stub)
+        monkeypatch.setitem(sys.modules, "azure.cognitiveservices", azure_cog_stub)
+        monkeypatch.setitem(sys.modules, "azure.cognitiveservices.speech", fake_sdk)
+
+        provider = AzureProvider(subscription_key="key", region="eastus")
+        provider._get_synthesizer()
+
+        mock_synthesizer_cls.assert_called_once_with(
+            speech_config=mock_speech_config,
+            audio_config=None,
+        )
+
 
 # ---------------------------------------------------------------------------
 # TTSRenderer tests (mocked)
@@ -180,25 +218,28 @@ class TestTTSRenderer:
     def test_render_utterance_returns_bytes(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
-        wav_bytes, key = renderer.render_utterance("hello", speaker, intensity=3)
+        wav_bytes, key, hit = renderer.render_utterance("hello", speaker, intensity=3)
         assert isinstance(wav_bytes, bytes)
         assert len(key) == 64  # SHA-256 hex digest
+        assert hit is False  # first call — not a cache hit
 
     def test_cache_hit_on_second_call(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
 
-        wav1, key1 = renderer.render_utterance("hello", speaker, intensity=1)
-        wav2, key2 = renderer.render_utterance("hello", speaker, intensity=1)
+        wav1, key1, hit1 = renderer.render_utterance("hello", speaker, intensity=1)
+        wav2, key2, hit2 = renderer.render_utterance("hello", speaker, intensity=1)
         assert key1 == key2
         assert wav1 == wav2
+        assert hit1 is False  # first call — miss
+        assert hit2 is True  # second call — cache hit
 
     def test_different_text_different_key(self, tmp_path):
         renderer = self._make_renderer(tmp_path)
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
 
-        _, key1 = renderer.render_utterance("hello", speaker, intensity=1)
-        _, key2 = renderer.render_utterance("world", speaker, intensity=1)
+        _, key1, _ = renderer.render_utterance("hello", speaker, intensity=1)
+        _, key2, _ = renderer.render_utterance("world", speaker, intensity=1)
         assert key1 != key2
 
     def test_render_to_file(self, tmp_path):
@@ -209,3 +250,18 @@ class TestTTSRenderer:
         assert result_path == out
         assert out.exists()
         assert out.stat().st_size > 0
+
+    def test_render_scene_verbose_log(self, tmp_path):
+        """verbose_log callable receives per-turn status messages during render_scene."""
+        from synthbanshee.script.types import DialogueTurn
+
+        renderer = self._make_renderer(tmp_path)
+        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        turns = [DialogueTurn(speaker_id="AGG_M_30-45_001", text="שלום", intensity=1)]
+        speakers = {"AGG_M_30-45_001": speaker}
+
+        log_messages: list[str] = []
+        renderer.render_scene(turns, speakers, verbose_log=log_messages.append)
+
+        assert len(log_messages) >= 1
+        assert any("turn" in m for m in log_messages)
