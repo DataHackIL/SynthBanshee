@@ -1192,7 +1192,7 @@ def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
     # -----------------------------------------------------------------
     # Threshold checks
     # -----------------------------------------------------------------
-    checks = run_threshold_checks(stats)
+    checks = run_threshold_checks(stats, include_roles=include_roles)
     console.print("\n[bold]§4.2a threshold checks:[/bold]")
     all_passed = True
     for label, passed, detail in checks:
@@ -1209,7 +1209,7 @@ def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
         with output.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.writer(fh)
             writer.writerow(
-                ["clip_id", "speaker_role", "intensity", "f0_median_hz", "f0_std_hz_mean", "rms_db"]
+                ["clip_id", "speaker_role", "intensity", "f0_median_hz", "f0_std_hz", "rms_db"]
             )
             for t in all_turns:
                 writer.writerow(

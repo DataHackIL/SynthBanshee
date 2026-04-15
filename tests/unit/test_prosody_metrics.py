@@ -356,6 +356,23 @@ class TestRunThresholdChecks:
         assert not vic_i1[1]
         assert "no data" in vic_i1[2]
 
+    def test_include_roles_skips_vic_checks(self):
+        """include_roles={'AGG'} suppresses all VIC threshold checks."""
+        checks = run_threshold_checks(self._stats(), include_roles={"AGG"})
+        assert all("VIC" not in label for label, _, _ in checks)
+        assert any("AGG" in label for label, _, _ in checks)
+
+    def test_include_roles_skips_agg_check(self):
+        """include_roles={'VIC'} suppresses the AGG escalation check."""
+        checks = run_threshold_checks(self._stats(), include_roles={"VIC"})
+        assert all("AGG" not in label for label, _, _ in checks)
+        assert any("VIC" in label for label, _, _ in checks)
+
+    def test_include_roles_none_runs_all_checks(self):
+        """include_roles=None (default) runs all four checks."""
+        checks = run_threshold_checks(self._stats(), include_roles=None)
+        assert len(checks) == 4
+
 
 # ---------------------------------------------------------------------------
 # _measure_segment — int16 normalization and librosa F0 path
@@ -469,14 +486,6 @@ class TestMeasureProsodyCLI:
         assert "VIC" in result.output
         assert "threshold" in result.output.lower()
 
-    def test_threshold_failure_exits_1(self, tmp_path):
-        """If any threshold fails (here: no VIC data → no data → fail), exit code is 1."""
-        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
-        runner = CliRunner()
-        result = runner.invoke(cli, ["measure-prosody", str(tmp_path), "--roles", "AGG,VIC"])
-        # VIC checks will report no data → fail → exit 1
-        assert result.exit_code == 1
-
     def test_csv_output_written(self, tmp_path):
         self._make_clip(tmp_path, "clip_agg", "AGG", 1)
         csv_out = tmp_path / "out.csv"
@@ -491,9 +500,58 @@ class TestMeasureProsodyCLI:
         assert "clip_agg" in content
 
     def test_roles_filter_excludes_other_roles(self, tmp_path):
-        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
-        self._make_clip(tmp_path, "clip_vic", "VIC", 1)
+        """--roles AGG excludes VIC from table and checks; exit 0 when AGG checks pass."""
+        # AGG I1 (very quiet) and I5 (loud) so RMS escalation check passes (>8 dB delta)
+        wav_i1 = tmp_path / "clip_agg_i1.wav"
+        _write_wav(wav_i1, (_sine(220.0, 1.0).astype(np.float32) * 0.01).astype(np.int16))
+        _write_jsonl(tmp_path / "clip_agg_i1.jsonl", [_event("clip_agg_i1", 0.1, 0.9, 1, "AGG")])
+
+        wav_i5 = tmp_path / "clip_agg_i5.wav"
+        _write_wav(wav_i5, _sine(220.0, 1.0))  # default amplitude (~40 dB louder than I1)
+        _write_jsonl(tmp_path / "clip_agg_i5.jsonl", [_event("clip_agg_i5", 0.1, 0.9, 5, "AGG")])
+
+        self._make_clip(tmp_path, "clip_vic", "VIC", 1)  # excluded by --roles AGG
+
         runner = CliRunner()
         result = runner.invoke(cli, ["measure-prosody", str(tmp_path), "--roles", "AGG"])
+        assert result.exit_code == 0  # VIC checks are skipped; AGG checks pass
         assert "AGG" in result.output
-        # VIC excluded — no VIC rows in table, but command should not crash
+        assert "VIC" not in result.output  # excluded from table and threshold check labels
+
+    def test_malformed_jsonl_line_skipped(self, tmp_path):
+        """Malformed JSONL lines are skipped with a warning; valid events still returned."""
+        import warnings
+
+        wav = tmp_path / "clip_001.wav"
+        _write_wav(wav, _sine(220.0, 1.0))
+        jsonl = tmp_path / "clip_001.jsonl"
+        valid = json.dumps(_event("clip_001", 0.1, 0.9, 1, "AGG"))
+        jsonl.write_text(valid + "\nnot valid json\n", encoding="utf-8")
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = measure_clip(wav)
+
+        assert len(result) == 1  # valid event returned
+        assert any("malformed" in str(w.message).lower() for w in caught)
+
+    def test_empty_jsonl_lines_skipped(self, tmp_path):
+        """Empty / blank lines in JSONL are silently skipped."""
+        wav = tmp_path / "clip_001.wav"
+        _write_wav(wav, _sine(220.0, 1.0))
+        jsonl = tmp_path / "clip_001.jsonl"
+        valid = json.dumps(_event("clip_001", 0.1, 0.9, 1, "AGG"))
+        # Intersperse blank lines
+        jsonl.write_text(f"\n{valid}\n\n", encoding="utf-8")
+
+        result = measure_clip(wav)
+        assert len(result) == 1
+
+    def test_threshold_failure_sets_exit_code_1(self, tmp_path):
+        """A failing check (here: VIC missing with --roles AGG,VIC) exits with code 1."""
+        self._make_clip(tmp_path, "clip_agg", "AGG", 1)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["measure-prosody", str(tmp_path), "--roles", "AGG,VIC"])
+        # VIC data absent → VIC checks emit "no data" → passed=False → exit 1
+        assert result.exit_code == 1
+        assert "VIC" in result.output

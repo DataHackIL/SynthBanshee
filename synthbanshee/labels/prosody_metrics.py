@@ -14,6 +14,7 @@ Thresholds (from docs/audio_generation_v3_design.md §4.2a):
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -164,10 +165,17 @@ def measure_clip(clip_path: Path) -> list[TurnMetrics]:
         return []
 
     events: list[EventLabel] = []
-    for line in jsonl_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
+    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
             events.append(EventLabel.model_validate_json(line))
+        except Exception as exc:  # pydantic.ValidationError or JSON parse error
+            warnings.warn(
+                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
+                stacklevel=2,
+            )
 
     role_events = [e for e in events if e.speaker_role is not None]
     if not role_events:
@@ -229,8 +237,14 @@ def aggregate_metrics(turns: list[TurnMetrics]) -> list[RoleIntensityStats]:
 
 def run_threshold_checks(
     stats: list[RoleIntensityStats],
+    include_roles: set[str] | None = None,
 ) -> list[tuple[str, bool, str]]:
     """Evaluate §4.2a pass/fail thresholds against aggregated stats.
+
+    Args:
+        stats: Aggregated per-role/intensity stats from :func:`aggregate_metrics`.
+        include_roles: If provided, only emit checks for roles in this set.
+            Pass ``None`` (default) to run all checks.
 
     Returns a list of ``(label, passed, detail)`` tuples — one per check.
     Checks that cannot be evaluated (missing data) are reported as
@@ -250,21 +264,31 @@ def run_threshold_checks(
         passed = s.f0_median_hz < max_hz if strict else s.f0_median_hz <= max_hz
         checks.append((label, passed, f"{s.f0_median_hz:.1f} Hz"))
 
-    _f0_check("VIC", 1, VIC_I1_F0_MAX_HZ, f"VIC I1 median F0 ≤ {VIC_I1_F0_MAX_HZ:.0f} Hz")
-    _f0_check(
-        "VIC", 4, VIC_I4_F0_MAX_HZ, f"VIC I4 median F0 < {VIC_I4_F0_MAX_HZ:.0f} Hz", strict=True
-    )
-    _f0_check(
-        "VIC", 5, VIC_I5_F0_MAX_HZ, f"VIC I5 median F0 < {VIC_I5_F0_MAX_HZ:.0f} Hz", strict=True
-    )
+    if include_roles is None or "VIC" in include_roles:
+        _f0_check("VIC", 1, VIC_I1_F0_MAX_HZ, f"VIC I1 median F0 ≤ {VIC_I1_F0_MAX_HZ:.0f} Hz")
+        _f0_check(
+            "VIC",
+            4,
+            VIC_I4_F0_MAX_HZ,
+            f"VIC I4 median F0 < {VIC_I4_F0_MAX_HZ:.0f} Hz",
+            strict=True,
+        )
+        _f0_check(
+            "VIC",
+            5,
+            VIC_I5_F0_MAX_HZ,
+            f"VIC I5 median F0 < {VIC_I5_F0_MAX_HZ:.0f} Hz",
+            strict=True,
+        )
 
-    agg_i1 = by_key.get(("AGG", 1))
-    agg_i5 = by_key.get(("AGG", 5))
-    label = f"AGG I5 − I1 RMS ≥ {AGG_ESCALATION_MIN_DB:.0f} dB"
-    if agg_i1 is None or agg_i5 is None:
-        checks.append((label, False, "no data"))
-    else:
-        delta = agg_i5.rms_db_mean - agg_i1.rms_db_mean
-        checks.append((label, delta >= AGG_ESCALATION_MIN_DB, f"{delta:+.1f} dB"))
+    if include_roles is None or "AGG" in include_roles:
+        agg_i1 = by_key.get(("AGG", 1))
+        agg_i5 = by_key.get(("AGG", 5))
+        label = f"AGG I5 − I1 RMS ≥ {AGG_ESCALATION_MIN_DB:.0f} dB"
+        if agg_i1 is None or agg_i5 is None:
+            checks.append((label, False, "no data"))
+        else:
+            delta = agg_i5.rms_db_mean - agg_i1.rms_db_mean
+            checks.append((label, delta >= AGG_ESCALATION_MIN_DB, f"{delta:+.1f} dB"))
 
     return checks
