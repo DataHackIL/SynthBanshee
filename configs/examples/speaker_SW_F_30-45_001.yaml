@@ -20,28 +20,28 @@ style_map:
   1:                                # Routine intake — calm, professional
     style: "General"
     rate_multiplier: 1.0
-    pitch_delta_st: 0
+    pitch_delta_st: -4              # M2a: lower baseline F0; prevents child-voice range at higher intensities
     volume_delta_db: 0
   2:                                # Slight tension — still professional, firmer tone
     style: "General"
     rate_multiplier: 1.0
-    pitch_delta_st: +1
+    pitch_delta_st: -3
     volume_delta_db: +1
   3:                                # Conflict — de-escalation attempt, controlled stress
     style: "General"
     rate_multiplier: 0.95           # Slows down deliberately (de-escalation technique)
-    pitch_delta_st: +2
+    pitch_delta_st: -3
     volume_delta_db: +2
-  4:                                # Escalated — fear breaking through, louder
+  4:                                # Escalated — fear breaking through; pitch capped to avoid child-voice range
     style: "sad"
     rate_multiplier: 1.05
-    pitch_delta_st: +4
-    volume_delta_db: +3
+    pitch_delta_st: -2              # M2a: cap pitch escalation; additional distress via rate/timing
+    volume_delta_db: +4
   5:                                # Attack — panic, screaming for help
     style: "sad"
     rate_multiplier: 1.20
-    pitch_delta_st: +7
-    volume_delta_db: +8
+    pitch_delta_st: -1              # M2a: hard cap
+    volume_delta_db: +5
 
 disfluency:
   filled_pause_prob: 0.03           # Low at baseline (professional); rises with intensity

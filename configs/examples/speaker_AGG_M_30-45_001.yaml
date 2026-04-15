@@ -47,12 +47,12 @@ style_map:
     style: "angry"
     rate_multiplier: 1.20
     pitch_delta_st: +3
-    volume_delta_db: +8
+    volume_delta_db: +9
   5:                                # Extreme — shouting, near-clipping
     style: "angry"
     rate_multiplier: 1.25
     pitch_delta_st: +4
-    volume_delta_db: +10
+    volume_delta_db: +13
 
 # --- Disfluency profile ---
 # Probabilities for injecting realism markers into rendered speech.

@@ -19,28 +19,28 @@ style_map:
   1:
     style: "General"
     rate_multiplier: 1.0
-    pitch_delta_st: 0
+    pitch_delta_st: -4              # M2a: lower baseline F0; prevents child-voice range at higher intensities
     volume_delta_db: 0
   2:                                # Tension — careful, watchful; slight vocal strain
     style: "General"
     rate_multiplier: 0.95
-    pitch_delta_st: +1
-    volume_delta_db: -1
+    pitch_delta_st: -3
+    volume_delta_db: +1
   3:                                # Conflict — defensive, shaking voice
     style: "sad"                    # Azure "sad" approximates fear/distress for he-IL
     rate_multiplier: 0.90
-    pitch_delta_st: +3
-    volume_delta_db: -3
-  4:                                # Escalated — pleading, high pitch, crying undertone
+    pitch_delta_st: -3
+    volume_delta_db: +2
+  4:                                # Escalated — pleading, distress; pitch capped to avoid child-voice range
     style: "sad"
     rate_multiplier: 0.88
-    pitch_delta_st: +5
-    volume_delta_db: -2
+    pitch_delta_st: -2              # M2a: cap pitch escalation; additional distress via rate/timing
+    volume_delta_db: +4
   5:                                # Extreme — panic, screaming or sobbing
     style: "sad"
     rate_multiplier: 1.10           # Can speed up under panic
-    pitch_delta_st: +7
-    volume_delta_db: +4
+    pitch_delta_st: -1              # M2a: hard cap; distress from rate instability, not further pitch rise
+    volume_delta_db: +5
 
 disfluency:
   filled_pause_prob: 0.08           # Higher — victim is more hesitant, searches for words

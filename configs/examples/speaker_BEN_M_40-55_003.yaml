@@ -26,12 +26,12 @@ style_map:
     style: "General"
     rate_multiplier: 1.05
     pitch_delta_st: +1
-    volume_delta_db: +3
+    volume_delta_db: +2
   3:                                # Agitated — loud, accusatory, interrupting
     style: "angry"
     rate_multiplier: 1.15
     pitch_delta_st: +2
-    volume_delta_db: +6
+    volume_delta_db: +5
   4:                                # Pre-attack — threatening, pacing energy
     style: "angry"
     rate_multiplier: 1.20
@@ -41,7 +41,7 @@ style_map:
     style: "angry"
     rate_multiplier: 1.30
     pitch_delta_st: +4
-    volume_delta_db: +11
+    volume_delta_db: +13
 
 disfluency:
   filled_pause_prob: 0.05
