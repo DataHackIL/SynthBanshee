@@ -1085,6 +1085,134 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
 
 
 # ---------------------------------------------------------------------------
+# measure-prosody
+# ---------------------------------------------------------------------------
+
+
+@cli.command("measure-prosody")
+@click.argument("clip_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Write per-turn metrics to a CSV file for offline analysis.",
+)
+@click.option(
+    "--roles",
+    default="AGG,VIC",
+    show_default=True,
+    help="Comma-separated list of speaker roles to include in the report.",
+)
+def measure_prosody(clip_dir: Path, output: Path | None, roles: str) -> None:
+    """Measure per-turn F0 and RMS across generated clips and check §4.2a thresholds.
+
+    Walks CLIP_DIR recursively for .wav files, reads the matching .jsonl
+    strong-label files for event boundaries, and reports median F0 and mean
+    RMS grouped by speaker role and intensity level.
+
+    Requires librosa for F0 estimation (pip install librosa).  RMS is always
+    measured; F0 columns will show '—' if librosa is unavailable or the
+    segment is fully unvoiced.
+
+    Exit code 1 if any §4.2a threshold check fails.
+    """
+    import csv
+
+    from synthbanshee.labels.prosody_metrics import (
+        aggregate_metrics,
+        measure_clip,
+        run_threshold_checks,
+    )
+
+    include_roles = {r.strip().upper() for r in roles.split(",")}
+
+    wav_files = sorted(clip_dir.rglob("*.wav"))
+    if not wav_files:
+        console.print(f"[yellow]No .wav files found in {clip_dir}[/yellow]")
+        return
+
+    from synthbanshee.labels.prosody_metrics import TurnMetrics as _TurnMetrics
+
+    all_turns: list[_TurnMetrics] = []
+    with console.status(f"Measuring {len(wav_files)} clip(s) …"):
+        for wav in wav_files:
+            turns = measure_clip(wav)
+            all_turns.extend(t for t in turns if t.speaker_role in include_roles)
+
+    if not all_turns:
+        console.print(
+            "[yellow]No speaker-role events found — check that .jsonl files exist alongside .wav files.[/yellow]"
+        )
+        return
+
+    stats = aggregate_metrics(all_turns)
+
+    # -----------------------------------------------------------------
+    # Stats table
+    # -----------------------------------------------------------------
+    table = Table(title="Prosody metrics by role × intensity", show_lines=False)
+    table.add_column("Role", style="bold")
+    table.add_column("I", justify="right")
+    table.add_column("Turns", justify="right")
+    table.add_column("F0 median (Hz)", justify="right")
+    table.add_column("F0 std (Hz)", justify="right")
+    table.add_column("RMS (dBFS)", justify="right")
+
+    for s in stats:
+        f0_med = f"{s.f0_median_hz:.1f}" if s.f0_median_hz is not None else "—"
+        f0_std = f"{s.f0_std_hz:.1f}" if s.f0_std_hz is not None else "—"
+        table.add_row(
+            s.role,
+            str(s.intensity),
+            str(s.n_turns),
+            f0_med,
+            f0_std,
+            f"{s.rms_db_mean:.1f}",
+        )
+
+    console.print(table)
+
+    # -----------------------------------------------------------------
+    # Threshold checks
+    # -----------------------------------------------------------------
+    checks = run_threshold_checks(stats)
+    console.print("\n[bold]§4.2a threshold checks:[/bold]")
+    all_passed = True
+    for label, passed, detail in checks:
+        icon = "[green]✓[/green]" if passed else "[red]✗[/red]"
+        console.print(f"  {icon} {label}  ({detail})")
+        if not passed:
+            all_passed = False
+
+    # -----------------------------------------------------------------
+    # Optional CSV export
+    # -----------------------------------------------------------------
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with output.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(
+                ["clip_id", "speaker_role", "intensity", "f0_median_hz", "f0_std_hz", "rms_db"]
+            )
+            for t in all_turns:
+                writer.writerow(
+                    [
+                        t.clip_id,
+                        t.speaker_role,
+                        t.intensity,
+                        f"{t.f0_median_hz:.2f}" if t.f0_median_hz is not None else "",
+                        f"{t.f0_std_hz:.2f}" if t.f0_std_hz is not None else "",
+                        f"{t.rms_db:.2f}",
+                    ]
+                )
+        console.print(f"\n[dim]Per-turn CSV written to {output}[/dim]")
+
+    if not all_passed:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # iaa-report
 # ---------------------------------------------------------------------------
 
