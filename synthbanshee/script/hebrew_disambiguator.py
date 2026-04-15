@@ -148,15 +148,25 @@ _LEXICON: tuple[LexiconEntry, ...] = (
 )
 
 # Pre-compile one regex per lexicon entry.
-# Lookahead/lookbehind on Hebrew base letters (U+05D0–U+05EA) ensure we
-# match whole tokens, not substrings embedded inside longer words.
-_HEB_LETTER = r"[\u05D0-\u05EA]"
+# Lookahead/lookbehind on Hebrew token characters ensure we match whole
+# tokens, not substrings embedded inside longer words.  The guard covers
+# both Hebrew base letters (U+05D0–U+05EA) and Hebrew combining marks /
+# related marks (U+0591–U+05C7), so a partially-vocalized letter immediately
+# adjacent to the surface form does not create a false word boundary that
+# would allow an in-word match.
+_HEB_TOKEN_CHAR = r"[\u0591-\u05C7\u05D0-\u05EA]"
 
 _COMPILED: tuple[tuple[LexiconEntry, re.Pattern[str]], ...] = tuple(
     (
         entry,
         re.compile(
-            r"(?<!" + _HEB_LETTER + r")" + re.escape(entry.surface) + r"(?!" + _HEB_LETTER + r")"
+            r"(?<!"
+            + _HEB_TOKEN_CHAR
+            + r")"
+            + re.escape(entry.surface)
+            + r"(?!"
+            + _HEB_TOKEN_CHAR
+            + r")"
         ),
     )
     for entry in _LEXICON
@@ -251,8 +261,19 @@ def disambiguate_turns(
         New list of :class:`DialogueTurn` with disambiguation applied.
     """
 
+    # Priority order for addressee selection in multi-speaker scenes.
+    # AGG prefers VIC; VIC prefers AGG; BYS is always last resort.
+    _ROLE_PRIORITY = ["VIC", "AGG", "BYS"]
+
     def _addressee_role(speaker_id: str) -> str:
         my_role = speaker_roles.get(speaker_id, "UNK")
+        other_roles = {
+            role for sid, role in speaker_roles.items() if sid != speaker_id and role != my_role
+        }
+        for candidate in _ROLE_PRIORITY:
+            if candidate in other_roles:
+                return candidate
+        # Fall back to any other role not in the priority list.
         for sid, role in speaker_roles.items():
             if sid != speaker_id and role != my_role:
                 return role

@@ -135,6 +135,22 @@ class TestLexiconEntries:
         # The longer word is not a standalone match so text should be unchanged.
         assert result.text_spoken == longer_word
 
+    @pytest.mark.parametrize("entry", _LEXICON, ids=lambda e: e.rule_id)
+    def test_surface_not_matched_after_vocalized_letter(self, entry):
+        """A surface form immediately following a niqqud-bearing letter must not match.
+
+        Regression guard for the U+0591–U+05C7 combining-mark boundary fix: before
+        the fix, a niqqud character after the preceding letter was not treated as a
+        token character, so the lookbehind saw a non-letter at that position and
+        allowed an in-word match.
+        """
+        # בָּ = bet (U+05D1) + dagesh (U+05BC) + patah (U+05B7): a vocalized letter
+        # immediately before the surface form simulates a partially-vocalized longer word.
+        adjacent = "בָּ" + entry.surface
+        result = _agg_vic(adjacent)
+        # Must not match: the surface form is not a standalone token here.
+        assert result.text_spoken == adjacent
+
 
 # ---------------------------------------------------------------------------
 # disambiguate_for_speaker — multiple substitutions
@@ -258,3 +274,22 @@ class TestDisambiguateTurns:
         result = disambiguate_turns(turns, {"AGG_001": "AGG"})
         # Only one speaker — addressee role is UNK; no modification
         assert result[0].text_spoken == "שלך"
+
+    def test_three_speaker_agg_prefers_vic_over_bys(self):
+        """In a 3-role scene (AGG, VIC, BYS) the AGG turn must be disambiguated
+        toward VIC, not BYS, regardless of dict insertion order."""
+        turns = [DialogueTurn(speaker_id="AGG_001", text="מה עשית?", intensity=2)]
+        # BYS is inserted first — without priority ordering this would be picked
+        roles = {"AGG_001": "AGG", "BYS_001": "BYS", "VIC_001": "VIC"}
+        result = disambiguate_turns(turns, roles)
+        agg_turn = result[0]
+        assert "עָשִׂיתְ" in agg_turn.text_spoken, "AGG turn should be disambiguated (addressee is VIC)"
+
+    def test_three_speaker_bys_gets_no_disambiguation(self):
+        """A BYS speaker addressing AGG must not receive feminine substitution."""
+        turns = [DialogueTurn(speaker_id="BYS_001", text="מה עשית?", intensity=1)]
+        roles = {"AGG_001": "AGG", "VIC_001": "VIC", "BYS_001": "BYS"}
+        result = disambiguate_turns(turns, roles)
+        bys_turn = result[0]
+        # BYS→AGG is not AGG→VIC, so no substitution should fire
+        assert bys_turn.text_spoken == bys_turn.text
