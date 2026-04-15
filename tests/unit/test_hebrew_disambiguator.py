@@ -293,3 +293,13 @@ class TestDisambiguateTurns:
         bys_turn = result[0]
         # BYS→AGG is not AGG→VIC, so no substitution should fire
         assert bys_turn.text_spoken == bys_turn.text
+
+    def test_unknown_role_fallback_does_not_crash(self):
+        """A scene with only custom roles (not in the priority list) must still
+        return a stable addressee via the fallback path (lines 278-279)."""
+        turns = [DialogueTurn(speaker_id="A", text="שלך", intensity=1)]
+        # "WITNESS" is not in _ROLE_PRIORITY; the fallback loop must handle it.
+        roles = {"A": "CALLER", "B": "WITNESS"}
+        result = disambiguate_turns(turns, roles)
+        # CALLER→WITNESS is not AGG→VIC, so no substitution; just no crash.
+        assert result[0].text_spoken == "שלך"
