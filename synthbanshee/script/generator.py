@@ -22,6 +22,11 @@ from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
 
+# Verbose-log callback type.  Strings passed to this callback may contain
+# Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
+# (e.g. standard loggers) should strip or ignore the markup.
+_VerboseLog = Callable[[str], None]
+
 _DEFAULT_ANTHROPIC_MODEL = "claude-opus-4-6"
 _DEFAULT_OPENAI_MODEL = "gpt-4o"
 
@@ -313,7 +318,7 @@ class ScriptGenerator:
         target_duration_minutes: float,
         speakers: list[dict],
         random_seed: int = 0,
-        verbose_log: Callable[[str], None] | None = None,
+        verbose_log: _VerboseLog | None = None,
     ) -> list[DialogueTurn]:
         """Generate a dialogue script for the given scene parameters.
 

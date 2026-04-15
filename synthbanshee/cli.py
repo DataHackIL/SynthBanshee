@@ -429,7 +429,7 @@ def _run_generate_pipeline(
     vlog("[bold]Stage 5[/bold] — Validation")
     validation = validate_clip(clip_wav)
     if not validation.is_valid:
-        return None, validation.errors
+        return None, messages + validation.errors
 
     vlog(f"  [dim]clip valid: {clip_wav}[/dim]")
     return clip_wav, messages + list(validation.warnings)

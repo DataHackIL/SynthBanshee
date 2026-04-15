@@ -20,6 +20,11 @@ from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
+# Verbose-log callback type.  Strings passed to this callback may contain
+# Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
+# (e.g. standard loggers) should strip or ignore the markup.
+_VerboseLog = Callable[[str], None]
+
 
 class TTSRenderer:
     """Render TTS utterances with a file-system render cache.
@@ -151,7 +156,7 @@ class TTSRenderer:
         randomize: bool = False,
         rng_seed: int | None = None,
         disfluency: bool = False,
-        verbose_log: Callable[[str], None] | None = None,
+        verbose_log: _VerboseLog | None = None,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
