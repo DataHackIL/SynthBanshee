@@ -21,26 +21,31 @@ style_map:
     rate_multiplier: 1.0
     pitch_delta_st: -4              # M2a: lower baseline F0; prevents child-voice range at higher intensities
     volume_delta_db: 0
+    rms_target_dbfs: -26            # M3: baseline level (slightly quieter than AGG)
   2:                                # Tension — careful, watchful; slight vocal strain
     style: "General"
     rate_multiplier: 0.95
     pitch_delta_st: -3
     volume_delta_db: +1
+    rms_target_dbfs: -27            # M3: voice drops slightly (guarded/hushed)
   3:                                # Conflict — defensive, shaking voice
     style: "sad"                    # Azure "sad" approximates fear/distress for he-IL
     rate_multiplier: 0.90
     pitch_delta_st: -3
     volume_delta_db: +2
+    rms_target_dbfs: -28            # M3: still dropping (victim shrinks under pressure)
   4:                                # Escalated — pleading, distress; pitch capped to avoid child-voice range
     style: "sad"
     rate_multiplier: 0.88
     pitch_delta_st: -2              # M2a: cap pitch escalation; additional distress via rate/timing
     volume_delta_db: +4
+    rms_target_dbfs: -29            # M3: near-whisper pleading
   5:                                # Extreme — panic, screaming or sobbing
     style: "sad"
     rate_multiplier: 1.10           # Can speed up under panic
     pitch_delta_st: -1              # M2a: hard cap; distress from rate instability, not further pitch rise
     volume_delta_db: +5
+    rms_target_dbfs: -30            # M3: sobbing/panic often sounds quieter than shouting (mic overload avoided)
 
 disfluency:
   filled_pause_prob: 0.08           # Higher — victim is more hesitant, searches for words

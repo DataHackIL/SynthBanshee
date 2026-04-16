@@ -33,26 +33,31 @@ style_map:
     rate_multiplier: 1.0
     pitch_delta_st: 0               # semitones
     volume_delta_db: 0
+    rms_target_dbfs: -28            # M3: quiet baseline
   2:                                # Moderate — slight edge, clipped responses
     style: "General"
     rate_multiplier: 1.05
     pitch_delta_st: 0               # M2a: AGG anger → faster + louder (M3), not higher pitch
     volume_delta_db: +2
+    rms_target_dbfs: -25            # M3: +3 dB
   3:                                # Active conflict — raised voice, contemptuous
     style: "angry"
     rate_multiplier: 1.15
     pitch_delta_st: 0               # M2a: stay flat; rate carries urgency
     volume_delta_db: +5
+    rms_target_dbfs: -22            # M3: +6 dB above I1
   4:                                # Escalated — aggressive, loud
     style: "angry"
     rate_multiplier: 1.20
     pitch_delta_st: +1              # M2a: minimal rise only at extreme ends
     volume_delta_db: +9
+    rms_target_dbfs: -19            # M3: +9 dB above I1
   5:                                # Extreme — shouting, near-clipping
     style: "angry"
     rate_multiplier: 1.25
-    pitch_delta_st: +1              # M2a: hard cap; RMS escalation via M3
+    pitch_delta_st: +1              # M2a: hard cap; loudness carried by M3
     volume_delta_db: +13
+    rms_target_dbfs: -15            # M3: +13 dB above I1 (satisfies ≥8 dB spec)
 
 # --- Disfluency profile ---
 # Probabilities for injecting realism markers into rendered speech.

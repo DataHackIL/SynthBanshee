@@ -191,6 +191,29 @@ All Phase 1 milestones are implemented and tested:
 
 The full pipeline is now wired end-to-end: `ScriptGenerator.generate()` → `TTSRenderer.render_scene()` → `preprocess()` → per-turn event labels → `ClipMetadata`. AI teams can use the Tier A dataset to start baseline model development.
 
+## Phase 3 IAA utilities (complete as of 2026-04-15)
+
+| Milestone | Module(s) | Status |
+|---|---|---|
+| 3.1 Per-turn RMS gain (M3) | `synthbanshee/tts/mixer.py`, `synthbanshee/config/speaker_config.py` | Done |
+| 3.2 Per-category kappa | `synthbanshee/labels/iaa.py` | Done |
+| 3.3 IAAReport | `synthbanshee/labels/iaa.py` | Done |
+| 3.4 iaa-report CLI | `synthbanshee/cli.py` | Done |
+
+### M3 — per-turn RMS gain
+
+Azure TTS normalizes WAV output, so `volume_delta_db` in SSML has no effect on amplitude.
+M3 fixes this by applying post-TTS RMS gain inside `SceneMixer.mix_sequential()`:
+
+- `StyleEntry` gains an optional `rms_target_dbfs: float | None` field (in `synthbanshee/config/speaker_config.py`).
+- `SceneMixer.mix_sequential()` now takes 4-tuples `(wav_bytes, pause_before_s, speaker_id, rms_target_dbfs)`. If `rms_target_dbfs` is not `None`, `_apply_rms_gain()` scales the decoded segment so its RMS matches the target before mixing.
+- `TTSRenderer.render_scene()` passes `style_entry.rms_target_dbfs` as the 4th element of each segment tuple.
+- Near-silent frames (RMS < −80 dBFS) are skipped to avoid noise-floor amplification.
+- The gain-adjusted signal is not clipped in the mixer; downstream peak-normalization in `preprocessing.py` handles clipping.
+
+AGG/BEN speaker YAMLs: `rms_target_dbfs` escalates −28 → −15 dBFS across I1–I5 (+13 dB, satisfying the ≥ 8 dB AGG escalation spec target).
+VIC/SW speaker YAMLs: `rms_target_dbfs` descends −26 → −30 dBFS across I1–I5 (victim's voice retreats under pressure).
+
 ## What NOT to do
 
 - Don't mix speaker personas across train/val/test splits (speaker-disjoint splits are required)

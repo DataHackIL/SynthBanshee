@@ -25,6 +25,8 @@ class StyleEntry(BaseModel):
     rate_multiplier: float = Field(gt=0, le=3.0, default=1.0)
     pitch_delta_st: float = Field(ge=-12.0, le=12.0, default=0.0)
     volume_delta_db: float = Field(ge=-20.0, le=20.0, default=0.0)
+    # M3: post-TTS RMS target applied by SceneMixer. None → no gain adjustment.
+    rms_target_dbfs: float | None = Field(default=None, ge=-60.0, le=0.0)
 
 
 class DisfluencyProfile(BaseModel):
