@@ -23,9 +23,10 @@ docs/ tests/unit/ tests/integration/
 ## Language / encoding
 
 - All audio: **Hebrew (he-IL)**
-- **Filenames + JSON string fields: ASCII only** — no UTF-8 above U+00A1
+- **Filenames:** strictly lowercase `[a-z0-9_-]`
+- **JSON string fields validated by `ClipMetadata`:** no characters above U+00A1
 - Hebrew text goes in `.j2` templates or `.txt` transcripts only
-- `ClipMetadata` enforces the rule via `@field_validator` on `clip_id`, `project`, `tts_engine`, `violence_typology`, `generator_version`
+- `ClipMetadata` enforces the string-field rule via `@field_validator` on `clip_id`, `project`, `tts_engine`, `violence_typology`, `generator_version`
 
 ## Audio format (hard constraints)
 
@@ -44,7 +45,7 @@ SceneConfig (YAML)
   → [1]  Script Generator      → DialogueTurns   (LLM + Jinja2)
   → [2]  TTS Renderer          → MixedScene WAV  (Azure/Google he-IL)
   → [3a] Preprocessing         → spec-compliant WAV
-  → [3b] Acoustic Augmentation → augmented WAV   (Tier B only)
+  → [3b] Acoustic Augmentation → augmented WAV   (Tier B and Tier C only)
   → [4a] Transcript Writer     → {clip_id}.txt
   → [4b] Strong Label Writer   → {clip_id}.jsonl
   → [4c] Metadata Writer       → {clip_id}.json

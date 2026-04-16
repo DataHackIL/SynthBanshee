@@ -19,7 +19,7 @@ Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
 
 ## Core pipeline modules (in execution order)
 1. synthbanshee/script/generator.py         — LLM script generation (OpenAI/Anthropic)
-   synthbanshee/script/types.py             — DialogueTurn, ScriptResult
+   synthbanshee/script/types.py             — DialogueTurn, MixedScene
    synthbanshee/script/templates/           — Jinja2 .j2 scene templates
    synthbanshee/script/hebrew_disambiguator.py — niqqud + SSML phoneme injection (M1)
 
@@ -29,7 +29,7 @@ Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
    synthbanshee/tts/ssml_builder.py         — SSML construction helpers
 
 3a. synthbanshee/augment/preprocessing.py  — preprocess(); _peak_limit() (M3b); validate_audio()
-3b. synthbanshee/augment/room_sim.py       — room IR convolution (Tier B)
+3b. synthbanshee/augment/room_sim.py       — acoustic augmentation stage for Tier B and Tier C scenes
     synthbanshee/augment/device_profiles.py — phone / pi_budget_mic frequency response
     synthbanshee/augment/noise_mixer.py     — MUSAN noise layer
     synthbanshee/augment/types.py           — AugmentationLog (SFX timing source of truth)
