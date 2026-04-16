@@ -12,6 +12,7 @@ from synthbanshee.augment.preprocessing import (
     _PEAK_DBFS,
     _SILENCE_PAD_S,
     _TARGET_SR,
+    _peak_limit,
     preprocess,
     validate_audio,
 )
@@ -72,12 +73,26 @@ class TestPreprocess:
         data, _ = sf.read(str(dst))
         assert data.ndim == 1
 
-    def test_peak_normalization(self, tmp_path):
-        src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.1)
+    def test_peak_limiter_loud_clip_clamped(self, tmp_path):
+        """A clip whose peak exceeds the ceiling must be attenuated to ≤ ceiling."""
+        # amplitude=0.99 → peak ≈ −0.09 dBFS, above the −1.0 dBFS ceiling
+        src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.99)
         dst = tmp_path / "out.wav"
         preprocess(src, dst)
         peak = _peak_dbfs(dst)
-        assert abs(peak - _PEAK_DBFS) < 0.5, f"Peak {peak:.2f} not near {_PEAK_DBFS} dBFS"
+        assert peak <= _PEAK_DBFS + 0.5, f"Peak {peak:.2f} dBFS exceeds ceiling {_PEAK_DBFS} dBFS"
+
+    def test_peak_limiter_quiet_clip_not_scaled_up(self, tmp_path):
+        """A clip already below the ceiling must NOT be scaled up."""
+        # amplitude=0.05 → peak ≈ −26 dBFS, well below the −1.0 dBFS ceiling
+        src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.05, sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        preprocess(src, dst)
+        peak = _peak_dbfs(dst)
+        # Must remain well below the ceiling — not normalized up to −1.0 dBFS
+        assert peak < _PEAK_DBFS - 5.0, (
+            f"Quiet clip was scaled up: peak {peak:.2f} dBFS (expected << {_PEAK_DBFS} dBFS)"
+        )
 
     def test_silence_padding_present(self, tmp_path):
         src = _write_sine_wav(tmp_path / "src.wav", duration_s=4.0)
@@ -109,7 +124,7 @@ class TestPreprocess:
         assert "resample" in steps_str
         # "mono" step only appears when source has >1 channels
         assert "lowpass" in steps_str
-        assert "normalize" in steps_str
+        assert "peak_limit" in steps_str
         assert "silence_pad" in steps_str
 
     def test_short_clip_warning(self, tmp_path):
@@ -163,3 +178,60 @@ class TestValidateAudio:
         # 1 s + 2*0.5 s padding = 2 s — still below 3 s minimum
         assert not ok
         assert any("duration" in e for e in errors)
+
+    def test_quiet_clip_passes_validator(self, tmp_path):
+        """A valid clip whose peak is well below −1.0 dBFS must pass validation.
+
+        With a limiter (not normalizer) preprocess() does not scale up quiet
+        clips.  validate_audio() must accept them — only clips that exceed the
+        ceiling should be rejected.
+        """
+        src = _write_sine_wav(
+            tmp_path / "src.wav", amplitude=0.05, duration_s=4.0, sample_rate=_TARGET_SR
+        )
+        dst = tmp_path / "quiet.wav"
+        preprocess(src, dst)
+        ok, errors = validate_audio(dst)
+        assert ok, f"Quiet clip incorrectly rejected: {errors}"
+
+    def test_over_ceiling_clip_fails_validator(self, tmp_path):
+        """A WAV written with peak above the ceiling must fail validation."""
+        # Write a loud clip directly (bypassing preprocess) so the peak is > ceiling
+        path = tmp_path / "loud.wav"
+        loud = np.ones(int(4.0 * _TARGET_SR), dtype=np.float32) * 0.99
+        sf.write(str(path), loud, _TARGET_SR, subtype="PCM_16")
+        # Reload to get the actual stored peak (PCM_16 quantisation)
+        data, _ = sf.read(str(path), dtype="float32")
+        # Manually check it is above ceiling before asserting validator catches it
+        assert float(np.max(np.abs(data))) > 10 ** (_PEAK_DBFS / 20.0) + 0.01
+        ok, errors = validate_audio(path)
+        assert not ok
+        assert any("exceeds ceiling" in e for e in errors)
+
+
+class TestPeakLimit:
+    """Unit tests for _peak_limit() helper (M3b)."""
+
+    def test_loud_signal_clamped_to_ceiling(self):
+        loud = np.ones(1000, dtype=np.float32) * 0.99  # peak ≈ −0.09 dBFS
+        ceiling_dbfs = -1.0
+        result = _peak_limit(loud, ceiling_dbfs)
+        peak = float(np.max(np.abs(result)))
+        assert peak <= 10 ** (ceiling_dbfs / 20.0) + 1e-6
+
+    def test_quiet_signal_unchanged(self):
+        quiet = np.ones(1000, dtype=np.float32) * 0.1  # peak ≈ −20 dBFS
+        original = quiet.copy()
+        result = _peak_limit(quiet, -1.0)
+        np.testing.assert_array_equal(result, original)
+
+    def test_silence_unchanged(self):
+        silence = np.zeros(500, dtype=np.float32)
+        result = _peak_limit(silence, -1.0)
+        np.testing.assert_array_equal(result, silence)
+
+    def test_exactly_at_ceiling_unchanged(self):
+        ceiling_linear = 10 ** (-1.0 / 20.0)
+        at_ceiling = np.full(500, ceiling_linear, dtype=np.float32)
+        result = _peak_limit(at_ceiling, -1.0)
+        np.testing.assert_array_almost_equal(result, at_ceiling)
