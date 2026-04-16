@@ -14,7 +14,7 @@ synthbanshee/       ← main package
   package/          ← manifest, QA, splitter, validator, archiver
   cli.py            ← Click entry points
 configs/
-  scenes/ speakers/ acoustic_scenes/ run_configs/ examples/
+  scenes/ run_configs/ examples/    ← checked-in; speakers/ and acoustic_scenes/ are user-created if needed
 assets/             ← gitignored; populated at runtime
 data/               ← gitignored; generated output
 docs/ tests/unit/ tests/integration/
@@ -36,7 +36,7 @@ docs/ tests/unit/ tests/integration/
 - Onset/offset times from `MixedScene` must be shifted by the leading pad only
 - **No torchaudio** — preprocessing uses `scipy` + `soundfile` exclusively
 - **No lossy formats** (MP3, AAC) anywhere in the pipeline
-- **Retain dirty files**: named `{clip_id}_dirty{ext}` in `assets/`; never overwrite
+- **Retain dirty files**: `preprocess()` writes them as `{output_path.stem}_dirty{input_suffix}` in `assets/` (CLI produces e.g. `{clip_id}_00_dirty.wav`); never overwrite
 
 ## Pipeline stages (keep modular, clean interfaces)
 
@@ -67,7 +67,7 @@ SFX onset/offset times come **only** from the Stage 3b augmentation log. Speech-
 - **Primary:** Azure `he-IL-AvriNeural` (M), `he-IL-HilaNeural` (F); SSML `<mstts:express-as>` + prosody tags
 - **Secondary:** Google Cloud TTS Chirp 3 HD he-IL
 - **Cache key: SHA-256 of the full rendered SSML string** — not `(voice_id, text)`
-- **M3a — per-turn RMS gain:** `StyleEntry.rms_target_dbfs` → `SceneMixer._apply_rms_gain()`; 4-tuple segment API `(wav_bytes, pause_s, speaker_id, rms_target_dbfs)`
+- **M3a — per-turn RMS gain:** `StyleEntry.rms_target_dbfs` → module-level `_apply_rms_gain()` in `synthbanshee/tts/mixer.py`; 4-tuple segment API `(wav_bytes, pause_s, speaker_id, rms_target_dbfs)`
 - **Temp WAV from mixer must be `subtype="FLOAT"`** — never `PCM_16` before `preprocess()` to avoid hard-clipping M3 gain
 
 ## Splits

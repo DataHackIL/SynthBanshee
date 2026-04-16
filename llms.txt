@@ -57,12 +57,12 @@ Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
 - configs/taxonomy.yaml                    — label taxonomy (source of truth for all label strings)
 - configs/examples/scene_*.yaml            — worked scene examples
 - configs/examples/speaker_*.yaml          — worked speaker persona examples (with rms_target_dbfs)
-- configs/acoustic_scenes/                 — room + device profiles
+- synthbanshee/config/acoustic_config.py   — room + device validity/source of truth (currently hardcoded sets; configs/acoustic_scenes/ is user-created if needed)
 - configs/run_configs/                     — full batch run definitions
 
 ## Key data models
 - SceneConfig            → configs/scenes/*.yaml  (scene-level: typology, speakers, turns)
-- SpeakerConfig          → configs/speakers/*.yaml (speaker_id, style_map, disfluency)
+- SpeakerConfig          → configs/examples/speaker_*.yaml (checked-in personas; optional user override: configs/speakers/*.yaml) (speaker_id, style_map, disfluency)
 - StyleEntry             → speaker_config.py (rate, pitch, volume, rms_target_dbfs)
 - DialogueTurn           → script/types.py (speaker_id, text_original, text_spoken, intensity, pause_before_s)
 - MixedScene             → script/types.py (samples, turn_onsets_s, turn_offsets_s, speaker_ids)
