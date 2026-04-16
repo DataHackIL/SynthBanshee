@@ -201,7 +201,10 @@ def _run_generate_pipeline(
     try:
         with tempfile.TemporaryDirectory() as tmp:
             raw_wav = Path(tmp) / "raw.wav"
-            sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="PCM_16")
+            # Write as 32-bit float WAV so out-of-range samples from M3 RMS
+            # gain are preserved exactly; preprocess() peak-normalizes and
+            # then writes the final PCM_16 output safely.
+            sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="FLOAT")
             result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir)
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]

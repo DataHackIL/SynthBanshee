@@ -187,7 +187,7 @@ class TTSRenderer:
         rng = random.Random(rng_seed)
         mixer = SceneMixer()
 
-        segments: list[tuple[bytes, float, str]] = []
+        segments: list[tuple[bytes, float, str, float | None]] = []
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
             # Use text_spoken (post-gender-disambiguation) rather than the
@@ -199,6 +199,7 @@ class TTSRenderer:
                     prob=speaker.disfluency.filled_pause_prob,
                     rng_seed=rng.randint(0, 2**31),
                 )
+            style_entry = speaker.style_for_intensity(turn.intensity)
             wav_bytes, _, hit = self.render_utterance(
                 text,
                 speaker,
@@ -213,6 +214,8 @@ class TTSRenderer:
                     f" [{turn.speaker_id}] intensity={turn.intensity}"
                     f" → {status}[/dim]"
                 )
-            segments.append((wav_bytes, turn.pause_before_s, turn.speaker_id))
+            segments.append(
+                (wav_bytes, turn.pause_before_s, turn.speaker_id, style_entry.rms_target_dbfs)
+            )
 
         return mixer.mix_sequential(segments)
