@@ -774,9 +774,14 @@ def generate_batch(
     )
 
     if max_clips is not None and len(selected) > max_clips:
+        import random as _random
+
+        _rng = _random.Random(run_cfg.random_seed)
+        _rng.shuffle(selected)
         selected = selected[:max_clips]
         console.print(
-            f"[yellow]--max-clips {max_clips}: truncated to {len(selected)} clip(s).[/yellow]"
+            f"[yellow]--max-clips {max_clips}: shuffled (seed={run_cfg.random_seed}) "
+            f"and truncated to {len(selected)} clip(s).[/yellow]"
         )
 
     if dry_run:

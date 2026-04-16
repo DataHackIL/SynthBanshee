@@ -470,7 +470,7 @@ class TestGenerateBatchCommand:
             )
 
         assert result.exit_code == 0, result.output
-        assert "--max-clips 1" in result.output
+        assert "truncated to 1 clip" in result.output
         assert len(rendered_calls) == 1
 
 
