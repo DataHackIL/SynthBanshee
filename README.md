@@ -48,7 +48,7 @@ Two projects — **She-Proves** (3–6 min clips, apartment rooms) and **Elephan
 
 ## Label taxonomy
 
-Labels use a three-level hierarchy (no binary Violence/Non-Violence):
+Labels use a three-level hierarchy. `has_violence` (in clip metadata and manifests) is a derived convenience field computed from the taxonomy — not an independent label. The taxonomy is the ground truth; `has_violence` exists for fast filtering and baseline modelling.
 
 1. **Violence typology** (scene): `SV` · `IT` · `NEG` · `NEU`
 2. **Tier 1 category** (event): `PHYS` · `VERB` · `DIST` · `ACOU` · `EMOT` · `NONE`

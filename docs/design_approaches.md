@@ -31,7 +31,7 @@ All generated datasets must conform to:
 | Silence padding | ≥ 0.5 s digital silence/ambient baseline before and after target speech |
 | SNR | ≥ 15 dB at acquisition; degrade controllably in augmentation |
 | Annotation granularity | Weak labels (30–120 s clips) **and** strong labels (onset/offset timestamps), 3.0 s analysis windows, 1.0 s hop |
-| Label taxonomy | Hierarchical tiers — binary Violence/Non-Violence labels are prohibited |
+| Label taxonomy | Hierarchical tiers — `has_violence` is a derived convenience field; the taxonomy (`violence_typology`, `tier1_category`, `tier2_subtype`, `max_intensity`) is the ground truth and must not be replaced by a single binary flag |
 | Metadata | JSON per clip with: `event_id`, `onset`, `offset`, `primary_label`, `intensity` (1–5), `speaker_role`, `emotional_state`, `confidence` (0.0–1.0) |
 | IAA targets | Cohen's Kappa ≥ 0.65 (physical), ≥ 0.60 (verbal aggression) on 20% second-pass |
 | Preprocessing | Resample → normalize to −1.0 dBFS → spectral filter → denoise; always retain original "dirty" file |
