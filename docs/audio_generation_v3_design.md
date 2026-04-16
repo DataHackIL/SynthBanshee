@@ -25,6 +25,33 @@
 
 ---
 
+## Implementation Tracker
+
+All P0–P2 work is tracked here. Milestones that span multiple PRs are listed one row per PR, with sub-suffixes (e.g. M3a, M3b). Status key: ✅ Done · 🔲 Not started · 🧪 Experimental (gate required before scale use).
+
+| PR | Priority | Status | Primary benefit | Scope (this PR) | Effort | Spec change? |
+|----|----------|--------|----------------|-----------------|--------|--------------|
+| **M1** | P0 | ✅ Done | Eliminates AGG→VIC gender errors | `hebrew_disambiguator.py` — niqqud lexicon + SSML `<phoneme>` for top tokens; `DialogueTurn.text_spoken` / `text_original` / `normalization_rules_triggered`; wired after `ScriptGenerator.generate()`; QA flag for unvocalized high-risk tokens in `text_spoken` | Small | No |
+| **M2a** | P0 | ✅ Done | Lowers VIC F0 to adult range; caps AGG pitch escalation | Update `style_map` in speaker YAMLs per §4.2a table — VIC pitch −4→−1 st, AGG pitch capped 0/0/0/+1/+1 across I2–I5 | Small | No |
+| **M3a** | P0 | ✅ Done | Preserves within-scene loudness trajectory | `rms_target_dbfs` on `StyleEntry`; `_apply_rms_gain()` helper in `SceneMixer`; 4-tuple segment API; AGG −28→−15 dBFS (I1→I5), VIC −26→−30 dBFS; FLOAT temp WAV write to avoid PCM_16 hard-clip | Small | No |
+| **M3b** | P0 | 🔲 | Prevents peak-normalize from erasing inter-scene RMS contrast | Replace `_normalize_peak()` in `preprocess()` with sample-peak limiter (only clips above −1.0 dBFS, no forced scale-up); update `validate_audio()` to check peak ≤ −1.0 dBFS instead of == −1.0 dBFS; update `spec.md §3` | Small | Yes — spec.md §3 |
+| **M4** | P0 | 🔲 | Fixes silent label corruption in strong-label JSONL | Audit `debug_run_1` emotional states; extend `taxonomy.yaml` `emotional_states` to cover all legitimate LLM outputs; replace `_normalize_emotion()` silent fallback with explicit mapping table + logged warning (hard fail for completely unknown states); add `WARN_EMOTION_DOWNGRADE` QA flag | Small | No |
+| **M5** | P1 | 🔲 | Protects Tier A phonetic quality from over-denoising | `PreprocessingConfig` dataclass; update `preprocess()` to accept it (default unchanged); scene YAMLs gain optional `preprocessing` block; Wiener step skipped when `wiener_denoise=False`; unit tests verify Wiener skip | Small | No |
+| **M6** | P1 | 🔲 | Replaces mechanical silence gaps with psychologically-motivated turn latencies | `TurnGapController` in `synthbanshee/tts/gap_controller.py`; project-specific gap tables (§4.5); wire into `TTSRenderer.render_scene()` replacing `turn.pause_before_s`; NEG/NEU confusor gap ranges; unit tests per context type and project | Small | No |
+| **M7** | P1 | 🔲 | Eliminates speaker-state reset at turn boundaries | `SpeakerState` with `update()` / `to_metadata_dict()`; intensity-drift rules per role; wire into `TTSRenderer.render_scene()` — one `SpeakerState` per speaker; state offsets applied to render params; state written to per-turn generation metadata | Medium | No |
+| **M2b** | P1 | 🔲 | Burst-pause microstructure within high-intensity turns | `PhraseHint` / `PhraseProsody` dataclasses in `ssml_types.py`; `DialogueTurn.phrase_hints`; char-offset resolver (maps `text_original` offsets → `text_spoken` after niqqud); `SSMLBuilder` extension for nested `<prosody>` + `<break>`; Jinja2 template update requesting `phrase_hints` for I3–I5 turns; deterministic sentence-final imperative heuristics | Medium | No |
+| **M8a** | P1 | 🔲 | Adds interruption behavior to audio assembly | `MixMode` enum (`SEQUENTIAL`, `OVERLAP`, `BARGE_IN`); extend `SceneMixer.mix_sequential()` to handle overlap/barge-in segment mixing; `TurnGapController.gap_seconds()` extended to return `(gap_s, MixMode)`; unit tests for overlapped segment merge | Medium | No |
+| **M8b** | P1 | 🔲 | Precise event timestamps for overlapping turns; NEG/NEU confusor overlap | `MixedScene` gains `script_onset_s`, `rendered_onset_s`, `audible_onset_s` per turn; label generator uses `audible_onset_s`/`audible_end_s` exclusively; truncated turns get `truncated: true`; NEG/NEU overlap rates; integration tests | Medium | No |
+| **M9a** | P2 | 🔲 | Second TTS backend; eliminates single-backend fingerprint risk | `google_provider.py` — Google Cloud TTS Chirp 3 HD he-IL; `ProviderCapabilities` ABC so SSML-driven and slider-driven backends declare their control surface; `TTSRenderer` backend dispatch; speaker YAMLs for Google he-IL male and female voices | Medium | No |
+| **M9b** | P2 | 🔲 | ≥ 3 voice variants per gender across dataset | ≥ 4 additional speaker YAMLs in `configs/speakers/` (≥ 2 male, ≥ 2 female, including ≥ 1 Google variant per gender); update scene configs to distribute speaker IDs across scenes; `voice_family` column in manifest CSV; `generate-batch` distributes across voice variants | Small | No |
+| **M10a** | P2 | 🔲 | Catches clip-level prosody regressions | Extend `qa.py` with per-clip acoustic metrics: F0 median/std by speaker by intensity (librosa pyin), RMS and LUFS by turn (pyloudnorm), ambiguous Hebrew token count, `normalization_rules_triggered` frequency; per-clip WARN flags: `WARN_VIC_F0_HIGH`, `WARN_AGG_NO_ESCALATION`, `WARN_GENDER_AMBIGUITY` | Medium | No |
+| **M10b** | P2 | 🔲 | Catches systematic run-level biases | Run-level aggregation in `QAReport`: F0/RMS/LUFS distributions by role/typology/project; voice and backend diversity counts; `mix_mode` distribution; outlier clips; `qa-report --run-summary` CLI table; `WARN_NO_OVERLAP` and `WARN_EMOTION_DOWNGRADE` run-level flags | Medium | No |
+| **M11** | P2 | 🔲 | Enables ablation studies and debugging across pipeline versions | `GenerationMetadata` dataclass (§4.11); written to `{clip_id}.json` under `generation_metadata` key; backward-compatible — existing V1 clips not invalidated | Small | No |
+| **M12** | P2 | 🧪 Gate required | Reduces VIC HNR at I3–I5 if listening-test gate passes | `add_breathiness()` in `synthbanshee/augment/voice_texture.py`; wire for VIC turns via `SpeakerState.breathiness_level`; listening-test gate — 20 clips, native Hebrew listener, blind A/B (§8.3); `breathiness_applied` flag in `GenerationMetadata`; disabled by default if gate fails | Medium | No |
+| **M13** | P2 | 🔲 | She-Proves / Elephant generate audio appropriate to their distinct acoustic regimes | `project_profile` field in `RunConfig`; gap, overlap probability, loudness targets, preprocessing config, and augmentation config all carry project-specific defaults; two profile YAML files in `configs/run_configs/`; new profiles addable without code changes | Small | No |
+
+---
+
 ## 1. Executive Summary
 
 The current pipeline treats each utterance as an independent TTS call with per-utterance prosody parameters and concatenates the results with fixed silence gaps. Speaker state resets at every turn boundary. Emotional escalation is expressed only through scripted SSML parameters, not through the phonation-quality, rate-instability, and amplitude-discontinuity features that real escalating confrontations produce. Turn-taking has no conversational logic.
@@ -660,25 +687,29 @@ Before any dataset version is promoted from "restricted training" to "full train
 ## 9. Sequencing and Dependencies
 
 ```
-M1 (disambiguation)   ──────────────────────────────────────────────── P0
-M2a (SSML params)     ──────────────────────────────────────────────── P0
-M3 (normalization)    requires M2a ──────────────────────────────────── P0
-M4 (emotion metadata) ──────────────────────────────────────────────── P0
+M1  (disambiguation)   ✅ ─────────────────────────────────────────── P0
+M2a (SSML params)      ✅ ─────────────────────────────────────────── P0
+M3a (per-turn gain)    ✅ requires M2a ──────────────────────────────── P0
+M3b (peak-limiter)        requires M3a ──────────────────────────────── P0
+M4  (emotion metadata)    ─────────────────────────────────────────── P0
 
-M5 (preprocessing)    ──────────────────────────────────── P1
-M6 (gap controller)   ──────────────────────────────────── P1
-M7 (speaker state)    requires M2a, M3 ──────────────────── P1
-M2b (phrase prosody)  requires M1 (text finalized) ─────── P1
-M8 (overlap)          requires M6 ─────────────────────── P1
+M5  (preprocessing)       ──────────────────────────────── P1
+M6  (gap controller)      ──────────────────────────────── P1
+M7  (speaker state)       requires M2a, M3a ─────────────── P1
+M2b (phrase prosody)      requires M1 (text finalized) ──── P1
+M8a (overlap mixing)      requires M6 ──────────────────── P1
+M8b (overlap labels)      requires M8a ─────────────────── P1
 
-M9 (voices)           ──────────────────────────────────── P2
-M10 (run-level QA)    parallel, most useful after P0–P1 ── P2
-M11 (provenance meta) ──────────────────────────────────── P2
-M12 (breathiness)     requires M7 (state), gate ────────── P2
-M13 (project profiles)requires M6, M8 ──────────────────── P2
+M9a (Google TTS)          ──────────────────────────────── P2
+M9b (speaker diversity)   requires M9a (or parallel) ─────── P2
+M10a (per-clip metrics)   parallel, most useful after P0 ── P2
+M10b (run-level QA)       requires M10a ───────────────────── P2
+M11 (provenance meta)     ──────────────────────────────── P2
+M12 (breathiness)         requires M7 (state), gate ──────── P2
+M13 (project profiles)    requires M6, M8b ──────────────── P2
 ```
 
-Fastest path to improved audio: **M1 → M2a → M3 → M4** in parallel where possible, then **M6 → M7 → M8**.
+Fastest path to improved audio: **M3b → M4** (P0 remaining), then **M6 → M7 → M8a → M8b**.
 
 M4 and M5 are structurally independent of the audio quality improvements and can be done at any time.
 
@@ -686,19 +717,25 @@ M4 and M5 are structurally independent of the audio quality improvements and can
 
 ## 10. Summary Table
 
+See **Implementation Tracker** at the top of this document for the full per-PR breakdown with status. Quick reference (milestone-level):
+
 | Milestone | Priority | Primary benefit | Effort | Spec change? |
 |-----------|----------|----------------|--------|--------------|
 | M1 — Hebrew disambiguation | P0 | Eliminates gender errors | Small | No |
 | M2a — SSML parameter redesign | P0 | Lowers VIC F0; adds loudness escalation | Small | No |
-| M3 — Normalization strategy | P0 | Preserves loudness trajectory | Small | Yes — spec.md §3 |
+| M3a — Per-turn RMS gain | P0 | Preserves loudness trajectory | Small | No |
+| M3b — Peak-limiter + spec update | P0 | Prevents peak-normalize from erasing inter-scene contrast | Small | Yes — spec.md §3 |
 | M4 — Emotional-state consistency | P0 | Fixes label corruption | Small | No |
 | M5 — Tier-aware preprocessing | P1 | Protects Tier A phonetic quality | Small | No |
 | M6 — Gap controller | P1 | Psychologically-motivated timing | Small | No |
 | M7 — Stateful speaker controller | P1 | Cross-turn continuity | Medium | No |
 | M2b — Per-phrase SSML | P1 | Burst-pause microstructure | Medium | No |
-| M8 — Overlap / barge-in | P1 | Interruption behavior; three-timeline labels | Large | No |
-| M9 — Multi-voice diversification | P2 | Eliminates Azure fingerprint risk | Medium | No |
-| M10 — Run-level QA | P2 | Catches systematic biases | Medium | No |
+| M8a — Overlap audio mixing | P1 | Interruption behavior in audio assembly | Medium | No |
+| M8b — Three-timeline labels | P1 | Precise event timestamps for overlapping turns | Medium | No |
+| M9a — Google TTS backend | P2 | Second TTS backend; eliminates fingerprint risk | Medium | No |
+| M9b — Speaker diversification | P2 | ≥ 3 voice variants per gender | Small | No |
+| M10a — Per-clip acoustic metrics | P2 | Catches clip-level prosody regressions | Medium | No |
+| M10b — Run-level QA aggregation | P2 | Catches systematic run-level biases | Medium | No |
 | M11 — Provenance metadata | P2 | Ablation studies; debugging | Small | No |
 | M12 — Breathiness (experimental) | P2 | VIC distress phonation; gate required | Medium | No |
 | M13 — Project-specific profiles | P2 | She-Proves / Elephant acoustic fit | Small | No |
