@@ -34,7 +34,7 @@ All P0–P2 work is tracked here. Milestones that span multiple PRs are listed o
 | **M1** | P0 | ✅ Done | Eliminates AGG→VIC gender errors | `hebrew_disambiguator.py` — niqqud lexicon + SSML `<phoneme>` for top tokens; `DialogueTurn.text_spoken` / `text_original` / `normalization_rules_triggered`; wired after `ScriptGenerator.generate()`; QA flag for unvocalized high-risk tokens in `text_spoken` | Small | No |
 | **M2a** | P0 | ✅ Done | Lowers VIC F0 to adult range; caps AGG pitch escalation | Update `style_map` in speaker YAMLs per §4.2a table — VIC pitch −4→−1 st, AGG pitch capped 0/0/0/+1/+1 across I2–I5 | Small | No |
 | **M3a** | P0 | ✅ Done | Preserves within-scene loudness trajectory | `rms_target_dbfs` on `StyleEntry`; `_apply_rms_gain()` helper in `SceneMixer`; 4-tuple segment API; AGG −28→−15 dBFS (I1→I5), VIC −26→−30 dBFS; FLOAT temp WAV write to avoid PCM_16 hard-clip | Small | No |
-| **M3b** | P0 | 🔲 Not started | Prevents peak-normalize from erasing inter-scene RMS contrast | Replace `_normalize_peak()` in `preprocess()` with sample-peak limiter (only clips above −1.0 dBFS, no forced scale-up); update `validate_audio()` to check peak ≤ −1.0 dBFS instead of == −1.0 dBFS; update `spec.md §3` | Small | Yes — spec.md §3 |
+| **M3b** | P0 | ✅ Done | Prevents peak-normalize from erasing inter-scene RMS contrast | Replace `_normalize_peak()` in `preprocess()` with sample-peak limiter (only clips above −1.0 dBFS, no forced scale-up); update `validate_audio()` to check peak ≤ −1.0 dBFS instead of == −1.0 dBFS; update `spec.md §3` | Small | Yes — spec.md §3 |
 | **M4** | P0 | 🔲 Not started | Fixes silent label corruption in strong-label JSONL | Audit `debug_run_1` emotional states; extend `taxonomy.yaml` `emotional_states` to cover all legitimate LLM outputs; replace `_normalize_emotion()` silent fallback with explicit mapping table + logged warning (hard fail for completely unknown states); add `WARN_EMOTION_DOWNGRADE` QA flag | Small | No |
 | **M5** | P1 | 🔲 Not started | Protects Tier A phonetic quality from over-denoising | `PreprocessingConfig` dataclass; update `preprocess()` to accept it (default unchanged); scene YAMLs gain optional `preprocessing` block; Wiener step skipped when `wiener_denoise=False`; unit tests verify Wiener skip | Small | No |
 | **M6** | P1 | 🔲 Not started | Replaces mechanical silence gaps with psychologically-motivated turn latencies | `TurnGapController` in `synthbanshee/tts/gap_controller.py`; project-specific gap tables (§4.5); wire into `TTSRenderer.render_scene()` replacing `turn.pause_before_s`; NEG/NEU confusor gap ranges; unit tests per context type and project | Small | No |
@@ -690,7 +690,7 @@ Before any dataset version is promoted from "restricted training" to "full train
 M1  (disambiguation)   ✅ ─────────────────────────────────────────── P0
 M2a (SSML params)      ✅ ─────────────────────────────────────────── P0
 M3a (per-turn gain)    ✅ requires M2a ──────────────────────────────── P0
-M3b (peak-limiter)        requires M3a ──────────────────────────────── P0
+M3b (peak-limiter)     ✅ requires M3a ──────────────────────────────── P0
 M4  (emotion metadata)    ─────────────────────────────────────────── P0
 
 M5  (preprocessing)       ──────────────────────────────── P1

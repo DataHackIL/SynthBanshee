@@ -97,7 +97,7 @@ Project codes: `SP` (She-Proves) · `EL` (Elephant in the Room)
 | Sample rate | 16,000 Hz | Resample before delivery; retain originals at native rate |
 | Bit depth | 16-bit PCM | |
 | Channels | Mono | Downmix to mono before delivery |
-| Amplitude normalization | −1.0 dBFS peak | Applied after augmentation |
+| Amplitude normalization | Peak ≤ −1.0 dBFS (limiter, not normalizer) | Only attenuates; never scales up — preserves within-scene loudness trajectory |
 | Silence padding | ≥ 0.5 s of ambient baseline before and after target speech | |
 | SNR at acquisition | ≥ 15 dB (Tier A) | Tier B/C may degrade controllably below 15 dB; log actual SNR in metadata |
 | Max clip duration | 300 s (5 min) | Longer source scenes must be segmented |
@@ -111,7 +111,7 @@ All clips must pass through this pipeline before delivery. The "dirty" pre-pipel
 2. **Downmix** — stereo → mono (average channels)
 3. **Spectral filter** — low-pass at 7,500 Hz to remove irrelevant high-frequency noise from budget sensors (Butterworth order 4)
 4. **Denoising** — spectral subtraction (Wiener filtering) to remove electrical hum; parameterize noise profile from silent leading segment
-5. **Normalize** — peak normalization to −1.0 dBFS
+5. **Peak limit** — attenuate to ≤ −1.0 dBFS if the signal exceeds that ceiling; never scale up. This preserves the within-scene loudness trajectory established by per-turn RMS gain (M3a). A forced scale-up would collapse intensity-level amplitude differences.
 6. **Silence pad** — verify ≥ 0.5 s ambient baseline at head and tail; add if absent
 7. **Validate** — assert: sample rate == 16000, channels == 1, no NaN/Inf samples, no UTF-8 above U+00A1 in metadata strings
 

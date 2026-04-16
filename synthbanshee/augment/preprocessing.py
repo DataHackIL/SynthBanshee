@@ -51,13 +51,21 @@ def _to_dbfs(samples: np.ndarray) -> float:
     return 20.0 * math.log10(peak)
 
 
-def _normalize_peak(samples: np.ndarray, target_dbfs: float = _PEAK_DBFS) -> np.ndarray:
-    """Peak-normalize to target_dbfs (e.g. −1.0 dBFS)."""
+def _peak_limit(samples: np.ndarray, ceiling_dbfs: float = _PEAK_DBFS) -> np.ndarray:
+    """Attenuate samples so peak ≤ ceiling_dbfs; never scale up.
+
+    Unlike peak normalization, this only applies gain when the signal
+    exceeds the ceiling.  Quieter signals are returned unchanged so that
+    the within-scene loudness trajectory established by per-turn RMS gain
+    (M3a) is preserved across the full clip.
+    """
     peak = float(np.max(np.abs(samples)))
     if peak == 0.0:
         return samples
-    target_linear = 10.0 ** (target_dbfs / 20.0)
-    return (samples * (target_linear / peak)).astype(np.float32)
+    ceiling_linear = 10.0 ** (ceiling_dbfs / 20.0)
+    if peak <= ceiling_linear:
+        return samples  # already within limit — do not scale up
+    return (samples * (ceiling_linear / peak)).astype(np.float32)
 
 
 def _resample(samples: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
@@ -155,9 +163,9 @@ def preprocess(
     samples = _wiener_denoise(samples)
     steps.append("wiener_denoise")
 
-    # --- 5. Peak normalize to −1.0 dBFS --------------------------------------
-    samples = _normalize_peak(samples, _PEAK_DBFS)
-    steps.append(f"normalize_peak_{_PEAK_DBFS}dBFS")
+    # --- 5. Peak limit to −1.0 dBFS (never scale up) -------------------------
+    samples = _peak_limit(samples, _PEAK_DBFS)
+    steps.append(f"peak_limit_{_PEAK_DBFS}dBFS")
 
     # --- 6. Silence pad (≥ 0.5 s at head and tail) ---------------------------
     samples = _ensure_silence_pad(samples, sr, _SILENCE_PAD_S)
@@ -234,12 +242,11 @@ def validate_audio(path: Path | str) -> tuple[bool, list[str]]:
     if duration < _MIN_DURATION_S:
         errors.append(f"duration {duration:.2f} s < minimum {_MIN_DURATION_S} s")
 
-    # Peak normalization (within 0.5 dB of target)
+    # Peak limit — clip must not exceed ceiling (allow 0.5 dB tolerance for
+    # PCM_16 quantisation rounding); clips quieter than the ceiling are fine.
     peak_dbfs = _to_dbfs(samples)
-    if not math.isinf(peak_dbfs) and abs(peak_dbfs - _PEAK_DBFS) > 0.5:
-        errors.append(
-            f"peak {peak_dbfs:.2f} dBFS deviates more than 0.5 dB from target {_PEAK_DBFS} dBFS"
-        )
+    if not math.isinf(peak_dbfs) and peak_dbfs > _PEAK_DBFS + 0.5:
+        errors.append(f"peak {peak_dbfs:.2f} dBFS exceeds ceiling {_PEAK_DBFS} dBFS")
 
     # Silence padding: check first and last 0.5 s are below -40 dBFS
     pad_n = int(_SILENCE_PAD_S * sr)
