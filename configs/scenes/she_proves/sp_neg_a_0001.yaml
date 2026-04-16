@@ -1,9 +1,9 @@
-scene_id: SP_NEG_B_0001
+scene_id: SP_NEG_A_0001
 project: she_proves
 language: he
 violence_typology: NEG
-tier: B
-random_seed: 301
+tier: A
+random_seed: 1301
 speakers:
   - speaker_id: AGG_M_30-45_001
     role: AGG
@@ -21,15 +21,3 @@ she_proves:
   incident_phases: [escalation]
   post_incident_phases: [de-escalation]
 target_duration_minutes: 3.0
-acoustic_scene:
-  room_type: small_bedroom
-  device: phone_in_hand
-  speaker_distance_meters: 1.5
-  victim_distance_meters: 1.2
-  snr_target_db: 16
-  rt60_range: [0.20, 0.38]
-  background_events:
-    - type: tv_ambient
-      onset_seconds: 0.0
-      level_db: -35
-      loop: true

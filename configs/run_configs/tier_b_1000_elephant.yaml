@@ -12,7 +12,6 @@ project: elephant_in_the_room
 tier: B
 language: he
 random_seed: 17
-output_dir: data/he
 scene_configs_dir: configs/scenes/elephant_tier_b
 
 # --- Per-typology clip count targets (total: 1 000) ---

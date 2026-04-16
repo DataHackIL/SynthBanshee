@@ -1,9 +1,9 @@
-scene_id: SP_NEU_B_0002
+scene_id: SP_NEU_A_0002
 project: she_proves
 language: he
 violence_typology: NEU
-tier: B
-random_seed: 402
+tier: A
+random_seed: 1402
 speakers:
   - speaker_id: AGG_M_30-45_001
     role: AGG
@@ -18,15 +18,3 @@ she_proves:
   incident_phases: []
   post_incident_phases: []
 target_duration_minutes: 3.5
-acoustic_scene:
-  room_type: small_bedroom
-  device: phone_on_table
-  speaker_distance_meters: 1.0
-  victim_distance_meters: 0.8
-  snr_target_db: 10
-  rt60_range: [0.20, 0.36]
-  background_events:
-    - type: hvac_hum
-      onset_seconds: 0.0
-      level_db: -42
-      loop: true

@@ -30,5 +30,3 @@ she_proves:
 
 target_duration_minutes: 3.0
 min_pre_incident_seconds: 60
-
-output_dir: data/he

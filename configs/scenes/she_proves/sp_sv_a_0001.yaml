@@ -1,9 +1,9 @@
-scene_id: SP_SV_B_0001
+scene_id: SP_SV_A_0001
 project: she_proves
 language: he
 violence_typology: SV
-tier: B
-random_seed: 201
+tier: A
+random_seed: 1201
 speakers:
   - speaker_id: AGG_M_30-45_001
     role: AGG
@@ -22,23 +22,3 @@ she_proves:
   post_incident_phases: [aftermath]
 target_duration_minutes: 3.5
 min_pre_incident_seconds: 60
-acoustic_scene:
-  room_type: living_room
-  device: phone_on_table
-  speaker_distance_meters: 2.5
-  victim_distance_meters: 2.0
-  snr_target_db: 20
-  rt60_range: [0.32, 0.55]
-  background_events:
-    - type: tv_ambient
-      onset_seconds: 0.0
-      level_db: -28
-      loop: true
-    - type: ACOU_THROW
-      onset_at_phase: escalation
-      onset_offset_seconds: 5.0
-      asset_path: null
-    - type: ACOU_FALL
-      onset_at_phase: peak
-      onset_offset_seconds: 2.0
-      asset_path: null

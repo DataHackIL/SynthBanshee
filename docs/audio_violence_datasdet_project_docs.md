@@ -136,7 +136,7 @@ Redundancy: Avoid repeating words or characters more than three times (e.g., no 
 
 3. Annotation Taxonomy (Tiers 1-3)
 
-Annotators must apply a hierarchical tag to every identified event. Binary "Violence/Non-Violence" labels are prohibited.
+Annotators must apply a hierarchical tag to every identified event. A binary `has_violence` convenience field is derived from the taxonomy and included in metadata and manifests for fast filtering; however, replacing the hierarchical taxonomy with a single binary flag is prohibited — the taxonomy is the ground truth.
 
 Temporal Granularity
 

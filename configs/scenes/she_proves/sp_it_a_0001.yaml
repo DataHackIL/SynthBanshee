@@ -1,9 +1,9 @@
-scene_id: SP_IT_B_0001
+scene_id: SP_IT_A_0001
 project: she_proves
 language: he
 violence_typology: IT
-tier: B
-random_seed: 101
+tier: A
+random_seed: 1101
 speakers:
   - speaker_id: AGG_M_30-45_001
     role: AGG
@@ -22,19 +22,3 @@ she_proves:
   post_incident_phases: [aftermath, de-escalation]
 target_duration_minutes: 4.0
 min_pre_incident_seconds: 80
-acoustic_scene:
-  room_type: small_bedroom
-  device: phone_in_pocket
-  speaker_distance_meters: 2.0
-  victim_distance_meters: 1.5
-  snr_target_db: 18
-  rt60_range: [0.22, 0.38]
-  background_events:
-    - type: tv_ambient
-      onset_seconds: 0.0
-      level_db: -32
-      loop: true
-    - type: ACOU_SLAM
-      onset_at_phase: peak
-      onset_offset_seconds: 3.0
-      asset_path: null

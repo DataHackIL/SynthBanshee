@@ -78,4 +78,3 @@ prosody:
     volume_range: [-4, 0]
 
 # --- Output ---
-output_dir: data/he

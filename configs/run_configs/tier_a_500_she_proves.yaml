@@ -8,7 +8,6 @@ project: she_proves
 tier: A
 language: he
 random_seed: 42
-output_dir: data/he
 scene_configs_dir: configs/scenes/she_proves
 
 # --- Per-typology clip count targets (total: 500) ---

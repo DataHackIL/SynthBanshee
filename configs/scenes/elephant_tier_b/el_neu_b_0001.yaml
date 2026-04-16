@@ -33,4 +33,3 @@ acoustic_scene:
       onset_seconds: 0.0
       level_db: -42
       loop: true
-output_dir: data/he

@@ -401,6 +401,78 @@ class TestGenerateBatchCommand:
         # Manifest CSV must exist with at least a header row
         assert manifest_path.exists()
 
+    def test_max_clips_truncates_selected_configs(self, tmp_path):
+        """--max-clips N limits rendering to N clips even when more are available."""
+        import yaml as _yaml
+
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+
+        # Write 3 scene configs but cap at 1
+        for i in range(3):
+            scene = {
+                "scene_id": f"SP_NEU_A_00{i}",
+                "project": "she_proves",
+                "language": "he",
+                "violence_typology": "NEU",
+                "tier": "A",
+                "random_seed": i,
+                "speakers": [{"speaker_id": "AGG_M_30-45_001", "role": "AGG"}],
+                "script_template": "synthbanshee/script/templates/she_proves/neutral_domestic_routine.j2",
+                "script_slots": {},
+                "intensity_arc": [1],
+                "target_duration_minutes": 3.0,
+                "output_dir": str(tmp_path / "out"),
+            }
+            (scenes_dir / f"scene_{i:03d}.yaml").write_text(_yaml.dump(scene), encoding="utf-8")
+
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(tmp_path / "out"),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+        rendered_calls: list[int] = []
+
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+
+            def _count_render(*args, **kwargs):
+                rendered_calls.append(1)
+                return mixed
+
+            MockRenderer.return_value.render_scene.side_effect = _count_render
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg_path),
+                    "--max-clips",
+                    "1",
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert "truncated to 1 clip" in result.output
+        assert len(rendered_calls) == 1
+
 
 # ---------------------------------------------------------------------------
 # qa-report command

@@ -81,7 +81,7 @@ The augmentation log produced by Stage 3b is the source of truth for SFX onset/o
 - Directory: `data/{language_code}/{speaker_id}/{clip_id}.wav` + matching `.txt` + `.json`
 - Filenames: **ASCII only**, no spaces, no UTF-8 above U+00A1, lowercase
 - Every `.wav` must have a matching `.txt` (transcript) and `.json` (metadata)
-- **No binary Violence/Non-Violence labels** — use the hierarchical taxonomy in `configs/taxonomy.yaml`
+- **`has_violence` is a derived convenience field** (`weak_label.has_violence` in `.json`, column in `manifest.csv`), computed from the hierarchical taxonomy — never assigned independently. Keep it; AI teams need it for baseline models and stratified sampling. The taxonomy columns (`violence_typology`, `tier1_category`, `tier2_subtype`, `max_intensity`) are the ground truth.
 - Silence padding: **≥ 0.5 s** ambient baseline before and after target speech
 - Retain "dirty" (pre-preprocessing) files in `assets/` always — named `{clip_id}_dirty{original_suffix}` (e.g. `clip_001_dirty.wav`), NOT the raw input filename, to avoid collisions when multiple inputs share the same basename
 - `is_synthetic: true` in all generated clip metadata
@@ -195,7 +195,7 @@ The full pipeline is now wired end-to-end: `ScriptGenerator.generate()` → `TTS
 
 - Don't mix speaker personas across train/val/test splits (speaker-disjoint splits are required)
 - Don't hardcode Hebrew text in Python source — it goes in template `.j2` files or transcript `.txt` files
-- Don't write binary (Violence/Non-Violence) labels — the spec explicitly prohibits this
+- Don't treat `has_violence` as the primary or sole label — it is a derived summary field. Always preserve the full hierarchical taxonomy (`violence_typology`, `tier1_category`, `tier2_subtype`, `max_intensity`) alongside it. Never replace the taxonomy with a single binary flag.
 - Don't discard "dirty" pre-processing audio files — they're needed for robustness testing
 - Don't use lossy audio formats (MP3, AAC) anywhere in the pipeline
 - Don't generate clips shorter than 3.0 s (below the minimum label window)
