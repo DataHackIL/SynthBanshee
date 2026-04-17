@@ -1,0 +1,87 @@
+# SynthBanshee — Architecture Index for LLM Agents
+# High-density pointer map. Read the referenced files for full detail.
+
+## Purpose
+Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
+- She-Proves: domestic violence detection on smartphones
+- Elephant in the Room: social-worker attack alerting in clinic/welfare offices
+
+## Key planning docs
+- docs/spec.md                        — authoritative schema (audio, labels, metadata, IAA)
+- docs/audio_generation_v3_design.md  — Implementation Tracker (all P0–P2 milestones + status)
+- docs/implementation_plan.md         — phased milestones, risk register, API cost estimates
+- docs/design_approaches.md           — why Config-Driven Pipeline (Approach 1) was chosen
+
+## Entry points
+- synthbanshee/cli.py                 — all Click commands (generate, generate-batch, qa-report, iaa-report)
+- synthbanshee/cli.py:_run_generate_pipeline()  — orchestrates stages 1–5 for one clip
+- synthbanshee/cli.py:_TYPOLOGY_INTENSITY_MAP   — (typology, intensity) → (tier1, tier2) mapping
+
+## Core pipeline modules (in execution order)
+1. synthbanshee/script/generator.py         — LLM script generation (OpenAI/Anthropic)
+   synthbanshee/script/types.py             — DialogueTurn, MixedScene
+   synthbanshee/script/templates/           — Jinja2 .j2 scene templates
+   synthbanshee/script/hebrew_disambiguator.py — niqqud + SSML phoneme injection (M1)
+
+2. synthbanshee/tts/renderer.py             — TTSRenderer.render_scene() → MixedScene
+   synthbanshee/tts/mixer.py                — SceneMixer.mix_sequential(); _apply_rms_gain() (M3a)
+   synthbanshee/tts/azure_provider.py       — Azure Cognitive Services TTS client
+   synthbanshee/tts/ssml_builder.py         — SSML construction helpers
+
+3a. synthbanshee/augment/preprocessing.py  — preprocess(); _peak_limit() (M3b); validate_audio()
+3b. synthbanshee/augment/room_sim.py       — acoustic augmentation stage for Tier B and Tier C scenes
+    synthbanshee/augment/device_profiles.py — phone / pi_budget_mic frequency response
+    synthbanshee/augment/noise_mixer.py     — MUSAN noise layer
+    synthbanshee/augment/types.py           — AugmentationLog (SFX timing source of truth)
+
+4. synthbanshee/labels/generator.py        — auto-label generation from script + augmentation log
+   synthbanshee/labels/schema.py           — EventLabel, ClipMetadata Pydantic models
+   synthbanshee/labels/iaa.py              — per-category Cohen's kappa; IAAReport; iaa-report CLI
+   synthbanshee/labels/prosody_metrics.py  — prosody metric helpers
+
+5. synthbanshee/package/validator.py       — validate_clip() — checks all three files
+   synthbanshee/package/manifest.py        — manifest CSV generation
+   synthbanshee/package/qa.py             — automated QA suite; QAReport
+   synthbanshee/package/splitter.py        — speaker-disjoint train/val/test splits
+   synthbanshee/package/archiver.py        — dataset archive packaging
+   synthbanshee/package/dataset_card.py    — HuggingFace dataset card
+
+## Config models
+- synthbanshee/config/scene_config.py      — SceneConfig (per-scene YAML schema)
+- synthbanshee/config/speaker_config.py    — SpeakerConfig, StyleEntry (rms_target_dbfs), DisfluencyProfile
+- synthbanshee/config/acoustic_config.py   — AcousticConfig (room + device)
+- synthbanshee/config/run_config.py        — RunConfig (batch generation)
+- synthbanshee/config/taxonomy.py          — taxonomy loader helpers
+
+## Config files (YAML)
+- configs/taxonomy.yaml                    — label taxonomy (source of truth for all label strings)
+- configs/examples/scene_*.yaml            — worked scene examples
+- configs/examples/speaker_*.yaml          — worked speaker persona examples (with rms_target_dbfs)
+- synthbanshee/config/acoustic_config.py   — room + device validity/source of truth (currently hardcoded sets; configs/acoustic_scenes/ is user-created if needed)
+- configs/run_configs/                     — full batch run definitions
+
+## Key data models
+- SceneConfig            → configs/scenes/*.yaml  (scene-level: typology, speakers, turns)
+- SpeakerConfig          → configs/examples/speaker_*.yaml (checked-in personas; optional user override: configs/speakers/*.yaml) (speaker_id, style_map, disfluency)
+- StyleEntry             → speaker_config.py (rate, pitch, volume, rms_target_dbfs)
+- DialogueTurn           → script/types.py (speaker_id, text_original, text_spoken, intensity, pause_before_s)
+- MixedScene             → script/types.py (samples, turn_onsets_s, turn_offsets_s, speaker_ids)
+- PreprocessingResult    → augment/preprocessing.py (output_path, silence_pad_applied_s, steps_applied)
+- AugmentationLog        → augment/types.py (sfx_events with onset_s/offset_s)
+- EventLabel             → labels/schema.py (tier1_category, tier2_subtype, onset_s, offset_s)
+- ClipMetadata           → labels/schema.py (weak labels, speaker info, is_synthetic, provenance)
+- RunConfig              → config/run_config.py (scenes, speakers, n_clips, output_dir, split)
+
+## Tests
+- tests/unit/test_preprocessing.py    — preprocess(), _peak_limit(), validate_audio()
+- tests/unit/test_mixer.py            — SceneMixer 4-tuple API, _apply_rms_gain()
+- tests/unit/test_speaker_config.py   — SpeakerConfig validation
+- tests/unit/test_labels.py           — label generation
+- tests/integration/                  — end-to-end clip generation tests
+
+## Milestone status (as of 2026-04-16)
+Done (P0):  M1, M2a, M3a, M3b, IAA utilities (kappa, IAAReport, iaa-report CLI)
+Next (P0):  M4 — Emotional-state metadata consistency
+Queued P1:  M5, M6, M7, M2b, M8a, M8b
+Queued P2:  M9a, M9b, M10a, M10b, M11, M12 (gate), M13
+Full tracker: docs/audio_generation_v3_design.md §Implementation Tracker

@@ -1,143 +1,114 @@
-# AVDP Synthetic Dataset Framework — Codex Context
+# AVDP Synthetic Dataset Framework — Agent Rules
 
-## What this repo is
+**Detailed design:** `docs/spec.md` (schema), `docs/audio_generation_v3_design.md` (Implementation Tracker), `docs/implementation_plan.md` (milestones, risk register). Read these before any structural change.
 
-A framework for generating large-scale synthetic Hebrew audio datasets for two AI safety initiatives run by DataHack (datahack.org.il):
-
-- **She-Proves** — passively monitors a smartphone for domestic violence incidents and preserves audio evidence for legal use
-- **Elephant in the Room (הפיל שבחדר)** — a Raspberry Pi–class device in clinic/welfare offices that alerts security when a social worker is being attacked
-
-This is Phase 0 / Phase 1 bootstrap data. The goal is a wide, deliberate distribution of voices, acoustic conditions, and violence types — not forensic-grade realism. A real-data pipeline (actor recordings) is 6–12 months away. These docs and this code give the AI teams something to train on now.
-
-## Read these first
-
-All design decisions are documented. Read before changing anything structural:
-
-| Document | What it covers |
-|---|---|
-| `docs/design_approaches.md` | The three design approaches considered; why Approach 1 (Config-Driven Pipeline) was chosen; the recommended hybrid path |
-| `docs/spec.md` | The authoritative schema: file naming, audio format, label taxonomy, metadata JSON schema, IAA protocol, split strategy, per-project variants |
-| `docs/implementation_plan.md` | Phased milestones, module breakdown, dependency map, API cost estimates, risk register |
-
-## Repo structure
+## Repo layout
 
 ```
-synthbanshee/              ← main Python package
-  config/                  ← Pydantic config models
-  script/                  ← LLM-based script generation + Jinja2 templates
-  tts/                     ← TTS rendering (Azure he-IL, Google he-IL)
-  augment/                 ← acoustic augmentation (room sim, device profiles, noise)
-  labels/                  ← auto-label generation, schema, IAA utilities
-  package/                 ← dataset assembly, manifests, splits
-  cli.py                   ← Click CLI entry points
-
+synthbanshee/       ← main package
+  config/           ← Pydantic models (scene, speaker, acoustic, run)
+  script/           ← LLM script generation + Jinja2 templates
+  tts/              ← TTS rendering (Azure/Google) + SceneMixer
+  augment/          ← preprocessing, room IR, device profiles, noise
+  labels/           ← auto-label generation, schema, IAA utilities
+  package/          ← manifest, QA, splitter, validator, archiver
+  cli.py            ← Click entry points
 configs/
-  scenes/                  ← per-scene YAML configs (see examples/)
-  speakers/                ← speaker persona YAMLs (see examples/)
-  acoustic_scenes/         ← room/device YAML configs
-  examples/                ← worked examples for each config type
-
-assets/                    ← source assets (gitignored; populated at runtime)
-  speech/                  ← TTS utterance cache
-  sfx/                     ← sound effects (licensed CC0/CC-BY)
-  ambient/                 ← ambient/background audio
-  noise/                   ← MUSAN noise subset
-
-data/                      ← generated dataset output (gitignored)
-docs/                      ← design, spec, implementation plan
-tests/
-  unit/
-  integration/
+  scenes/ run_configs/ examples/    ← checked-in; speakers/ and acoustic_scenes/ are user-created if needed
+assets/             ← gitignored; populated at runtime
+data/               ← gitignored; generated output
+docs/ tests/unit/ tests/integration/
 ```
 
-## Language
+## Language / encoding
 
-All generated audio is **Hebrew (he-IL)**. Transcripts are UTF-8 Hebrew. Filenames and metadata strings must be ASCII only (no UTF-8 above U+00A1 in filenames or JSON keys/values — Hebrew text goes in transcript `.txt` files only, not in filenames or metadata string fields).
+- All audio: **Hebrew (he-IL)**
+- **Filenames:** strictly lowercase `[a-z0-9_-]`
+- **JSON string fields validated by `ClipMetadata`:** no characters above U+00A1
+- Hebrew text goes in `.j2` templates or `.txt` transcripts only
+- `ClipMetadata` enforces the string-field rule via `@field_validator` on `clip_id`, `project`, `tts_engine`, `violence_typology`, `generator_version`
 
-## The four pipeline stages
+## Audio format (hard constraints)
 
-Every clip is produced by four sequential stages. Keep them modular with clean interfaces.
+- **16 kHz, mono, 16-bit PCM WAV**
+- **Peak limiter ceiling: −1.0 dBFS** — never scale up quiet clips (limiter, not normalizer)
+- **Silence padding: ≥ 0.5 s** at head and tail — `silence_pad_applied_s` is per-side
+- Onset/offset times from `MixedScene` must be shifted by the leading pad only
+- **No torchaudio** — preprocessing uses `scipy` + `soundfile` exclusively
+- **No lossy formats** (MP3, AAC) anywhere in the pipeline
+- **Retain dirty files**: `preprocess()` writes them as `{output_path.stem}_dirty{input_suffix}` in `assets/` (CLI produces e.g. `{clip_id}_00_dirty.wav`); never overwrite
+
+## Pipeline stages (keep modular, clean interfaces)
 
 ```
 SceneConfig (YAML)
-  → [1] Script Generator   → dialogue JSON  (LLM fills Jinja2 template)
-  → [2] TTS Renderer       → per-speaker WAV segments (Azure/Google he-IL)
-  → [3] Acoustic Augmenter → augmented scene WAV (room IR, device profile, noise)
-  → [4] Label Generator    → AVDP-schema JSONL (auto-derived from script + augmentation log)
+  → [1]  Script Generator      → DialogueTurns   (LLM + Jinja2)
+  → [2]  TTS Renderer          → MixedScene WAV  (Azure/Google he-IL)
+  → [3a] Preprocessing         → spec-compliant WAV
+  → [3b] Acoustic Augmentation → augmented WAV   (Tier B and Tier C only)
+  → [4a] Transcript Writer     → {clip_id}.txt
+  → [4b] Strong Label Writer   → {clip_id}.jsonl
+  → [4c] Metadata Writer       → {clip_id}.json
+  → [5]  Validator             → validate_clip()
 ```
 
-The augmentation log from Stage 3 is the source of truth for SFX onset/offset times in Stage 4 labels. Don't derive label timings from anything else.
-
-## Key schema constraints (from spec.md)
-
-- Audio: **16 kHz, mono, 16-bit PCM WAV, −1.0 dBFS peak normalized**
-- Directory: `data/{language_code}/{speaker_id}/{clip_id}.wav` + matching `.txt` + `.json`
-- Filenames: **ASCII only**, no spaces, no UTF-8 above U+00A1, lowercase
-- Every `.wav` must have a matching `.txt` (transcript) and `.json` (metadata)
-- **`has_violence` is a derived convenience field** computed from the hierarchical taxonomy — never assigned independently. Keep it in metadata and manifests; AI teams need it for baseline models and stratified sampling. The taxonomy columns are ground truth.
-- Silence padding: **≥ 0.5 s** ambient baseline before and after target speech
-- Retain "dirty" (pre-preprocessing) files in `assets/` always
-- `is_synthetic: true` in all generated clip metadata
+SFX onset/offset times come **only** from the Stage 3b augmentation log. Speech-turn times come from Stage 2 mixer output.
 
 ## Label taxonomy
 
-The full hierarchical taxonomy is in `configs/taxonomy.yaml`. Always import from there — do not hardcode label strings in application code. The taxonomy has three levels:
+- **Source of truth: `configs/taxonomy.yaml`** — never hardcode label strings in application code
+- Three levels: `violence_typology` → `tier1_category` → `tier2_subtype`
+- `has_violence` is a **derived convenience field**; the full taxonomy columns are ground truth
+- `_TYPOLOGY_INTENSITY_MAP` in `cli.py` maps `(typology, intensity)` → `(tier1, tier2)`. If you add a typology to the taxonomy, add a row to the map — missing entries fall through to `("NONE", "NONE_AMBIENT")` silently
+- Codes are validated against `taxonomy.yaml` at import; renaming a code causes an import `ValueError`
 
-1. **Violence typology** (scene-level): `SV`, `IT`, `NEG`, `NEU`
-2. **Tier 1 category** (event-level): `PHYS`, `VERB`, `DIST`, `ACOU`, `EMOT`, `NONE`
-3. **Tier 2 subtype** (event-level): e.g., `PHYS_HARD`, `VERB_THREAT`, `DIST_SCREAM`
+## TTS
 
-See `spec.md §4` for full definitions.
+- **Primary:** Azure `he-IL-AvriNeural` (M), `he-IL-HilaNeural` (F); SSML `<mstts:express-as>` + prosody tags
+- **Secondary:** Google Cloud TTS Chirp 3 HD he-IL
+- **Cache key: SHA-256 of the full rendered SSML string** — not `(voice_id, text)`
+- **M3a — per-turn RMS gain:** `StyleEntry.rms_target_dbfs` → module-level `_apply_rms_gain()` in `synthbanshee/tts/mixer.py`; 4-tuple segment API `(wav_bytes, pause_s, speaker_id, rms_target_dbfs)`
+- **Temp WAV from mixer must be `subtype="FLOAT"`** — never `PCM_16` before `preprocess()` to avoid hard-clipping M3 gain
 
-## TTS providers
+## Splits
 
-- **Primary:** Azure Cognitive Services he-IL voices — `he-IL-AvriNeural` (male), `he-IL-HilaNeural` (female)
-- **Secondary / evaluation:** Google Cloud TTS Chirp 3 HD he-IL
-- Azure SSML supports multi-speaker documents, prosody control, and `<mstts:express-as>` style tags — use these
-- Cache all TTS outputs in `assets/speech/` keyed on `(voice_id, text_hash)` to avoid redundant API calls
+- **Speaker-disjoint**: never place the same speaker persona in more than one of train / val / test_synth
 
-## TTS API credentials
+## Testing conventions
 
-Expected as environment variables (`.env` file or shell environment):
+- Unit tests (`tests/unit/`) before integration tests (`tests/integration/`)
+- Run: `pytest`; CI also runs `ruff` and `mypy` (Python 3.11 + 3.12)
+- A clip is valid iff it passes `synthbanshee.package.validator.validate_clip(clip_path)`:
+  1. All three files present (`.wav`, `.txt`, `.json`)
+  2. WAV passes `validate_audio()` — 16 kHz, mono, peak ≤ −1.0 dBFS, duration ≥ 3 s
+  3. JSON parses as `ClipMetadata` with `is_synthetic=True`
+  4. Filename stem is ASCII-only lowercase
+
+## Environment variables
+
 ```
-AZURE_TTS_KEY=...
-AZURE_TTS_REGION=...
-GOOGLE_APPLICATION_CREDENTIALS=path/to/service_account.json
-OPENAI_API_KEY=...   # or ANTHROPIC_API_KEY for Codex script generation
+AZURE_TTS_KEY            AZURE_TTS_REGION
+GOOGLE_APPLICATION_CREDENTIALS
+OPENAI_API_KEY           # or ANTHROPIC_API_KEY for Claude script generation
 ```
 
-## Two projects — different priorities
+## Projects
 
 | Dimension | She-Proves | Elephant in the Room |
 |---|---|---|
 | Scene length | 3–6 min | 1–4 min |
-| Device profile | phone_in_pocket / phone_on_table / phone_in_hand | pi_budget_mic |
-| Room types | apartment rooms (kitchen, bedroom, living room) | clinic_office, welfare_office, open_office |
-| Optimize for | high recall, incident window detection | high precision, low false alarms, real-time alerting |
-| Incident sparsity | ≥ 60% of scene is pre-incident | alert in final 40% of scene |
+| Device profile | `phone_in_pocket / _on_table / _in_hand` | `pi_budget_mic` |
+| Room types | apartment rooms | `clinic_office`, `welfare_office`, `open_office` |
+| Optimize for | high recall, incident window detection | high precision, low false alarms |
+| Incident sparsity | ≥ 60% pre-incident | alert in final 40% |
 | Extra metadata key | `she_proves_meta` | `elephant_meta` |
-
-## Phase targets
-
-| Phase | Deliverable | When teams can start |
-|---|---|---|
-| Phase 0 (Weeks 1–3) | Single spec-compliant clip end-to-end | — |
-| Phase 1 (Weeks 4–7) | 500 Tier A clips/project | **AI teams start here** |
-| Phase 2 (Weeks 8–11) | 1,000–1,500 Tier B clips/project | Robustness training |
-| Phase 3 (Weeks 12–16) | 4,000 clips/project, all tiers | Full Phase 1 dataset |
-
-## Testing conventions
-
-- Unit tests in `tests/unit/`, integration tests in `tests/integration/`
-- Run with `pytest`
-- Every module must have unit tests before the corresponding integration test is written
-- A generated clip is valid if and only if it passes `synthbanshee.package.validator.validate_clip(clip_path)`
 
 ## What NOT to do
 
-- Don't mix speaker personas across train/val/test splits (speaker-disjoint splits are required)
-- Don't hardcode Hebrew text in Python source — it goes in template `.j2` files or transcript `.txt` files
-- Don't treat `has_violence` as the primary or sole label — always preserve the full hierarchical taxonomy alongside it. Never replace the taxonomy with a single binary flag.
-- Don't discard "dirty" pre-processing audio files — they're needed for robustness testing
-- Don't use lossy audio formats (MP3, AAC) anywhere in the pipeline
-- Don't generate clips shorter than 3.0 s (below the minimum label window)
+- Don't mix speaker personas across train/val/test splits
+- Don't hardcode Hebrew text in Python source
+- Don't treat `has_violence` as the primary label — preserve the full taxonomy hierarchy
+- Don't discard dirty pre-processing files
+- Don't use lossy audio formats
+- Don't generate clips shorter than 3.0 s
+- Don't add a new typology to `taxonomy.yaml` without adding it to `_TYPOLOGY_INTENSITY_MAP`
