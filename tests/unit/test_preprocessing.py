@@ -12,6 +12,7 @@ from synthbanshee.augment.preprocessing import (
     _PEAK_DBFS,
     _SILENCE_PAD_S,
     _TARGET_SR,
+    PreprocessingConfig,
     _peak_limit,
     preprocess,
     validate_audio,
@@ -235,3 +236,50 @@ class TestPeakLimit:
         at_ceiling = np.full(500, ceiling_linear, dtype=np.float32)
         result = _peak_limit(at_ceiling, -1.0)
         np.testing.assert_array_almost_equal(result, at_ceiling)
+
+
+class TestPreprocessingConfig:
+    """Unit tests for M5 — PreprocessingConfig + wiener_denoise flag."""
+
+    def test_default_config_applies_wiener(self, tmp_path):
+        """With no config (defaults), wiener_denoise step appears in steps_applied."""
+        src = _write_sine_wav(tmp_path / "src.wav", sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        result = preprocess(src, dst)
+        assert "wiener_denoise" in result.steps_applied
+
+    def test_explicit_wiener_true_applies_wiener(self, tmp_path):
+        src = _write_sine_wav(tmp_path / "src.wav", sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        result = preprocess(src, dst, config=PreprocessingConfig(wiener_denoise=True))
+        assert "wiener_denoise" in result.steps_applied
+
+    def test_wiener_false_skips_wiener_step(self, tmp_path):
+        """With wiener_denoise=False, the Wiener step must not appear in steps_applied."""
+        src = _write_sine_wav(tmp_path / "src.wav", sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        result = preprocess(src, dst, config=PreprocessingConfig(wiener_denoise=False))
+        assert "wiener_denoise" not in result.steps_applied
+
+    def test_wiener_false_other_steps_still_present(self, tmp_path):
+        """Disabling Wiener must not affect other pipeline steps."""
+        src = _write_sine_wav(tmp_path / "src.wav", sample_rate=44100)
+        dst = tmp_path / "out.wav"
+        result = preprocess(src, dst, config=PreprocessingConfig(wiener_denoise=False))
+        steps_str = " ".join(result.steps_applied)
+        assert "resample" in steps_str
+        assert "lowpass" in steps_str
+        assert "peak_limit" in steps_str
+        assert "silence_pad" in steps_str
+
+    def test_output_is_valid_when_wiener_disabled(self, tmp_path):
+        """A clip produced with wiener_denoise=False must still pass validate_audio()."""
+        src = _write_sine_wav(tmp_path / "src.wav", duration_s=4.0, sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        preprocess(src, dst, config=PreprocessingConfig(wiener_denoise=False))
+        ok, errors = validate_audio(dst)
+        assert ok, f"Validation failed: {errors}"
+
+    def test_config_default_values(self):
+        cfg = PreprocessingConfig()
+        assert cfg.wiener_denoise is True

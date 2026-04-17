@@ -285,7 +285,7 @@ def _run_generate_pipeline(
             # gain are preserved exactly; preprocess() peak-normalizes and
             # then writes the final PCM_16 output safely.
             sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="FLOAT")
-            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir)
+            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=scene.preprocessing)
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
