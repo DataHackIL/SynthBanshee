@@ -705,7 +705,55 @@ class TestRunGeneratePipeline:
             )
 
         assert wav is not None
-        assert any("worried" in m and "neutral" in m for m in messages)
+        # 'worried' is an alias for 'distress' (not a hard-fail); message should
+        # report the remap and the clip should carry an emotion_downgrade quality flag.
+        assert any("worried" in m and "distress" in m for m in messages)
+        metadata_path = wav.with_suffix(".json")
+        assert metadata_path.exists()
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert "emotion_downgrade" in metadata.get("quality_flags", [])
+
+    def test_completely_unknown_emotional_state_fails_cleanly(self, tmp_path):
+        """A turn with a state not in taxonomy and not in _EMOTION_ALIASES must
+        return (None, [error]) from _run_generate_pipeline without writing any
+        Stage 4 artifacts (.txt / .jsonl / .json)."""
+        from synthbanshee.script.types import DialogueTurn
+
+        turns = [
+            DialogueTurn(
+                speaker_id="AGG_M_30-45_001",
+                text="שלום",
+                intensity=1,
+                emotional_state="euphoric",  # completely unknown — not in taxonomy or aliases
+            )
+        ]
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, messages = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+
+        assert wav is None
+        assert any("Label generation error" in m for m in messages)
+        assert any("euphoric" in m for m in messages)
+        # Pre-validation must have fired before any Stage 4 files were written
+        out_dir = tmp_path / "out"
+        assert not any(out_dir.rglob("*.txt")), (
+            "clip_txt should not exist on pre-validation failure"
+        )
+        assert not any(out_dir.rglob("*.json")), (
+            "clip_json should not exist on pre-validation failure"
+        )
 
 
 # ---------------------------------------------------------------------------

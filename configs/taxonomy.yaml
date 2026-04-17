@@ -249,6 +249,8 @@ emotional_states:
   - grief
   - confusion
   - defiance
+  - shame       # Victim self-blame; distinct from submission (internal vs. behavioural)
+  - desperation # Fear + urgency at high intensity; distinct from distress
 
 # Scene phase tags (She-Proves escalation arc)
 scene_phases:

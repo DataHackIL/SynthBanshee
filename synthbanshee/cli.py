@@ -10,6 +10,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import tempfile
 import threading
@@ -81,6 +82,85 @@ def _derive_event_type(violence_typology: str, intensity: int) -> tuple[str, str
         if intensity <= max_intensity:
             return tier1, tier2
     return _DEFAULT_EVENT_TYPE
+
+
+# ---------------------------------------------------------------------------
+# Emotion normalization
+# ---------------------------------------------------------------------------
+
+# Explicit mapping from common LLM output variants to canonical taxonomy values.
+# Near-synonyms land here; generating a clip with one of these triggers an
+# "emotion_downgrade" quality flag and a WARNING log.  Completely unknown states
+# (not in the taxonomy and not in this map) raise ValueError at generation time
+# so label corruption is loud rather than silent.
+_EMOTION_ALIASES: dict[str, str] = {
+    "relaxed": "calm",
+    "peaceful": "calm",
+    "tense": "distress",
+    "worried": "distress",
+    "anxious": "distress",
+    "desperate": "desperation",
+    "helpless": "submission",
+    "resigned": "submission",
+    "sad": "grief",
+    "sorrowful": "grief",
+    "frustrated": "anger",
+    "aggressive": "anger",
+    "rage": "anger",
+    "furious": "anger",
+    "threatening": "contempt",
+    "shocked": "panic",
+    "terrified": "fear",
+    "uncertain": "confusion",
+    "lost": "confusion",
+    "happy": "neutral",
+    "content": "neutral",
+}
+
+_log = logging.getLogger(__name__)
+
+
+# Cached at module load to avoid rebuilding the set on every turn.
+def _load_known_emotions() -> frozenset[str]:
+    from synthbanshee.config.taxonomy import emotional_state_values
+
+    return frozenset(emotional_state_values())
+
+
+_KNOWN_EMOTIONS: frozenset[str] = _load_known_emotions()
+
+
+def _normalize_emotion(state: str) -> tuple[str, bool]:
+    """Map an LLM-generated emotional state to a canonical taxonomy value.
+
+    Strips whitespace and lowercases the input so common LLM output variations
+    ('Calm', 'ANGER', 'neutral ') are handled without aliases.
+
+    Returns:
+        (canonical_state, alias_used) where alias_used is True when the input
+        was not in the taxonomy verbatim and was remapped via _EMOTION_ALIASES.
+
+    Raises:
+        ValueError: when the state is neither in the taxonomy nor in
+            _EMOTION_ALIASES.  Generation must fail loudly rather than silently
+            corrupt a label.
+    """
+    normalized = state.strip().lower()
+    if normalized in _KNOWN_EMOTIONS:
+        return normalized, False
+    if normalized in _EMOTION_ALIASES:
+        canonical = _EMOTION_ALIASES[normalized]
+        _log.warning(
+            "emotional_state %r not in taxonomy — remapped to %r via alias. "
+            "Add to taxonomy.yaml if this state should be canonical.",
+            state,
+            canonical,
+        )
+        return canonical, True
+    raise ValueError(
+        f"Unknown emotional_state {state!r}. "
+        "Add it to configs/taxonomy.yaml or map it in _EMOTION_ALIASES in cli.py."
+    )
 
 
 def _run_generate_pipeline(
@@ -300,6 +380,15 @@ def _run_generate_pipeline(
         except Exception as exc:
             return None, [f"Acoustic augmentation error: {exc}"]
 
+    # Pre-validate all emotional states before writing any Stage 4 output.
+    # This prevents partially-generated artifacts (.txt written, .jsonl/.json missing)
+    # when an unknown state is encountered mid-loop.
+    for _i, _turn in enumerate(turns):
+        try:
+            _normalize_emotion(_turn.emotional_state)
+        except ValueError as exc:
+            return None, [f"Label generation error (turn {_i}): {exc}"]
+
     # Stage 4a — Transcript
     vlog("[bold]Stage 4[/bold] — Transcript, labels, metadata")
     # 6. Write structured multi-speaker transcript
@@ -327,26 +416,8 @@ def _run_generate_pipeline(
     # Stage 4b — Strong Labels
     # 7. Build per-turn event labels from MixedScene timing (authoritative per spec)
     # Same pad_s offset applied here to match the processed audio.
-    from synthbanshee.config.taxonomy import emotional_state_values as _valid_emotions
-
-    _known_emotions = set(_valid_emotions())
-
-    def _normalize_emotion(state: str) -> tuple[str, bool]:
-        """Map LLM-generated emotional states to valid taxonomy values.
-
-        Strips whitespace and lowercases before lookup so that common LLM
-        output variations like 'Calm', 'ANGER', or 'neutral ' are handled
-        correctly. Falls back to 'neutral' for values not in the taxonomy
-        (e.g. 'relaxed', 'happy', 'worried').
-
-        Returns (normalized_state, fallback_used).
-        """
-        normalized = state.strip().lower()
-        if normalized in _known_emotions:
-            return normalized, False
-        return "neutral", True
-
     messages: list[str] = []
+    emotion_downgrade_turns: list[str] = []
     events: list[ScriptEvent] = []
     for i, turn in enumerate(turns):
         raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
@@ -356,12 +427,12 @@ def _run_generate_pipeline(
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
         tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
-        emotion, fallback = _normalize_emotion(turn.emotional_state)
-        if fallback:
-            messages.append(
-                f"turn[{i}]: emotional_state {turn.emotional_state!r} not in taxonomy"
-                f" — mapped to 'neutral'"
+        emotion, alias_used = _normalize_emotion(turn.emotional_state)
+        if alias_used:
+            emotion_downgrade_turns.append(
+                f"turn[{i}]: emotional_state {turn.emotional_state!r} remapped to {emotion!r}"
             )
+            messages.append(emotion_downgrade_turns[-1])
         events.append(
             ScriptEvent(
                 tier1_category=tier1,
@@ -414,6 +485,7 @@ def _run_generate_pipeline(
         normalized_dbfs=-1.0,
         silence_padded=True,
     )
+    quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
     metadata = label_gen.generate_clip_metadata(
         clip_id=f"{clip_id}_00",
         project=scene.project,
@@ -428,6 +500,7 @@ def _run_generate_pipeline(
         dirty_file_path=str(result.dirty_path) if result.dirty_path else None,
         transcript_path=str(clip_txt),
         acoustic_scene=acoustic_scene_meta,
+        quality_flags=quality_flags,
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 

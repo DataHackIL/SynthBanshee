@@ -29,6 +29,7 @@ _QUALITY_FLAGS = frozenset(
         "label_uncertainty",
         "iaa_disagreement",
         "synthetic_artifact",
+        "emotion_downgrade",  # LLM emotional_state mapped via alias; not in taxonomy verbatim
     }
 )
 
