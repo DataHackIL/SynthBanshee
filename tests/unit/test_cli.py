@@ -705,7 +705,9 @@ class TestRunGeneratePipeline:
             )
 
         assert wav is not None
-        assert any("worried" in m and "neutral" in m for m in messages)
+        # 'worried' is an alias for 'distress' (not a hard-fail); message should
+        # report the remap and the clip should carry an emotion_downgrade quality flag.
+        assert any("worried" in m and "distress" in m for m in messages)
 
 
 # ---------------------------------------------------------------------------
