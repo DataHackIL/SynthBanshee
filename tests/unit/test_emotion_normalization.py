@@ -56,7 +56,7 @@ class TestNormalizeEmotion:
             ("peaceful", "calm"),
             ("tense", "distress"),
             ("anxious", "distress"),
-            ("desperate", "distress"),
+            ("desperate", "desperation"),
             ("helpless", "submission"),
             ("resigned", "submission"),
             ("sad", "grief"),

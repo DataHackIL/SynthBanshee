@@ -708,6 +708,10 @@ class TestRunGeneratePipeline:
         # 'worried' is an alias for 'distress' (not a hard-fail); message should
         # report the remap and the clip should carry an emotion_downgrade quality flag.
         assert any("worried" in m and "distress" in m for m in messages)
+        metadata_path = wav.with_suffix(".json")
+        assert metadata_path.exists()
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        assert "emotion_downgrade" in metadata.get("quality_flags", [])
 
 
 # ---------------------------------------------------------------------------

@@ -99,7 +99,7 @@ _EMOTION_ALIASES: dict[str, str] = {
     "tense": "distress",
     "worried": "distress",
     "anxious": "distress",
-    "desperate": "distress",
+    "desperate": "desperation",
     "helpless": "submission",
     "resigned": "submission",
     "sad": "grief",
@@ -120,6 +120,16 @@ _EMOTION_ALIASES: dict[str, str] = {
 _log = logging.getLogger(__name__)
 
 
+# Cached at module load to avoid rebuilding the set on every turn.
+def _load_known_emotions() -> frozenset[str]:
+    from synthbanshee.config.taxonomy import emotional_state_values
+
+    return frozenset(emotional_state_values())
+
+
+_KNOWN_EMOTIONS: frozenset[str] = _load_known_emotions()
+
+
 def _normalize_emotion(state: str) -> tuple[str, bool]:
     """Map an LLM-generated emotional state to a canonical taxonomy value.
 
@@ -135,11 +145,8 @@ def _normalize_emotion(state: str) -> tuple[str, bool]:
             _EMOTION_ALIASES.  Generation must fail loudly rather than silently
             corrupt a label.
     """
-    from synthbanshee.config.taxonomy import emotional_state_values
-
-    known = set(emotional_state_values())
     normalized = state.strip().lower()
-    if normalized in known:
+    if normalized in _KNOWN_EMOTIONS:
         return normalized, False
     if normalized in _EMOTION_ALIASES:
         canonical = _EMOTION_ALIASES[normalized]
@@ -411,7 +418,10 @@ def _run_generate_pipeline(
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
         tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
-        emotion, alias_used = _normalize_emotion(turn.emotional_state)
+        try:
+            emotion, alias_used = _normalize_emotion(turn.emotional_state)
+        except ValueError as exc:
+            return None, [f"Label generation error (turn {i}): {exc}"]
         if alias_used:
             emotion_downgrade_turns.append(
                 f"turn[{i}]: emotional_state {turn.emotional_state!r} remapped to {emotion!r}"
