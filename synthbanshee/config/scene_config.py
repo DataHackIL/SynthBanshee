@@ -7,8 +7,8 @@ from typing import Annotated, Literal, Self
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from synthbanshee.augment.preprocessing import PreprocessingConfig
 from synthbanshee.config.acoustic_config import AcousticSceneConfig
+from synthbanshee.config.preprocessing_config import PreprocessingConfig
 from synthbanshee.config.taxonomy import (
     scene_phase_values,
     speaker_role_codes,
