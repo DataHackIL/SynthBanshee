@@ -380,6 +380,15 @@ def _run_generate_pipeline(
         except Exception as exc:
             return None, [f"Acoustic augmentation error: {exc}"]
 
+    # Pre-validate all emotional states before writing any Stage 4 output.
+    # This prevents partially-generated artifacts (.txt written, .jsonl/.json missing)
+    # when an unknown state is encountered mid-loop.
+    for _i, _turn in enumerate(turns):
+        try:
+            _normalize_emotion(_turn.emotional_state)
+        except ValueError as exc:
+            return None, [f"Label generation error (turn {_i}): {exc}"]
+
     # Stage 4a — Transcript
     vlog("[bold]Stage 4[/bold] — Transcript, labels, metadata")
     # 6. Write structured multi-speaker transcript
@@ -418,10 +427,7 @@ def _run_generate_pipeline(
         spk = speakers.get(turn.speaker_id)
         role = spk.role if spk else "UNK"
         tier1, tier2 = _derive_event_type(scene.violence_typology, turn.intensity)
-        try:
-            emotion, alias_used = _normalize_emotion(turn.emotional_state)
-        except ValueError as exc:
-            return None, [f"Label generation error (turn {i}): {exc}"]
+        emotion, alias_used = _normalize_emotion(turn.emotional_state)
         if alias_used:
             emotion_downgrade_turns.append(
                 f"turn[{i}]: emotional_state {turn.emotional_state!r} remapped to {emotion!r}"

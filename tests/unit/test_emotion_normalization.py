@@ -49,26 +49,9 @@ class TestNormalizeEmotion:
         with pytest.raises(ValueError, match="taxonomy.yaml"):
             _normalize_emotion("xyzzy")
 
-    @pytest.mark.parametrize(
-        "raw, expected",
-        [
-            ("relaxed", "calm"),
-            ("peaceful", "calm"),
-            ("tense", "distress"),
-            ("anxious", "distress"),
-            ("desperate", "desperation"),
-            ("helpless", "submission"),
-            ("resigned", "submission"),
-            ("sad", "grief"),
-            ("frustrated", "anger"),
-            ("aggressive", "anger"),
-            ("shocked", "panic"),
-            ("terrified", "fear"),
-            ("uncertain", "confusion"),
-            ("happy", "neutral"),
-        ],
-    )
+    @pytest.mark.parametrize("raw,expected", list(_EMOTION_ALIASES.items()))
     def test_alias_mapping_table(self, raw, expected):
+        """Every entry in _EMOTION_ALIASES must round-trip through _normalize_emotion."""
         state, alias_used = _normalize_emotion(raw)
         assert state == expected
         assert alias_used is True
