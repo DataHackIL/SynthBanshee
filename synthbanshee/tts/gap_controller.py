@@ -82,11 +82,6 @@ _PROJECT_TABLES: dict[str, dict[str, _GapRange]] = {
 _AGG_PAUSE_PROB = 0.30
 
 
-def _role(speaker_id: str) -> str:
-    """Extract the role prefix from a speaker_id (e.g. 'AGG_M_30-45_001' → 'AGG')."""
-    return speaker_id.split("_")[0]
-
-
 @dataclass
 class TurnGapController:
     """Return psychologically-motivated inter-turn silence durations.
@@ -108,6 +103,7 @@ class TurnGapController:
         current_turn: DialogueTurn,
         prev_turn: DialogueTurn | None,
         rng: random.Random,
+        current_role: str,
     ) -> float:
         """Return a gap duration (in seconds) to insert before *current_turn*.
 
@@ -116,6 +112,10 @@ class TurnGapController:
             prev_turn: The immediately preceding turn, or ``None`` for the
                 first turn in a scene (returns a short default gap).
             rng: Seeded ``random.Random`` instance for reproducible draws.
+            current_role: Semantic role of the current speaker (``"AGG"`` or
+                ``"VIC"``), taken from ``SpeakerConfig.role``.  Must not be
+                inferred from ``speaker_id`` because Elephant scenes use persona
+                prefixes (``BEN_``, ``SW_``) rather than role prefixes.
 
         Returns:
             Gap duration in seconds (≥ 0.0).
@@ -125,13 +125,12 @@ class TurnGapController:
             r = self._table["agg_low"]
             return rng.uniform(r.lo, r.hi)
 
-        role = _role(current_turn.speaker_id)
         intensity = current_turn.intensity
         prev_intensity = prev_turn.intensity
 
-        if role == "VIC":
+        if current_role == "VIC":
             context_key = self._vic_context(prev_intensity)
-        elif role == "AGG":
+        elif current_role == "AGG":
             context_key = self._agg_context(intensity, rng)
         else:
             # Unknown role (e.g. bystander, WIT, AUT) — use low AGG range.

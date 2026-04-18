@@ -33,10 +33,14 @@ def _all_in_range(values: list[float], lo: float, hi: float) -> bool:
 
 
 def _draw_many(
-    ctrl: TurnGapController, current: DialogueTurn, prev: DialogueTurn | None, n: int = 200
+    ctrl: TurnGapController,
+    current: DialogueTurn,
+    prev: DialogueTurn | None,
+    current_role: str,
+    n: int = 200,
 ) -> list[float]:
     rng = random.Random(42)
-    return [ctrl.gap_seconds(current, prev, rng) for _ in range(n)]
+    return [ctrl.gap_seconds(current, prev, rng, current_role) for _ in range(n)]
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +70,7 @@ class TestProjectTableSelection:
 class TestFirstTurn:
     def test_first_turn_gap_in_range(self) -> None:
         ctrl = TurnGapController(project="she_proves")
-        gaps = _draw_many(ctrl, _turn("AGG_M_30-45_001", 1), None)
+        gaps = _draw_many(ctrl, _turn("AGG_M_30-45_001", 1), None, "AGG")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
         assert _all_in_range(gaps, lo, hi)
 
@@ -83,31 +87,31 @@ class TestVICSheProves:
 
     def test_vic_after_agg_i1(self) -> None:
         prev = _turn("AGG_M_30-45_001", 1)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _SHE_PROVES_GAPS["vic_low"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_vic_after_agg_i2(self) -> None:
         prev = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _SHE_PROVES_GAPS["vic_low"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_vic_after_agg_i3(self) -> None:
         prev = _turn("AGG_M_30-45_001", 3)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _SHE_PROVES_GAPS["vic_i3"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_vic_after_agg_i4(self) -> None:
         prev = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _SHE_PROVES_GAPS["vic_i4"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_vic_after_agg_i5(self) -> None:
         prev = _turn("AGG_M_30-45_001", 5)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _SHE_PROVES_GAPS["vic_i5"]
         assert _all_in_range(gaps, lo, hi)
 
@@ -120,17 +124,20 @@ class TestVICSheProves:
 class TestVICElephant:
     def setup_method(self) -> None:
         self.ctrl = TurnGapController(project="elephant_in_the_room")
-        self.vic = _turn("VIC_F_25-35_001", 1)
+        # Elephant scenes use persona IDs (SW_ / BEN_), not role-prefixed IDs.
+        # Role is supplied explicitly to gap_seconds(), matching how the renderer
+        # passes SpeakerConfig.role.
+        self.vic = _turn("SW_F_30-45_001", 1)  # Social worker — role VIC
 
     def test_vic_after_i1_in_elephant_range(self) -> None:
-        prev = _turn("AGG_M_30-45_001", 1)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        prev = _turn("BEN_M_40-55_003", 1)  # Beneficiary — role AGG
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _ELEPHANT_GAPS["vic_low"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_vic_after_i4_in_elephant_range(self) -> None:
-        prev = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, self.vic, prev)
+        prev = _turn("BEN_M_40-55_003", 4)
+        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
         lo, hi = _ELEPHANT_GAPS["vic_i4"]
         assert _all_in_range(gaps, lo, hi)
 
@@ -152,20 +159,20 @@ class TestAGGSheProves:
 
     def test_agg_i1_low_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 1)
-        gaps = _draw_many(self.ctrl, agg, self.prev)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_agg_i2_low_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(self.ctrl, agg, self.prev)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
         assert _all_in_range(gaps, lo, hi)
 
     def test_agg_i3_high_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 3)
         # At I3, no pause chance (only I4–I5 allow deliberate pause).
-        gaps = _draw_many(self.ctrl, agg, self.prev)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
         lo, hi = _SHE_PROVES_GAPS["agg_high"]
         assert _all_in_range(gaps, lo, hi)
 
@@ -173,7 +180,7 @@ class TestAGGSheProves:
         # At I4 the gap is from agg_high OR agg_pause — both must fit within
         # the union [agg_high.lo, agg_pause.hi].
         agg = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, agg, self.prev, n=500)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
         combined_lo = _SHE_PROVES_GAPS["agg_high"].lo
         combined_hi = _SHE_PROVES_GAPS["agg_pause"].hi
         assert _all_in_range(gaps, combined_lo, combined_hi)
@@ -182,14 +189,14 @@ class TestAGGSheProves:
         # With 500 draws and 30 % probability, the chance of zero pauses is
         # < (0.70)^500 ≈ 10^{-79} — effectively impossible.
         agg = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, agg, self.prev, n=500)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
         # Pauses must exceed agg_high.hi (0.200 s) to be distinguishable.
         long_gaps = [g for g in gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
         assert len(long_gaps) > 0, "expected some deliberate AGG pauses at I4"
 
     def test_agg_i5_pause_drawn_sometimes(self) -> None:
         agg = _turn("AGG_M_30-45_001", 5)
-        gaps = _draw_many(self.ctrl, agg, self.prev, n=500)
+        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
         long_gaps = [g for g in gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
         assert len(long_gaps) > 0, "expected some deliberate AGG pauses at I5"
 
@@ -205,7 +212,7 @@ class TestUnknownRole:
         # WIT (witness) is not a defined role
         wit_turn = _turn("WIT_F_40-50_001", 2)
         prev = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(ctrl, wit_turn, prev)
+        gaps = _draw_many(ctrl, wit_turn, prev, "WIT")
         assert all(g > 0 for g in gaps)
 
 
@@ -221,9 +228,9 @@ class TestReproducibility:
         prev = _turn("AGG_M_30-45_001", 3)
 
         rng_a = random.Random(7)
-        gaps_a = [ctrl.gap_seconds(current, prev, rng_a) for _ in range(20)]
+        gaps_a = [ctrl.gap_seconds(current, prev, rng_a, "VIC") for _ in range(20)]
         rng_b = random.Random(7)
-        gaps_b = [ctrl.gap_seconds(current, prev, rng_b) for _ in range(20)]
+        gaps_b = [ctrl.gap_seconds(current, prev, rng_b, "VIC") for _ in range(20)]
         assert gaps_a == gaps_b
 
     def test_different_seeds_different_output(self) -> None:
@@ -232,9 +239,9 @@ class TestReproducibility:
         prev = _turn("AGG_M_30-45_001", 3)
 
         rng_1 = random.Random(1)
-        gaps_a = [ctrl.gap_seconds(current, prev, rng_1) for _ in range(20)]
+        gaps_a = [ctrl.gap_seconds(current, prev, rng_1, "VIC") for _ in range(20)]
         rng_2 = random.Random(2)
-        gaps_b = [ctrl.gap_seconds(current, prev, rng_2) for _ in range(20)]
+        gaps_b = [ctrl.gap_seconds(current, prev, rng_2, "VIC") for _ in range(20)]
         assert gaps_a != gaps_b
 
 
