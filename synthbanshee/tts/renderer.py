@@ -18,6 +18,7 @@ from pathlib import Path
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
 # Verbose-log callback type.  Strings passed to this callback may contain
@@ -80,6 +81,7 @@ class TTSRenderer:
         *,
         randomize: bool = False,
         rng_seed: int | None = None,
+        speaker_state: SpeakerState | None = None,
     ) -> tuple[bytes, str, bool]:
         """Render a single utterance and return (wav_bytes, cache_key, cache_hit).
 
@@ -90,6 +92,9 @@ class TTSRenderer:
             intensity: Intensity level 1–5, used to look up style_map.
             randomize: If True, apply small random prosody variation.
             rng_seed: Random seed for reproducible prosody variation.
+            speaker_state: Optional accumulated cross-turn state (M7).  When
+                supplied, its offsets are multiplied/added on top of the base
+                style values before SSML is built.
 
         Returns:
             Tuple of (raw WAV bytes, cache key string, cache_hit bool).
@@ -104,6 +109,12 @@ class TTSRenderer:
         # Apply baseline offsets
         rate *= speaker.prosody_baseline.rate
         volume += speaker.prosody_baseline.volume_db
+
+        # Apply accumulated cross-turn state offsets (M7).
+        if speaker_state is not None:
+            rate *= speaker_state.rate_offset
+            pitch += speaker_state.pitch_offset_st
+            volume += speaker_state.volume_offset_db
 
         if randomize:
             import random
@@ -196,10 +207,14 @@ class TTSRenderer:
         mixer = SceneMixer()
         gap_ctrl = TurnGapController(project=project)
 
+        # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
+        states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
+
         segments: list[tuple[bytes, float, str, float | None]] = []
         prev_turn: DialogueTurn | None = None
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
+            state = states[turn.speaker_id]
             # Use text_spoken (post-gender-disambiguation) rather than the
             # raw LLM text so that niqqud corrections reach the TTS engine.
             text = turn.text_spoken
@@ -210,13 +225,19 @@ class TTSRenderer:
                     rng_seed=rng.randint(0, 2**31),
                 )
             style_entry = speaker.style_for_intensity(turn.intensity)
+            # Snapshot pre-render state for reproducibility metadata (prep for M11).
+            turn.speaker_state_snapshot = state.to_metadata_dict()
             wav_bytes, _, hit = self.render_utterance(
                 text,
                 speaker,
                 turn.intensity,
                 randomize=randomize,
                 rng_seed=rng.randint(0, 2**31) if randomize else None,
+                speaker_state=state,
             )
+            # Update state after rendering so the first turn always uses neutral
+            # state and drift accumulates from the second turn onward.
+            state.update(turn.intensity, speaker.role)
             if verbose_log is not None:
                 status = "cache hit" if hit else "rendered"
                 verbose_log(
