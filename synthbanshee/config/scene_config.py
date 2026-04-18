@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from synthbanshee.config.acoustic_config import AcousticSceneConfig
+from synthbanshee.config.preprocessing_config import PreprocessingConfig
 from synthbanshee.config.taxonomy import (
     scene_phase_values,
     speaker_role_codes,
@@ -96,6 +97,7 @@ class SceneConfig(BaseModel):
     min_pre_incident_seconds: float | None = None
     min_pre_alert_seconds: float | None = None
     acoustic_scene: AcousticSceneConfig | None = None
+    preprocessing: PreprocessingConfig | None = None
     prosody: dict[str, ProsodyBounds] = Field(default_factory=dict)
     output_dir: str = Field(
         default_factory=lambda: os.environ.get("SYNTHBANSHEE_DATA_DIR") or "data/he"

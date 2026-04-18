@@ -20,6 +20,8 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import butter, resample_poly, sosfilt, wiener
 
+from synthbanshee.config.preprocessing_config import PreprocessingConfig
+
 _TARGET_SR = 16_000
 _TARGET_CHANNELS = 1
 _PEAK_DBFS = -1.0  # −1.0 dBFS
@@ -28,6 +30,9 @@ _LP_ORDER = 4  # Butterworth order
 _SILENCE_PAD_S = 0.5  # minimum silence padding (seconds)
 _MIN_DURATION_S = 3.0  # clips below this are invalid (spec §3)
 _MAX_DURATION_S = 300.0  # clips above this must be segmented (spec §3)
+
+# Re-export so callers can do: from synthbanshee.augment.preprocessing import PreprocessingConfig
+__all__ = ["PreprocessingConfig", "PreprocessingResult", "preprocess", "validate_audio"]
 
 
 @dataclass
@@ -106,6 +111,7 @@ def preprocess(
     input_path: Path | str,
     output_path: Path | str,
     dirty_dir: Path | str | None = None,
+    config: PreprocessingConfig | None = None,
 ) -> PreprocessingResult:
     """Run the full preprocessing pipeline on a WAV file.
 
@@ -114,12 +120,17 @@ def preprocess(
         output_path: Destination for the processed 16 kHz mono WAV.
         dirty_dir: If given, copy the raw input here before processing
                    (to retain the "dirty" original as required by spec §3.1).
+        config: Optional per-scene preprocessing flags.  ``None`` uses
+                ``PreprocessingConfig()`` defaults (all steps enabled).
+                Currently controls ``wiener_denoise`` — set to ``False``
+                to skip the Wiener filter for clean TTS Tier A scenes.
 
     Returns:
         PreprocessingResult with metadata about the processing applied.
     """
     input_path = Path(input_path)
     output_path = Path(output_path)
+    cfg = config or PreprocessingConfig()
     steps: list[str] = []
     warnings: list[str] = []
 
@@ -159,9 +170,10 @@ def preprocess(
     samples = _butterworth_lowpass(samples, sr, _LP_CUTOFF_HZ, _LP_ORDER)
     steps.append(f"lowpass_{_LP_CUTOFF_HZ}Hz_order{_LP_ORDER}")
 
-    # --- 4. Wiener denoising -------------------------------------------------
-    samples = _wiener_denoise(samples)
-    steps.append("wiener_denoise")
+    # --- 4. Wiener denoising (configurable — skip for clean TTS Tier A) ------
+    if cfg.wiener_denoise:
+        samples = _wiener_denoise(samples)
+        steps.append("wiener_denoise")
 
     # --- 5. Peak limit to −1.0 dBFS (never scale up) -------------------------
     samples = _peak_limit(samples, _PEAK_DBFS)
