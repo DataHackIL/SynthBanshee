@@ -224,7 +224,6 @@ class TTSRenderer:
                     prob=speaker.disfluency.filled_pause_prob,
                     rng_seed=rng.randint(0, 2**31),
                 )
-            style_entry = speaker.style_for_intensity(turn.intensity)
             # Snapshot pre-render state for reproducibility metadata (prep for M11).
             turn.speaker_state_snapshot = state.to_metadata_dict()
             wav_bytes, _, hit = self.render_utterance(
@@ -246,7 +245,14 @@ class TTSRenderer:
                     f" → {status}[/dim]"
                 )
             gap_s = gap_ctrl.gap_seconds(turn, prev_turn, gap_rng, speaker.role)
-            segments.append((wav_bytes, gap_s, turn.speaker_id, style_entry.rms_target_dbfs))
+            segments.append(
+                (
+                    wav_bytes,
+                    gap_s,
+                    turn.speaker_id,
+                    speaker.style_for_intensity(turn.intensity).rms_target_dbfs,
+                )
+            )
             prev_turn = turn
 
         return mixer.mix_sequential(segments)

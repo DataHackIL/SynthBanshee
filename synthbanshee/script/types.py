@@ -25,6 +25,11 @@ class DialogueTurn:
         normalization_rules_triggered: Ordered list of disambiguation rule IDs
             applied to produce ``text_spoken`` (e.g. ``["POSS_SHEL", "PREP_LAKH"]``).
             Empty when ``text_spoken == text``.
+        speaker_state_snapshot: Serialized ``SpeakerState`` (via
+            ``to_metadata_dict()``) captured immediately before this turn was
+            rendered — i.e. the accumulated prosody state that was applied.
+            Populated by ``TTSRenderer.render_scene()``; empty dict when the
+            turn was rendered outside that context.
     """
 
     speaker_id: str

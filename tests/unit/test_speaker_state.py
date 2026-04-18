@@ -44,6 +44,35 @@ class TestInitialState:
 # ---------------------------------------------------------------------------
 
 
+class TestIntensityClamping:
+    @pytest.mark.parametrize("oob", [0, -1, 6, 99])
+    def test_target_for_clamps_oob_to_boundary(self, oob: int) -> None:
+        """Out-of-range intensities must not return an extreme or KeyError."""
+        clamped = max(1, min(5, oob))
+        assert _target_for("AGG", oob) == _target_for("AGG", clamped)
+        assert _target_for("VIC", oob) == _target_for("VIC", clamped)
+
+    @pytest.mark.parametrize("oob", [0, -1, 6, 99])
+    def test_update_clamps_oob_intensity(self, oob: int) -> None:
+        """update() with OOB intensity records the clamped value, not the raw one."""
+        s = SpeakerState()
+        s.update(oob, "AGG")
+        assert s.intensity_history[0] == max(1, min(5, oob))
+
+    def test_update_zero_does_not_hit_i5_target(self) -> None:
+        """Before fix: intensity=0 fell through to table[max(table)] → I5 target."""
+        s_zero = SpeakerState()
+        s_zero.update(0, "AGG")  # should clamp to I1, not I5
+
+        s_five = SpeakerState()
+        s_five.update(5, "AGG")
+
+        # I1-clamped state must not equal I5-drifted state
+        assert s_zero.rate_offset != pytest.approx(s_five.rate_offset)
+        # And it must be much closer to neutral than I5
+        assert abs(s_zero.rate_offset - 1.0) < abs(s_five.rate_offset - 1.0)
+
+
 class TestTargetTable:
     @pytest.mark.parametrize("intensity", [1, 2, 3, 4, 5])
     def test_agg_rate_monotonically_rising(self, intensity: int) -> None:

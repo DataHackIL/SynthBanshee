@@ -54,7 +54,7 @@ _DRIFT_RATE_DECAY: float = 0.30
 
 
 def _target_for(role: str, intensity: int) -> tuple[float, float, float]:
-    """Return the target offsets for *role* at *intensity*."""
+    """Return the target offsets for *role* at *intensity* (clamped to 1–5)."""
     table: dict[int, tuple[float, float, float]]
     if role == "AGG":
         table = _AGG_TARGETS
@@ -62,7 +62,7 @@ def _target_for(role: str, intensity: int) -> tuple[float, float, float]:
         table = _VIC_TARGETS
     else:
         table = _NEUTRAL_TARGETS
-    return table.get(intensity, table[max(table)])
+    return table[max(1, min(5, intensity))]
 
 
 @dataclass
@@ -105,6 +105,7 @@ class SpeakerState:
             speaker_role: Semantic role of the speaker (e.g. ``"AGG"``,
                 ``"VIC"``), taken from ``SpeakerConfig.role``.
         """
+        new_intensity = max(1, min(5, new_intensity))
         prev_intensity = self.intensity_history[-1] if self.intensity_history else new_intensity
         self.intensity_history.append(new_intensity)
 
