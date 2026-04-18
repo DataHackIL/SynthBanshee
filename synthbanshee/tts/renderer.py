@@ -189,6 +189,10 @@ class TTSRenderer:
         from synthbanshee.tts.mixer import SceneMixer
 
         rng = random.Random(rng_seed)
+        # Dedicated gap RNG seeded independently so that enabling/disabling
+        # disfluency or prosody randomization never shifts gap draws, and vice
+        # versa (the two streams are isolated despite sharing the same seed).
+        gap_rng = random.Random(rng_seed)
         mixer = SceneMixer()
         gap_ctrl = TurnGapController(project=project)
 
@@ -220,7 +224,7 @@ class TTSRenderer:
                     f" [{turn.speaker_id}] intensity={turn.intensity}"
                     f" → {status}[/dim]"
                 )
-            gap_s = gap_ctrl.gap_seconds(turn, prev_turn, rng)
+            gap_s = gap_ctrl.gap_seconds(turn, prev_turn, gap_rng)
             segments.append((wav_bytes, gap_s, turn.speaker_id, style_entry.rms_target_dbfs))
             prev_turn = turn
 

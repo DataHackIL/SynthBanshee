@@ -25,7 +25,7 @@ class _GapRange(NamedTuple):
 
 # ---------------------------------------------------------------------------
 # Project-specific gap tables
-# Each table maps a (role, context_key) string to a _GapRange (seconds).
+# Each table maps a context_key string to a _GapRange (seconds).
 # context_key values:
 #   vic_low        — VIC responds to AGG at I1–I2 (normal conversation)
 #   vic_i3         — VIC responds to AGG accusation at I3
@@ -56,10 +56,12 @@ _ELEPHANT_GAPS: dict[str, _GapRange] = {
     "agg_pause": _GapRange(0.500, 1.200),
 }
 
-# Fallback table for projects without a bespoke config (e.g. NEG/NEU confusors
-# that don't belong to either primary project).  Ranges sit within the same
-# psychological ballpark as the primary projects so confusor gaps are never
-# mechanically fixed while violent scenes have timing logic.
+# Fallback table used when a project identifier is not found in _PROJECT_TABLES.
+# In the CLI pipeline, SceneConfig validates project against _VALID_PROJECTS so
+# only the two primary projects reach render_scene(); this fallback is a safety
+# net for programmatic use and future project additions.  NEG/NEU confusor
+# scenes use she_proves or elephant_in_the_room as their project identifier and
+# therefore receive a bespoke table — not this fallback.
 _DEFAULT_GAPS: dict[str, _GapRange] = {
     "vic_low": _GapRange(0.300, 0.600),
     "vic_i3": _GapRange(0.150, 0.350),

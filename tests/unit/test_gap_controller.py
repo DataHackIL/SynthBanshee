@@ -76,7 +76,7 @@ class TestFirstTurn:
 # ---------------------------------------------------------------------------
 
 
-class TestVICShePoves:
+class TestVICSheProves:
     def setup_method(self) -> None:
         self.ctrl = TurnGapController(project="she_proves")
         self.vic = _turn("VIC_F_25-35_001", 1)
@@ -144,7 +144,7 @@ class TestVICElephant:
 # ---------------------------------------------------------------------------
 
 
-class TestAGGShePoves:
+class TestAGGSheProves:
     def setup_method(self) -> None:
         self.ctrl = TurnGapController(project="she_proves")
         self.agg = _turn("AGG_M_30-45_001", 1)
@@ -220,8 +220,10 @@ class TestReproducibility:
         current = _turn("VIC_F_25-35_001", 1)
         prev = _turn("AGG_M_30-45_001", 3)
 
-        gaps_a = [ctrl.gap_seconds(current, prev, random.Random(7)) for _ in range(20)]
-        gaps_b = [ctrl.gap_seconds(current, prev, random.Random(7)) for _ in range(20)]
+        rng_a = random.Random(7)
+        gaps_a = [ctrl.gap_seconds(current, prev, rng_a) for _ in range(20)]
+        rng_b = random.Random(7)
+        gaps_b = [ctrl.gap_seconds(current, prev, rng_b) for _ in range(20)]
         assert gaps_a == gaps_b
 
     def test_different_seeds_different_output(self) -> None:
@@ -229,8 +231,10 @@ class TestReproducibility:
         current = _turn("VIC_F_25-35_001", 1)
         prev = _turn("AGG_M_30-45_001", 3)
 
-        gaps_a = [ctrl.gap_seconds(current, prev, random.Random(1)) for _ in range(20)]
-        gaps_b = [ctrl.gap_seconds(current, prev, random.Random(2)) for _ in range(20)]
+        rng_1 = random.Random(1)
+        gaps_a = [ctrl.gap_seconds(current, prev, rng_1) for _ in range(20)]
+        rng_2 = random.Random(2)
+        gaps_b = [ctrl.gap_seconds(current, prev, rng_2) for _ in range(20)]
         assert gaps_a != gaps_b
 
 
