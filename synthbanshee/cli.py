@@ -262,6 +262,7 @@ def _run_generate_pipeline(
             disfluency=True,
             rng_seed=scene.random_seed,
             verbose_log=vlog if verbose else None,
+            project=scene.project,
         )
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]

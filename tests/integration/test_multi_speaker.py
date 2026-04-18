@@ -138,16 +138,18 @@ class TestRenderScene:
         scene = renderer.render_scene(dialogue_turns, speakers)
         assert scene.samples.dtype == np.float32
 
-    def test_first_pause_zero_means_immediate_start(self, renderer, speakers, dialogue_turns):
-        """First turn with pause_before_s=0 should start at t=0."""
-        scene = renderer.render_scene(dialogue_turns, speakers)
-        assert scene.turn_onsets_s[0] == pytest.approx(0.0, abs=0.01)
+    def test_first_turn_onset_in_gap_controller_range(self, renderer, speakers, dialogue_turns):
+        """First turn onset is drawn from TurnGapController (agg_low range for she_proves)."""
+        from synthbanshee.tts.gap_controller import _SHE_PROVES_GAPS
 
-    def test_second_turn_onset_reflects_pause(self, renderer, speakers, dialogue_turns):
-        """Second turn onset should be ~first-turn offset + pause_before_s."""
         scene = renderer.render_scene(dialogue_turns, speakers)
-        expected = scene.turn_offsets_s[0] + dialogue_turns[1].pause_before_s
-        assert scene.turn_onsets_s[1] == pytest.approx(expected, abs=0.05)
+        lo, hi = _SHE_PROVES_GAPS["agg_low"]
+        assert lo <= scene.turn_onsets_s[0] <= hi
+
+    def test_second_turn_onset_after_first_offset(self, renderer, speakers, dialogue_turns):
+        """Second turn onset must be strictly after the first turn's offset."""
+        scene = renderer.render_scene(dialogue_turns, speakers)
+        assert scene.turn_onsets_s[1] > scene.turn_offsets_s[0]
 
     def test_unknown_speaker_raises(self, renderer, dialogue_turns):
         """render_scene should raise KeyError for unknown speaker_id."""

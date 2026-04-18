@@ -157,6 +157,7 @@ class TTSRenderer:
         rng_seed: int | None = None,
         disfluency: bool = False,
         verbose_log: _VerboseLog | None = None,
+        project: str = "she_proves",
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -172,6 +173,8 @@ class TTSRenderer:
             rng_seed: Seed for reproducible prosody variation.
             disfluency: If True, inject Hebrew filled pauses into each turn's
                         text using the speaker's disfluency profile.
+            project: Project identifier passed to ``TurnGapController`` to
+                     select psychologically-motivated gap ranges (§4.5).
 
         Returns:
             MixedScene with concatenated audio and per-turn timing metadata.
@@ -182,12 +185,19 @@ class TTSRenderer:
         import random
 
         from synthbanshee.script.generator import inject_disfluency
+        from synthbanshee.tts.gap_controller import TurnGapController
         from synthbanshee.tts.mixer import SceneMixer
 
         rng = random.Random(rng_seed)
+        # Separate gap RNG (same seed, isolated stream) so that enabling/
+        # disabling disfluency or prosody randomization never shifts gap draws,
+        # and vice versa.
+        gap_rng = random.Random(rng_seed)
         mixer = SceneMixer()
+        gap_ctrl = TurnGapController(project=project)
 
         segments: list[tuple[bytes, float, str, float | None]] = []
+        prev_turn: DialogueTurn | None = None
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
             # Use text_spoken (post-gender-disambiguation) rather than the
@@ -214,8 +224,8 @@ class TTSRenderer:
                     f" [{turn.speaker_id}] intensity={turn.intensity}"
                     f" → {status}[/dim]"
                 )
-            segments.append(
-                (wav_bytes, turn.pause_before_s, turn.speaker_id, style_entry.rms_target_dbfs)
-            )
+            gap_s = gap_ctrl.gap_seconds(turn, prev_turn, gap_rng, speaker.role)
+            segments.append((wav_bytes, gap_s, turn.speaker_id, style_entry.rms_target_dbfs))
+            prev_turn = turn
 
         return mixer.mix_sequential(segments)

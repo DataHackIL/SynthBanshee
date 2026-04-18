@@ -103,6 +103,22 @@ OPENAI_API_KEY           # or ANTHROPIC_API_KEY for Claude script generation
 | Incident sparsity | ≥ 60% pre-incident | alert in final 40% |
 | Extra metadata key | `she_proves_meta` | `elephant_meta` |
 
+## PR review workflow
+
+When addressing PR review comments (Copilot, human, or bot):
+
+1. Triage each open thread: resolve as already treated / implement fix / open issue + resolve as out-of-scope.
+2. Land all code changes in a single commit on the feature branch and push.
+3. **After the commit lands, resolve every addressed thread on GitHub** using the GraphQL API:
+   ```bash
+   gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "PRRT_..."}) { thread { isResolved } } }'
+   ```
+   Get thread node IDs with:
+   ```bash
+   gh api graphql -f query='{ repository(owner: "OWNER", name: "REPO") { pullRequest(number: N) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { databaseId } } } } } } }'
+   ```
+4. Do **not** leave threads open after the corresponding change is committed — unresolved threads imply unfinished work.
+
 ## What NOT to do
 
 - Don't mix speaker personas across train/val/test splits
