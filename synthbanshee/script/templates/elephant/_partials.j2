@@ -30,6 +30,17 @@ OUTPUT FORMAT
 =============
 Return ONLY valid JSON — no prose, no markdown fences.
 
+For turns with intensity 3–5, annotate 1–2 emotionally loaded phrases using
+"phrase_hints". Each hint must reference character offsets within that turn's
+"text" field (0-indexed, exclusive end).  Valid hint values:
+  "stress"       — faster, louder, higher pitch
+  "slow"         — deliberate slow-down for menacing weight
+  "break_before" — dramatic pause before the phrase
+  "break_after"  — let the phrase land with silence after
+  "menace"       — cold coercion: slower with a leading pause
+
+For intensity 1–2 turns set "phrase_hints" to [].
+
 {
   "turns": [
     {
@@ -37,7 +48,15 @@ Return ONLY valid JSON — no prose, no markdown fences.
       "text": "<Hebrew utterance>",
       "intensity": <integer 1–5>,
       "pause_before_s": <float 0.0–1.5>,
-      "emotional_state": "<state>"
+      "emotional_state": "<state>",
+      "phrase_hints": [
+        {
+          "phrase_id": "<turn_index>_p<hint_index, 0-based>",
+          "hint": "<hint value>",
+          "char_start_original": <integer>,
+          "char_end_original": <integer>
+        }
+      ]
     }
   ]
 }

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from synthbanshee.tts.ssml_types import PhraseHint
 
 
 @dataclass
@@ -25,6 +29,9 @@ class DialogueTurn:
         normalization_rules_triggered: Ordered list of disambiguation rule IDs
             applied to produce ``text_spoken`` (e.g. ``["POSS_SHEL", "PREP_LAKH"]``).
             Empty when ``text_spoken == text``.
+        phrase_hints: LLM-annotated prosody hints for emotionally loaded phrases
+            within this turn (M2b).  Offsets reference ``text`` (``text_original``).
+            Populated by the script generator for I3–I5 turns; empty otherwise.
         speaker_state_snapshot: Serialized ``SpeakerState`` (via
             ``to_metadata_dict()``) captured immediately before this turn was
             rendered — i.e. the accumulated prosody state that was applied.
@@ -39,6 +46,8 @@ class DialogueTurn:
     emotional_state: str = "neutral"
     text_spoken: str = ""
     normalization_rules_triggered: list[str] = field(default_factory=list)
+    # M2b: LLM-annotated phrase-level prosody hints (offsets in text_original).
+    phrase_hints: list[PhraseHint] = field(default_factory=list)
     # M7: snapshot of SpeakerState.to_metadata_dict() at render time (pre-update).
     # Populated by TTSRenderer.render_scene(); empty when rendered without state.
     speaker_state_snapshot: dict[str, float] = field(default_factory=dict)
