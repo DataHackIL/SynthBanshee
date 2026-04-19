@@ -103,6 +103,20 @@ OPENAI_API_KEY           # or ANTHROPIC_API_KEY for Claude script generation
 | Incident sparsity | ≥ 60% pre-incident | alert in final 40% |
 | Extra metadata key | `she_proves_meta` | `elephant_meta` |
 
+## Feature / milestone completion checklist
+
+A feature or milestone is **not complete** until all of the following are true:
+
+1. All code changes are committed and pushed to the feature branch.
+2. A **non-draft** PR is open on GitHub targeting `main`, with:
+   - A descriptive title following the `type(scope): subject` convention.
+   - A body that includes: problem statement, solution summary, table of changes per file, and a test plan checklist with pass/fail results.
+   - At least one label (e.g. `enhancement`, `bugfix`, `tests & testing`).
+   - A milestone assigned (create one if none exists for this milestone ID).
+3. The PR has been pushed — not just the branch.
+
+Do not consider your work done after a commit. The PR is the deliverable.
+
 ## PR review workflow
 
 When addressing PR review comments (Copilot, human, or bot):

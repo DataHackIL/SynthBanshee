@@ -25,6 +25,11 @@ class DialogueTurn:
         normalization_rules_triggered: Ordered list of disambiguation rule IDs
             applied to produce ``text_spoken`` (e.g. ``["POSS_SHEL", "PREP_LAKH"]``).
             Empty when ``text_spoken == text``.
+        speaker_state_snapshot: Serialized ``SpeakerState`` (via
+            ``to_metadata_dict()``) captured immediately before this turn was
+            rendered — i.e. the accumulated prosody state that was applied.
+            Populated by ``TTSRenderer.render_scene()``; empty dict when the
+            turn was rendered outside that context.
     """
 
     speaker_id: str
@@ -34,6 +39,9 @@ class DialogueTurn:
     emotional_state: str = "neutral"
     text_spoken: str = ""
     normalization_rules_triggered: list[str] = field(default_factory=list)
+    # M7: snapshot of SpeakerState.to_metadata_dict() at render time (pre-update).
+    # Populated by TTSRenderer.render_scene(); empty when rendered without state.
+    speaker_state_snapshot: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Default text_spoken to the original LLM text when not explicitly set.
