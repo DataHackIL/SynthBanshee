@@ -129,9 +129,9 @@ def _apply_phrase_prosody(
 
         cursor = phrase.char_end
 
-    # Remaining text after all phrases.
-    if cursor < len(text):
-        _append_text(text[cursor:])
+    # Remaining text after all phrases (empty-string guard in _append_text
+    # handles the case where cursor == len(text)).
+    _append_text(text[cursor:])
 
 
 class SSMLBuilder:

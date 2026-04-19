@@ -86,8 +86,8 @@ class PhraseProsody:
 # ---------------------------------------------------------------------------
 
 _HINT_DEFAULTS: dict[str, dict[str, str | int]] = {
-    # Stressed accusatory phrase — faster, louder, higher
-    "stress": {"rate": "+15%", "volume": "+3dB", "break_before_ms": 0},
+    # Stressed accusatory phrase — faster, louder, higher pitch
+    "stress": {"rate": "+15%", "volume": "+3dB", "pitch": "+1st", "break_before_ms": 0},
     # Deliberate command slowing — measured menace
     "slow": {"rate": "-20%", "break_before_ms": 150},
     # Pause before the phrase for dramatic weight
@@ -95,7 +95,7 @@ _HINT_DEFAULTS: dict[str, dict[str, str | int]] = {
     # Pause after the phrase to let it land
     "break_after": {"break_after_ms": 250},
     # Cold-coercion menacing tone — slower + very slight pitch drop
-    "menace": {"rate": "-25%", "break_before_ms": 300},
+    "menace": {"rate": "-25%", "pitch": "-1st", "break_before_ms": 300},
 }
 
 
@@ -130,6 +130,14 @@ def _build_offset_map(from_text: str, to_text: str) -> list[int]:
             for delta in range(i2 - i1):
                 mapping[i1 + delta] = j1
             mapping[i2] = j1
+        elif tag == "insert":
+            # Pure insertion in to_text — no from_text chars consumed, but update
+            # the boundary so the exclusive-end position is correct.
+            mapping[i1] = j2
+
+    # Pin the exclusive-end position to guarantee it always maps to len(to_text),
+    # even when the last opcode is an insertion (which leaves mapping[i2] unset).
+    mapping[len(from_text)] = len(to_text)
 
     # Fill any remaining -1 entries by propagating the last known value.
     last = 0
@@ -289,10 +297,7 @@ def detect_imperative_phrases(text_spoken: str) -> list[PhraseProsody]:
 
     for sentence in sentences:
         # Find where this sentence starts in the full text (from cursor onward).
-        try:
-            sentence_start = text_spoken.index(sentence, cursor)
-        except ValueError:
-            continue
+        sentence_start = text_spoken.index(sentence, cursor)
 
         words = sentence.split()
         if not words:
@@ -305,19 +310,18 @@ def detect_imperative_phrases(text_spoken: str) -> list[PhraseProsody]:
         if last_word_norm in _IMPERATIVE_WORDS:
             # Locate the last word within the sentence string.
             word_offset_in_sentence = sentence.rfind(last_word_raw)
-            if word_offset_in_sentence >= 0:
-                char_start = sentence_start + word_offset_in_sentence
-                char_end = char_start + len(last_word_raw)
-                result.append(
-                    PhraseProsody(
-                        phrase_id=f"heuristic_p{phrase_idx}",
-                        char_start=char_start,
-                        char_end=char_end,
-                        rate="-15%",
-                        break_before_ms=200,
-                    )
+            char_start = sentence_start + word_offset_in_sentence
+            char_end = char_start + len(last_word_raw)
+            result.append(
+                PhraseProsody(
+                    phrase_id=f"heuristic_p{phrase_idx}",
+                    char_start=char_start,
+                    char_end=char_end,
+                    rate="-15%",
+                    break_before_ms=200,
                 )
-                phrase_idx += 1
+            )
+            phrase_idx += 1
 
         cursor = sentence_start + len(sentence)
 

@@ -46,6 +46,12 @@ class TestBuildOffsetMap:
         assert m[0] == 0  # 'a' → position 0
         assert m[2] == 3  # exclusive end of "ac" → exclusive end of "abc"
 
+    def test_insert_at_end_maps_exclusive_end_correctly(self) -> None:
+        # from_text "ab", to_text "abc" — pure insertion at end.
+        # Without the "insert" opcode handler + end-pin, m[2] would be 2 not 3.
+        m = _build_offset_map("ab", "abc")
+        assert m[2] == 3  # exclusive end must map to len(to_text)
+
     def test_deletion_collapses_deleted_chars(self) -> None:
         # from_text: "abc", to_text: "ac" — 'b' deleted
         m = _build_offset_map("abc", "ac")
@@ -57,8 +63,9 @@ class TestBuildOffsetMap:
         assert all(v >= 0 for v in m)
 
     def test_empty_from_text(self) -> None:
+        # The only entry (exclusive-end at position 0) is pinned to len(to_text).
         m = _build_offset_map("", "abc")
-        assert m == [0]
+        assert m == [3]
 
     def test_empty_to_text(self) -> None:
         m = _build_offset_map("abc", "")
@@ -100,6 +107,7 @@ class TestResolvePhraseHints:
         result = resolve_phrase_hints([hint], text, text)
         assert result[0].rate == "+15%"
         assert result[0].volume == "+3dB"
+        assert result[0].pitch == "+1st"  # COPILOT-1: pitch added
 
     def test_hint_defaults_applied_menace(self) -> None:
         text = "hello world"
@@ -112,6 +120,7 @@ class TestResolvePhraseHints:
         result = resolve_phrase_hints([hint], text, text)
         assert result[0].rate == "-25%"
         assert result[0].break_before_ms == 300
+        assert result[0].pitch == "-1st"  # COPILOT-1: pitch added
 
     def test_hint_defaults_applied_slow(self) -> None:
         text = "hello world"
@@ -172,7 +181,7 @@ class TestResolvePhraseHints:
 # ---------------------------------------------------------------------------
 
 
-class TestRebasePhrasePrody:
+class TestRebasePhraseProsody:
     def test_empty_list_returns_empty(self) -> None:
         assert rebase_phrase_prosody([], "abc", "abc") == []
 
@@ -252,6 +261,11 @@ class TestDetectImperativePhrases:
     def test_empty_text_returns_empty(self) -> None:
         assert detect_imperative_phrases("") == []
 
+    def test_sentence_with_only_whitespace_skipped(self) -> None:
+        # re.split may produce empty-ish segments; they should be skipped gracefully.
+        result = detect_imperative_phrases("  ")
+        assert result == []
+
 
 # ---------------------------------------------------------------------------
 # collect_phrase_prosody
@@ -321,13 +335,40 @@ class TestApplyPhraseProsody:
         assert children[0].text == "hello"
         assert children[0].tail == " world"
 
-    def test_phrase_at_end_of_text(self) -> None:
+    def test_phrase_at_end_of_text_trailing_empty_append(self) -> None:
+        # When a phrase covers through to the end of text, cursor == len(text).
+        # _append_text("") is called; the empty-string guard (lines 81-82) must fire.
         parent = _make_parent()
         phrase = PhraseProsody("p0", 6, 11, rate="+15%")
         _apply_phrase_prosody(parent, "hello world", [phrase])
         children = list(parent)
         assert children[0].text == "world"
+        # Tail should be empty/None — the empty _append_text call must not corrupt it.
         assert children[0].tail is None or children[0].tail == ""
+
+    def test_zero_length_phrase_skipped(self) -> None:
+        # Covers `if phrase.char_start >= phrase.char_end: continue` (lines 95-96).
+        parent = _make_parent()
+        phrase = PhraseProsody("p0", 3, 3)  # zero-length span
+        _apply_phrase_prosody(parent, "hello world", [phrase])
+        # Zero-length phrase skipped → text is set as-is
+        assert parent.text == "hello world"
+
+    def test_phrase_with_pitch_attribute(self) -> None:
+        # Covers `if phrase.pitch is not None: phrase_attrs["pitch"] = ...` (line 113-114).
+        parent = _make_parent()
+        phrase = PhraseProsody("p0", 0, 5, pitch="+2st")
+        _apply_phrase_prosody(parent, "hello world", [phrase])
+        child = list(parent)[0]
+        assert child.get("pitch") == "+2st"
+
+    def test_phrase_with_volume_attribute(self) -> None:
+        # Covers `if phrase.volume is not None: phrase_attrs["volume"] = ...` (lines 115-116).
+        parent = _make_parent()
+        phrase = PhraseProsody("p0", 0, 5, volume="+3dB")
+        _apply_phrase_prosody(parent, "hello world", [phrase])
+        child = list(parent)[0]
+        assert child.get("volume") == "+3dB"
 
     def test_break_before_inserted(self) -> None:
         parent = _make_parent()
