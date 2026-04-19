@@ -7,7 +7,7 @@ speaker who has been escalating for several turns carries that momentum into
 subsequent turns rather than resetting to a neutral baseline at each turn
 boundary.
 
-Gap table reference: docs/audio_generation_v3_design.md §4.3
+Design doc reference: docs/audio_generation_v3_design.md §4.3
 """
 
 from __future__ import annotations
