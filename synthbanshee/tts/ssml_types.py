@@ -130,9 +130,7 @@ def _build_offset_map(from_text: str, to_text: str) -> list[int]:
             for delta in range(i2 - i1):
                 mapping[i1 + delta] = j1
             mapping[i2] = j1
-        elif tag == "insert":
-            # Pure insertion in to_text — no from_text chars consumed, but update
-            # the boundary so the exclusive-end position is correct.
+        else:  # tag == "insert": pure insertion, no from_text chars consumed
             mapping[i1] = j2
 
     # Pin the exclusive-end position to guarantee it always maps to len(to_text),

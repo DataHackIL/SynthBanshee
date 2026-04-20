@@ -268,9 +268,11 @@ class TestTTSRenderer:
 
     def test_render_scene_disfluency_with_phrase_hints_rebases(self, tmp_path):
         """disfluency=True + phrase_hints: rebase_phrase_prosody is called when text changes."""
+        from unittest.mock import patch
+
         from synthbanshee.config.speaker_config import DisfluencyProfile
         from synthbanshee.script.types import DialogueTurn
-        from synthbanshee.tts.ssml_types import PhraseHint
+        from synthbanshee.tts.ssml_types import PhraseHint, rebase_phrase_prosody
 
         renderer = self._make_renderer(tmp_path)
         _base_speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
@@ -297,12 +299,17 @@ class TestTTSRenderer:
         ]
         speakers = {"AGG_M_30-45_001": speaker}
 
-        # With filled_pause_prob=1.0 a filled pause is always inserted, so
-        # new_text != text and rebase_phrase_prosody is called (lines 238-239).
-        result = renderer.render_scene(
-            turns,
-            speakers,
-            disfluency=True,
-            rng_seed=42,
-        )
+        # Spy on rebase_phrase_prosody to assert it is actually invoked when
+        # disfluency injects a filled pause (new_text != text).
+        with patch(
+            "synthbanshee.tts.renderer.rebase_phrase_prosody",
+            wraps=rebase_phrase_prosody,
+        ) as spy:
+            result = renderer.render_scene(
+                turns,
+                speakers,
+                disfluency=True,
+                rng_seed=42,
+            )
         assert result is not None
+        spy.assert_called_once()

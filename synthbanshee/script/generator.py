@@ -189,15 +189,20 @@ class ScriptGenerator:
             return None
         raw = json.loads(p.read_text(encoding="utf-8"))
         turns: list[DialogueTurn] = []
+        _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
         for t in raw["turns"]:
+            hints_raw = t.get("phrase_hints") or []
+            if not isinstance(hints_raw, list):
+                hints_raw = []
             phrase_hints = [
                 PhraseHint(
                     phrase_id=h["phrase_id"],
-                    hint=h["hint"],
+                    hint=h["hint"],  # type: ignore[arg-type]
                     char_start_original=h["char_start_original"],
                     char_end_original=h["char_end_original"],
                 )
-                for h in t.get("phrase_hints", [])
+                for h in hints_raw
+                if isinstance(h, dict) and all(k in h for k in _required_hint_keys)
             ]
             turns.append(
                 DialogueTurn(
@@ -322,8 +327,11 @@ class ScriptGenerator:
         data = json.loads(stripped)
         turns_raw = data.get("turns", [])
         turns: list[DialogueTurn] = []
+        _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
         for t in turns_raw:
-            _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
+            hints_raw = t.get("phrase_hints") or []
+            if not isinstance(hints_raw, list):
+                hints_raw = []
             phrase_hints = [
                 PhraseHint(
                     phrase_id=str(h["phrase_id"]),
@@ -331,7 +339,7 @@ class ScriptGenerator:
                     char_start_original=int(h["char_start_original"]),
                     char_end_original=int(h["char_end_original"]),
                 )
-                for h in t.get("phrase_hints", [])
+                for h in hints_raw
                 if isinstance(h, dict) and all(k in h for k in _required_hint_keys)
             ]
             turns.append(
