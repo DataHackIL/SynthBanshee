@@ -107,7 +107,7 @@ class TestResolvePhraseHints:
         result = resolve_phrase_hints([hint], text, text)
         assert result[0].rate == "+15%"
         assert result[0].volume == "+3dB"
-        assert result[0].pitch == "+1st"  # COPILOT-1: pitch added
+        assert result[0].pitch == "+1st"
 
     def test_hint_defaults_applied_menace(self) -> None:
         text = "hello world"
@@ -120,7 +120,7 @@ class TestResolvePhraseHints:
         result = resolve_phrase_hints([hint], text, text)
         assert result[0].rate == "-25%"
         assert result[0].break_before_ms == 300
-        assert result[0].pitch == "-1st"  # COPILOT-1: pitch added
+        assert result[0].pitch == "-1st"
 
     def test_hint_defaults_applied_slow(self) -> None:
         text = "hello world"
@@ -175,6 +175,20 @@ class TestResolvePhraseHints:
         assert result[0].phrase_id == "t1_p0"
         assert result[1].phrase_id == "t1_p1"
 
+    def test_unknown_hint_value_skipped(self) -> None:
+        # An unrecognised hint type must be silently dropped (COPILOT-4).
+        hint = PhraseHint("t1_p0", "teleport", 0, 5)  # type: ignore[arg-type]
+        result = resolve_phrase_hints([hint], "hello", "hello")
+        assert result == []
+
+    def test_negative_char_start_clamped(self) -> None:
+        # Negative offsets should be clamped to 0, not raise IndexError (COPILOT-3).
+        hint = PhraseHint("t1_p0", "stress", -5, 5)
+        result = resolve_phrase_hints([hint], "hello", "hello")
+        # After clamping start=0, end=5 → valid 5-char span.
+        assert len(result) == 1
+        assert result[0].char_start == 0
+
 
 # ---------------------------------------------------------------------------
 # rebase_phrase_prosody
@@ -209,6 +223,13 @@ class TestRebasePhraseProsody:
         phrase2 = PhraseProsody("p0", 2, 2, rate="+15%")  # already zero-length
         result = rebase_phrase_prosody([phrase2], "abc", "ac")
         assert result == []
+
+    def test_negative_char_start_clamped(self) -> None:
+        # Negative offsets should be clamped to 0, not raise IndexError (COPILOT-5).
+        phrase = PhraseProsody("p0", -3, 5, rate="+15%")
+        result = rebase_phrase_prosody([phrase], "hello world", "hello world")
+        assert len(result) == 1
+        assert result[0].char_start == 0
 
 
 # ---------------------------------------------------------------------------

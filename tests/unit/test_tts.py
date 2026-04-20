@@ -268,12 +268,18 @@ class TestTTSRenderer:
 
     def test_render_scene_disfluency_with_phrase_hints_rebases(self, tmp_path):
         """disfluency=True + phrase_hints: rebase_phrase_prosody is called when text changes."""
+        from synthbanshee.config.speaker_config import DisfluencyProfile
         from synthbanshee.script.types import DialogueTurn
         from synthbanshee.tts.ssml_types import PhraseHint
 
         renderer = self._make_renderer(tmp_path)
-        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
-        # Multi-sentence text so disfluency injection has a chance to insert a pause.
+        _base_speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        # Force filled_pause_prob=1.0 so the disfluency injection deterministically
+        # inserts a filled pause on a multi-sentence turn, guaranteeing new_text != text.
+        speaker = _base_speaker.model_copy(
+            update={"disfluency": DisfluencyProfile(filled_pause_prob=1.0)}
+        )
+        # Multi-sentence text so disfluency injection inserts a pause between sentences.
         text = "אני מדבר. אתה שומע."
         hint = PhraseHint(
             phrase_id="t0_p0",
@@ -291,8 +297,8 @@ class TestTTSRenderer:
         ]
         speakers = {"AGG_M_30-45_001": speaker}
 
-        # Force disfluency injection to change the text by using a 100% probability seed.
-        # We just verify the call completes without error (the rebase path is exercised).
+        # With filled_pause_prob=1.0 a filled pause is always inserted, so
+        # new_text != text and rebase_phrase_prosody is called (lines 238-239).
         result = renderer.render_scene(
             turns,
             speakers,

@@ -323,15 +323,16 @@ class ScriptGenerator:
         turns_raw = data.get("turns", [])
         turns: list[DialogueTurn] = []
         for t in turns_raw:
+            _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
             phrase_hints = [
                 PhraseHint(
-                    phrase_id=h["phrase_id"],
-                    hint=h["hint"],
+                    phrase_id=str(h["phrase_id"]),
+                    hint=str(h["hint"]),  # type: ignore[arg-type]
                     char_start_original=int(h["char_start_original"]),
                     char_end_original=int(h["char_end_original"]),
                 )
                 for h in t.get("phrase_hints", [])
-                if isinstance(h, dict)
+                if isinstance(h, dict) and all(k in h for k in _required_hint_keys)
             ]
             turns.append(
                 DialogueTurn(

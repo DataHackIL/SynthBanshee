@@ -144,7 +144,7 @@ def _build_offset_map(from_text: str, to_text: str) -> list[int]:
     for i in range(len(mapping)):
         if mapping[i] >= 0:
             last = mapping[i]
-        else:
+        else:  # pragma: no cover
             mapping[i] = last
 
     return mapping
@@ -182,12 +182,14 @@ def resolve_phrase_hints(
     result: list[PhraseProsody] = []
 
     for hint in hints:
-        start = offset_map[min(hint.char_start_original, n - 1)]
-        end = offset_map[min(hint.char_end_original, n - 1)]
+        if hint.hint not in _HINT_DEFAULTS:
+            continue
+        start = offset_map[max(0, min(hint.char_start_original, n - 1))]
+        end = offset_map[max(0, min(hint.char_end_original, n - 1))]
         if start >= end:
             continue
 
-        defaults = _HINT_DEFAULTS.get(hint.hint, {})
+        defaults = _HINT_DEFAULTS[hint.hint]
         result.append(
             PhraseProsody(
                 phrase_id=hint.phrase_id,
@@ -237,8 +239,8 @@ def rebase_phrase_prosody(
     result: list[PhraseProsody] = []
 
     for phrase in phrases:
-        start = offset_map[min(phrase.char_start, n - 1)]
-        end = offset_map[min(phrase.char_end, n - 1)]
+        start = offset_map[max(0, min(phrase.char_start, n - 1))]
+        end = offset_map[max(0, min(phrase.char_end, n - 1))]
         if start >= end:
             continue
         result.append(replace(phrase, char_start=start, char_end=end))
