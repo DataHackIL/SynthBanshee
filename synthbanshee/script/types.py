@@ -70,10 +70,23 @@ class MixedScene:
     Attributes:
         samples: Float32 numpy array, mono, 16 kHz.
         sample_rate: Always 16000.
-        turn_onsets_s: Per-turn onset time in seconds (after silence pad).
-        turn_offsets_s: Per-turn offset time in seconds.
+        turn_onsets_s: Per-turn rendered onset in seconds (backward-compat alias
+            for ``rendered_onsets_s``).
+        turn_offsets_s: Per-turn rendered offset in seconds (backward-compat alias
+            for ``rendered_offsets_s``).
         duration_s: Total scene duration in seconds.
         speaker_ids: Speaker ID for each turn (parallel with onsets/offsets).
+        script_onsets_s: Sequential-world onset — where the turn would start if
+            no overlap were applied (§4.6).
+        script_offsets_s: Sequential-world offset (script_onset + TTS duration).
+        rendered_onsets_s: Actual onset in the output buffer, accounting for
+            overlap/barge-in positioning.
+        rendered_offsets_s: Actual offset in the output buffer (rendered_onset +
+            TTS duration, before any barge-in truncation).
+        audible_onsets_s: Same as rendered_onsets_s for all turns.
+        audible_ends_s: End of the audible portion.  For turns interrupted by a
+            BARGE_IN, this is earlier than ``rendered_offsets_s`` (the tail is
+            truncated); for all other turns it equals ``rendered_offsets_s``.
     """
 
     samples: np.ndarray
@@ -82,3 +95,10 @@ class MixedScene:
     turn_offsets_s: list[float]
     duration_s: float
     speaker_ids: list[str] = field(default_factory=list)
+    # M8a: three-timeline timestamps (§4.6).
+    script_onsets_s: list[float] = field(default_factory=list)
+    script_offsets_s: list[float] = field(default_factory=list)
+    rendered_onsets_s: list[float] = field(default_factory=list)
+    rendered_offsets_s: list[float] = field(default_factory=list)
+    audible_onsets_s: list[float] = field(default_factory=list)
+    audible_ends_s: list[float] = field(default_factory=list)
