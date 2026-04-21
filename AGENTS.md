@@ -133,6 +133,15 @@ When addressing PR review comments (Copilot, human, or bot):
    ```
 4. Do **not** leave threads open after the corresponding change is committed — unresolved threads imply unfinished work.
 
+## CI / Workflow conventions
+
+- `pr-agent-context` is wired in two workflow files:
+  - `.github/workflows/ci.yml` — initial CI run (produces the baseline context comment)
+  - `.github/workflows/pr-agent-context-refresh.yml` — refresh run (review/check/schedule-driven)
+- Both workflows call the reusable workflow via **`@v4` (floating major tag)** — do **not** pin to a specific patch version (e.g. `@v4.0.18`). The floating tag is intentional: it picks up compatible patch releases automatically, and the `tool_ref: v4` input mirrors it.
+- Coverage artifacts are named `pr-agent-context-coverage-py<version>` (uploaded by the matrix `test` job). Both the CI `pr-agent-context` job and the refresh workflow reference them via `coverage_artifact_prefix: pr-agent-context-coverage` — do not change this prefix or the naming convention without updating both workflow files.
+- The refresh workflow includes a `dispatch-scheduled-refreshes` job that runs every 15 minutes and fans out `workflow_dispatch` runs to open same-repo PRs that lack a current refresh comment. This is the fallback for bot-authored review events that do not fire a `pull_request_review` GitHub event.
+
 ## What NOT to do
 
 - Don't mix speaker personas across train/val/test splits
@@ -142,3 +151,4 @@ When addressing PR review comments (Copilot, human, or bot):
 - Don't use lossy audio formats
 - Don't generate clips shorter than 3.0 s
 - Don't add a new typology to `taxonomy.yaml` without adding it to `_TYPOLOGY_INTENSITY_MAP`
+- Don't pin `pr-agent-context` workflow references to a specific patch version — keep `@v4` floating
