@@ -265,3 +265,51 @@ class TestTTSRenderer:
 
         assert len(log_messages) >= 1
         assert any("turn" in m for m in log_messages)
+
+    def test_render_scene_disfluency_with_phrase_hints_rebases(self, tmp_path):
+        """disfluency=True + phrase_hints: rebase_phrase_prosody is called when text changes."""
+        from unittest.mock import patch
+
+        from synthbanshee.config.speaker_config import DisfluencyProfile
+        from synthbanshee.script.types import DialogueTurn
+        from synthbanshee.tts.ssml_types import PhraseHint, rebase_phrase_prosody
+
+        renderer = self._make_renderer(tmp_path)
+        _base_speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        # Force filled_pause_prob=1.0 so the disfluency injection deterministically
+        # inserts a filled pause on a multi-sentence turn, guaranteeing new_text != text.
+        speaker = _base_speaker.model_copy(
+            update={"disfluency": DisfluencyProfile(filled_pause_prob=1.0)}
+        )
+        # Multi-sentence text so disfluency injection inserts a pause between sentences.
+        text = "אני מדבר. אתה שומע."
+        hint = PhraseHint(
+            phrase_id="t0_p0",
+            hint="stress",
+            char_start_original=3,
+            char_end_original=8,
+        )
+        turns = [
+            DialogueTurn(
+                speaker_id="AGG_M_30-45_001",
+                text=text,
+                intensity=4,
+                phrase_hints=[hint],
+            )
+        ]
+        speakers = {"AGG_M_30-45_001": speaker}
+
+        # Spy on rebase_phrase_prosody to assert it is actually invoked when
+        # disfluency injects a filled pause (new_text != text).
+        with patch(
+            "synthbanshee.tts.renderer.rebase_phrase_prosody",
+            wraps=rebase_phrase_prosody,
+        ) as spy:
+            result = renderer.render_scene(
+                turns,
+                speakers,
+                disfluency=True,
+                rng_seed=42,
+            )
+        assert result is not None
+        spy.assert_called_once()

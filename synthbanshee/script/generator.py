@@ -21,6 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from synthbanshee.script.types import DialogueTurn
+from synthbanshee.tts.ssml_types import PhraseHint
 
 # Verbose-log callback type.  Strings passed to this callback may contain
 # Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
@@ -187,7 +188,33 @@ class ScriptGenerator:
         if not p.exists():
             return None
         raw = json.loads(p.read_text(encoding="utf-8"))
-        return [DialogueTurn(**t) for t in raw["turns"]]
+        turns: list[DialogueTurn] = []
+        _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
+        for t in raw["turns"]:
+            hints_raw = t.get("phrase_hints") or []
+            if not isinstance(hints_raw, list):
+                hints_raw = []
+            phrase_hints = [
+                PhraseHint(
+                    phrase_id=h["phrase_id"],
+                    hint=h["hint"],  # type: ignore[arg-type]
+                    char_start_original=h["char_start_original"],
+                    char_end_original=h["char_end_original"],
+                )
+                for h in hints_raw
+                if isinstance(h, dict) and all(k in h for k in _required_hint_keys)
+            ]
+            turns.append(
+                DialogueTurn(
+                    speaker_id=t["speaker_id"],
+                    text=t["text"],
+                    intensity=t["intensity"],
+                    pause_before_s=t.get("pause_before_s", 0.3),
+                    emotional_state=t.get("emotional_state", "neutral"),
+                    phrase_hints=phrase_hints,
+                )
+            )
+        return turns
 
     def _save_to_cache(self, key: str, turns: list[DialogueTurn]) -> None:
         p = self._cache_path(key)
@@ -200,6 +227,15 @@ class ScriptGenerator:
                     "intensity": t.intensity,
                     "pause_before_s": t.pause_before_s,
                     "emotional_state": t.emotional_state,
+                    "phrase_hints": [
+                        {
+                            "phrase_id": h.phrase_id,
+                            "hint": h.hint,
+                            "char_start_original": h.char_start_original,
+                            "char_end_original": h.char_end_original,
+                        }
+                        for h in t.phrase_hints
+                    ],
                 }
                 for t in turns
             ]
@@ -291,7 +327,21 @@ class ScriptGenerator:
         data = json.loads(stripped)
         turns_raw = data.get("turns", [])
         turns: list[DialogueTurn] = []
+        _required_hint_keys = ("phrase_id", "hint", "char_start_original", "char_end_original")
         for t in turns_raw:
+            hints_raw = t.get("phrase_hints") or []
+            if not isinstance(hints_raw, list):
+                hints_raw = []
+            phrase_hints = [
+                PhraseHint(
+                    phrase_id=str(h["phrase_id"]),
+                    hint=str(h["hint"]),  # type: ignore[arg-type]
+                    char_start_original=int(h["char_start_original"]),
+                    char_end_original=int(h["char_end_original"]),
+                )
+                for h in hints_raw
+                if isinstance(h, dict) and all(k in h for k in _required_hint_keys)
+            ]
             turns.append(
                 DialogueTurn(
                     speaker_id=t["speaker_id"],
@@ -299,6 +349,7 @@ class ScriptGenerator:
                     intensity=int(t.get("intensity", 1)),
                     pause_before_s=float(t.get("pause_before_s", 0.3)),
                     emotional_state=str(t.get("emotional_state", "neutral")),
+                    phrase_hints=phrase_hints,
                 )
             )
         return turns

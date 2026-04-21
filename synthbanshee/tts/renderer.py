@@ -20,6 +20,7 @@ from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
+from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody
 
 # Verbose-log callback type.  Strings passed to this callback may contain
 # Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
@@ -82,6 +83,7 @@ class TTSRenderer:
         randomize: bool = False,
         rng_seed: int | None = None,
         speaker_state: SpeakerState | None = None,
+        phrase_prosody: list[PhraseProsody] | None = None,
     ) -> tuple[bytes, str, bool]:
         """Render a single utterance and return (wav_bytes, cache_key, cache_hit).
 
@@ -95,6 +97,8 @@ class TTSRenderer:
             speaker_state: Optional accumulated cross-turn state (M7).  When
                 supplied, its offsets are multiplied/added on top of the base
                 style values before SSML is built.
+            phrase_prosody: Optional resolved per-phrase prosody spans (M2b).
+                Offsets must reference *text* (the final string passed here).
 
         Returns:
             Tuple of (raw WAV bytes, cache key string, cache_hit bool).
@@ -131,6 +135,7 @@ class TTSRenderer:
             rate_multiplier=rate,
             pitch_delta_st=pitch,
             volume_delta_db=volume,
+            phrase_prosody=phrase_prosody,
         )
 
         cache_key = self._cache_key(ssml)
@@ -218,12 +223,21 @@ class TTSRenderer:
             # Use text_spoken (post-gender-disambiguation) rather than the
             # raw LLM text so that niqqud corrections reach the TTS engine.
             text = turn.text_spoken
+            # M2b: resolve phrase hints (LLM annotations + imperative heuristics).
+            phrases = collect_phrase_prosody(
+                turn.phrase_hints,
+                turn.text_original,
+                turn.text_spoken,
+            )
             if disfluency:
-                text = inject_disfluency(
+                new_text = inject_disfluency(
                     text,
                     prob=speaker.disfluency.filled_pause_prob,
                     rng_seed=rng.randint(0, 2**31),
                 )
+                if phrases and new_text != text:
+                    phrases = rebase_phrase_prosody(phrases, text, new_text)
+                text = new_text
             # Snapshot pre-render state for reproducibility metadata (prep for M11).
             turn.speaker_state_snapshot = state.to_metadata_dict()
             wav_bytes, _, hit = self.render_utterance(
@@ -233,6 +247,7 @@ class TTSRenderer:
                 randomize=randomize,
                 rng_seed=rng.randint(0, 2**31) if randomize else None,
                 speaker_state=state,
+                phrase_prosody=phrases if phrases else None,
             )
             # Update state after rendering so the first turn always uses neutral
             # state and drift accumulates from the second turn onward.
