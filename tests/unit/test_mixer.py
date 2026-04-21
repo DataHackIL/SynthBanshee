@@ -444,3 +444,21 @@ class TestOverlapMixing:
         )
         # The interrupted turn's audible end should collapse to its onset.
         assert result.audible_ends_s[0] == pytest.approx(result.audible_onsets_s[0], abs=1e-4)
+
+    def test_barge_in_zero_depth_no_truncation(self):
+        """BARGE_IN with amount_s=0 leaves previous turn intact (max_samples >= len(prev_mono))."""
+        mixer = SceneMixer()
+        dur = 0.5
+        wav1 = _sine_wav_bytes(freq=440, duration_s=dur, sample_rate=_TARGET_SR, amplitude=0.4)
+        wav2 = _sine_wav_bytes(freq=880, duration_s=dur, sample_rate=_TARGET_SR)
+        # amount_s=0 → onset is clamped to prev_offset_s → max_samples == len(prev_mono) → no truncation.
+        result = mixer.mix_sequential(
+            [
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
+                (wav2, 0.0, "B", None, MixMode.BARGE_IN),
+            ]
+        )
+        # Previous turn plays its full duration (audible end == script end).
+        assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=1e-4)
+        # New turn starts right where the previous one ended.
+        assert result.rendered_onsets_s[1] == pytest.approx(dur, abs=0.02)

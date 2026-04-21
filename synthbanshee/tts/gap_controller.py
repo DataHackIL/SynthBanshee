@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from synthbanshee.script.types import DialogueTurn
-from synthbanshee.tts.mixer import MixMode
+from synthbanshee.tts.mix_mode import MixMode
 
 
 class _GapRange(NamedTuple):

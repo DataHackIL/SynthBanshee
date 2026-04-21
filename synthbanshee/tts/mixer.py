@@ -32,23 +32,15 @@ Spec reference: docs/audio_generation_v3_design.md §4.6
 from __future__ import annotations
 
 import io
-from enum import Enum
 
 import numpy as np
 import soundfile as sf
 
 from synthbanshee.augment.preprocessing import _resample
 from synthbanshee.script.types import MixedScene
+from synthbanshee.tts.mix_mode import MixMode
 
 _TARGET_SR = 16_000
-
-
-class MixMode(Enum):
-    """How the current turn is placed relative to the previous turn in the mix."""
-
-    SEQUENTIAL = "sequential"  # current behaviour: silence gap before this turn
-    OVERLAP = "overlap"  # start before prev ends; both turns audible
-    BARGE_IN = "barge_in"  # start before prev ends; prev is cut off
 
 
 def _apply_rms_gain(mono: np.ndarray, rms_target_dbfs: float) -> np.ndarray:
@@ -117,6 +109,10 @@ class SceneMixer:
         script_cursor_s: float = 0.0
 
         for wav_bytes, amount_s, speaker_id, rms_target_dbfs, mix_mode in segments:
+            # Clamp amount_s: negative values are nonsensical for all mix modes
+            # (gap for SEQUENTIAL; overlap depth for OVERLAP / BARGE_IN).
+            amount_s = max(0.0, amount_s)
+
             # --- Decode WAV ---
             with io.BytesIO(wav_bytes) as buf:
                 data, src_sr = sf.read(buf, dtype="float32", always_2d=True)
@@ -173,10 +169,11 @@ class SceneMixer:
                     audible_ends[-1] = prev_onset_s_f
                 elif max_samples < len(prev_mono):
                     placed[-1] = (prev_mono[:max_samples], prev_onset_sample)
-                    # Update both rendered and audible ends of the interrupted turn
-                    # so all offsets stay within the final waveform duration (COPILOT-6).
-                    rendered_offsets[-1] = onset_s
-                    audible_ends[-1] = onset_s
+                    # Use the quantised sample boundary rather than onset_s to keep
+                    # metadata timestamps exactly aligned with the audio buffer.
+                    quantised_onset_s = float(onset_sample) / _TARGET_SR
+                    rendered_offsets[-1] = quantised_onset_s
+                    audible_ends[-1] = quantised_onset_s
 
             placed.append((mono, onset_sample))
 
