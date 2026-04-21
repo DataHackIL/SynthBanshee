@@ -322,9 +322,9 @@ class TestOverlapMixing:
         overlap_start = int(result.rendered_onsets_s[1] * _TARGET_SR)
         overlap_end = int(result.rendered_offsets_s[0] * _TARGET_SR)
         assert overlap_end > overlap_start
-        # Overlap region amplitude should exceed what a single sine of amplitude 0.3 would give.
+        # Overlap region peak amplitude should exceed what a single sine of amplitude 0.3 would give.
         overlap_region = result.samples[overlap_start:overlap_end]
-        assert float(np.max(np.abs(overlap_region))) > 0.0
+        assert float(np.max(np.abs(overlap_region))) > 0.3
 
     def test_barge_in_previous_turn_truncated(self):
         """BARGE_IN: the previous turn's audio must be zero after the barge-in point."""
@@ -340,12 +340,14 @@ class TestOverlapMixing:
                 (wav2, barge_depth, "B", None, MixMode.BARGE_IN),
             ]
         )
-        # The interrupted turn's audible_end_s must be < rendered_offsets_s.
-        assert result.audible_ends_s[0] < result.rendered_offsets_s[0]
+        # After COPILOT-6: rendered_offsets_s is updated to the truncation point,
+        # so audible_ends_s[0] == rendered_offsets_s[0] < script_offsets_s[0].
+        assert result.audible_ends_s[0] == pytest.approx(result.rendered_offsets_s[0], abs=1e-4)
+        assert result.audible_ends_s[0] < result.script_offsets_s[0]
         # No audio from the first turn must remain after the barge-in point.
         barge_sample = int(result.rendered_onsets_s[1] * _TARGET_SR)
-        # Buffer from barge-in point to rendered end of first turn is zero (silent wav2 added).
-        tail = result.samples[barge_sample : int(result.rendered_offsets_s[0] * _TARGET_SR)]
+        # Buffer from barge-in point onward is zero (silent wav2 added, prev truncated).
+        tail = result.samples[barge_sample : int(result.script_offsets_s[0] * _TARGET_SR)]
         assert np.allclose(tail, 0.0, atol=1e-5)
 
     def test_barge_in_audible_end_equals_onset_of_next(self):
@@ -400,7 +402,7 @@ class TestOverlapMixing:
             assert result.audible_ends_s[i] == pytest.approx(result.rendered_offsets_s[i], abs=1e-6)
 
     def test_turn_onsets_backward_compat(self):
-        """turn_onsets_s / turn_offsets_s must mirror rendered_onsets_s / rendered_offsets_s."""
+        """turn_onsets_s / turn_offsets_s must mirror the audible timeline (COPILOT-2)."""
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
@@ -409,5 +411,5 @@ class TestOverlapMixing:
                 (wav, 0.3, "B", None, MixMode.OVERLAP),
             ]
         )
-        assert result.turn_onsets_s == result.rendered_onsets_s
-        assert result.turn_offsets_s == result.rendered_offsets_s
+        assert result.turn_onsets_s == result.audible_onsets_s
+        assert result.turn_offsets_s == result.audible_ends_s

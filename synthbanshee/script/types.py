@@ -70,10 +70,12 @@ class MixedScene:
     Attributes:
         samples: Float32 numpy array, mono, 16 kHz.
         sample_rate: Always 16000.
-        turn_onsets_s: Per-turn rendered onset in seconds (backward-compat alias
-            for ``rendered_onsets_s``).
-        turn_offsets_s: Per-turn rendered offset in seconds (backward-compat alias
-            for ``rendered_offsets_s``).
+        turn_onsets_s: Per-turn audible onset in seconds (backward-compat alias
+            for ``audible_onsets_s``; safe for all consumers since values are
+            always within the final waveform duration).
+        turn_offsets_s: Per-turn audible end in seconds (backward-compat alias
+            for ``audible_ends_s``; for BARGE_IN-interrupted turns this is the
+            truncation point, not the original TTS end).
         duration_s: Total scene duration in seconds.
         speaker_ids: Speaker ID for each turn (parallel with onsets/offsets).
         script_onsets_s: Sequential-world onset — where the turn would start if

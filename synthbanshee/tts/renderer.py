@@ -260,7 +260,10 @@ class TTSRenderer:
                     f" [{turn.speaker_id}] intensity={turn.intensity}"
                     f" → {status}[/dim]"
                 )
-            gap_s, mix_mode = gap_ctrl.gap_seconds(turn, prev_turn, gap_rng, speaker.role)
+            prev_role = speakers[prev_turn.speaker_id].role if prev_turn is not None else None
+            gap_s, mix_mode = gap_ctrl.gap_seconds(
+                turn, prev_turn, gap_rng, speaker.role, prev_role
+            )
             segments.append(
                 (
                     wav_bytes,

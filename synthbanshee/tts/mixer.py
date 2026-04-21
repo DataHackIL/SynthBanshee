@@ -13,13 +13,18 @@ to its MixMode:
 
 The output MixedScene carries per-turn timing metadata on three timelines (§4.6):
 
-  script_onsets_s / script_offsets_s  — sequential-world positions (no overlap applied).
-  rendered_onsets_s / rendered_offsets_s — actual onset/offset in the output buffer.
-  audible_onsets_s / audible_ends_s   — what is audible (= rendered, except the
-                                        *interrupted* turn's audible_end_s is truncated
-                                        at the barge-in point for BARGE_IN turns).
+  script_onsets_s / script_offsets_s    — sequential-world positions (no overlap applied);
+                                          script_offsets_s retains the original TTS duration
+                                          even for BARGE_IN-truncated turns.
+  rendered_onsets_s / rendered_offsets_s — actual onset/offset in the output buffer;
+                                          for BARGE_IN-interrupted turns, rendered_offsets_s
+                                          is updated to the truncation point.
+  audible_onsets_s / audible_ends_s     — what is audible (same as rendered; both are
+                                          at the truncation point for interrupted turns).
 
-For backward compatibility, turn_onsets_s and turn_offsets_s mirror the rendered lists.
+For backward compatibility, turn_onsets_s and turn_offsets_s mirror the *audible* timeline
+(audible_onsets_s and audible_ends_s respectively) so that all offsets stay within the
+final waveform duration.
 
 Spec reference: docs/audio_generation_v3_design.md §4.6
 """
@@ -137,9 +142,17 @@ class SceneMixer:
                 script_onset_s = script_cursor_s + gap_s
                 script_cursor_s = script_onset_s + seg_duration_s
             else:
-                # OVERLAP / BARGE_IN: go back *amount_s* into the previous turn.
-                overlap_s = amount_s
-                onset_s = max(0.0, render_cursor_s - overlap_s)
+                # OVERLAP / BARGE_IN: go back *amount_s* into the previous turn,
+                # but never before that turn's actual rendered onset (COPILOT-5).
+                if placed:
+                    prev_mono, prev_onset_sample = placed[-1]
+                    prev_onset_s = prev_onset_sample / _TARGET_SR
+                    prev_duration_s = len(prev_mono) / _TARGET_SR
+                    prev_offset_s = prev_onset_s + prev_duration_s
+                    overlap_s = min(amount_s, prev_duration_s)
+                    onset_s = max(prev_onset_s, prev_offset_s - overlap_s)
+                else:
+                    onset_s = max(0.0, render_cursor_s - amount_s)
                 # In script space the turn still follows the previous one (no gap).
                 script_onset_s = script_cursor_s
                 script_cursor_s = script_onset_s + seg_duration_s
@@ -153,7 +166,10 @@ class SceneMixer:
                 max_samples = onset_sample - prev_onset_sample
                 if 0 < max_samples < len(prev_mono):
                     placed[-1] = (prev_mono[:max_samples], prev_onset_sample)
-                    audible_ends[-1] = onset_s  # interrupted turn's audible end
+                    # Update both rendered and audible ends of the interrupted turn
+                    # so all offsets stay within the final waveform duration (COPILOT-6).
+                    rendered_offsets[-1] = onset_s
+                    audible_ends[-1] = onset_s
 
             placed.append((mono, onset_sample))
 
@@ -176,11 +192,13 @@ class SceneMixer:
         else:
             combined = np.zeros(0, dtype=np.float32)
 
+        # turn_onsets_s / turn_offsets_s mirror the audible timeline so that all
+        # offset values stay within the waveform duration (backward-compat, COPILOT-2).
         return MixedScene(
             samples=combined,
             sample_rate=_TARGET_SR,
-            turn_onsets_s=rendered_onsets,
-            turn_offsets_s=rendered_offsets,
+            turn_onsets_s=audible_onsets,
+            turn_offsets_s=audible_ends,
             duration_s=float(len(combined)) / _TARGET_SR,
             speaker_ids=speaker_ids,
             script_onsets_s=script_onsets,

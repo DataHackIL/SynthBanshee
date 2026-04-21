@@ -91,20 +91,22 @@ _AGG_PAUSE_PROB = 0.30
 
 # ---------------------------------------------------------------------------
 # Overlap probability tables (§4.6)
-# Maps (current_role, current_intensity) → (barge_in_prob, overlap_prob).
-# AGG at I3–I5 may cut off VIC; VIC at any I may (rarely) cut off AGG.
+# Maps (prev_role, current_role, current_intensity) → (barge_in_prob, overlap_prob).
+# Keyed on the *transition* (who is cutting off whom) to prevent same-role
+# self-interruption, which has no psychological basis in the spec.
 # ---------------------------------------------------------------------------
 
-_OVERLAP_PROBS: dict[tuple[str, int], tuple[float, float]] = {
-    # (current_role, current_intensity) → (barge_in_prob, overlap_prob)
-    ("AGG", 3): (0.10, 0.15),
-    ("AGG", 4): (0.25, 0.20),
-    ("AGG", 5): (0.40, 0.15),
-    ("VIC", 1): (0.05, 0.10),
-    ("VIC", 2): (0.05, 0.10),
-    ("VIC", 3): (0.05, 0.10),
-    ("VIC", 4): (0.05, 0.10),
-    ("VIC", 5): (0.05, 0.10),
+_OVERLAP_PROBS: dict[tuple[str, str, int], tuple[float, float]] = {
+    # AGG cuts off VIC at I3–I5 (spec §4.6 table rows 1–3)
+    ("VIC", "AGG", 3): (0.10, 0.15),
+    ("VIC", "AGG", 4): (0.25, 0.20),
+    ("VIC", "AGG", 5): (0.40, 0.15),
+    # VIC cuts off AGG at any intensity (spec §4.6 table row 4)
+    ("AGG", "VIC", 1): (0.05, 0.10),
+    ("AGG", "VIC", 2): (0.05, 0.10),
+    ("AGG", "VIC", 3): (0.05, 0.10),
+    ("AGG", "VIC", 4): (0.05, 0.10),
+    ("AGG", "VIC", 5): (0.05, 0.10),
 }
 
 # Depth ranges (seconds) drawn when an overlap/barge-in mode is selected.
@@ -134,6 +136,7 @@ class TurnGapController:
         prev_turn: DialogueTurn | None,
         rng: random.Random,
         current_role: str,
+        prev_role: str | None = None,
     ) -> tuple[float, MixMode]:
         """Return an (amount, MixMode) pair for the transition to *current_turn*.
 
@@ -151,6 +154,10 @@ class TurnGapController:
                 ``"VIC"``), taken from ``SpeakerConfig.role``.  Must not be
                 inferred from ``speaker_id`` because Elephant scenes use persona
                 prefixes (``BEN_``, ``SW_``) rather than role prefixes.
+            prev_role: Semantic role of the *previous* speaker.  ``None`` when
+                ``prev_turn`` is ``None`` (first turn).  Overlap/barge-in is only
+                considered when both roles are known and differ, matching the
+                spec §4.6 transition table.
 
         Returns:
             ``(amount_s, MixMode)`` tuple.
@@ -163,16 +170,19 @@ class TurnGapController:
         intensity = current_turn.intensity
 
         # --- Overlap / barge-in decision (§4.6) ---
-        probs = _OVERLAP_PROBS.get((current_role, intensity))
-        if probs is not None:
-            barge_in_p, overlap_p = probs
-            roll = rng.random()
-            if roll < barge_in_p:
-                depth = rng.uniform(_BARGE_IN_DEPTH_RANGE.lo, _BARGE_IN_DEPTH_RANGE.hi)
-                return depth, MixMode.BARGE_IN
-            if roll < barge_in_p + overlap_p:
-                depth = rng.uniform(_OVERLAP_DEPTH_RANGE.lo, _OVERLAP_DEPTH_RANGE.hi)
-                return depth, MixMode.OVERLAP
+        # Only consider overlap when both roles are known; prevents same-role
+        # self-interruption (e.g. AGG→AGG) which has no spec support.
+        if prev_role is not None:
+            probs = _OVERLAP_PROBS.get((prev_role, current_role, intensity))
+            if probs is not None:
+                barge_in_p, overlap_p = probs
+                roll = rng.random()
+                if roll < barge_in_p:
+                    depth = rng.uniform(_BARGE_IN_DEPTH_RANGE.lo, _BARGE_IN_DEPTH_RANGE.hi)
+                    return depth, MixMode.BARGE_IN
+                if roll < barge_in_p + overlap_p:
+                    depth = rng.uniform(_OVERLAP_DEPTH_RANGE.lo, _OVERLAP_DEPTH_RANGE.hi)
+                    return depth, MixMode.OVERLAP
 
         # --- SEQUENTIAL path ---
         prev_intensity = prev_turn.intensity
