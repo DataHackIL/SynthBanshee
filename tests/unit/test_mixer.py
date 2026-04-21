@@ -413,3 +413,34 @@ class TestOverlapMixing:
         )
         assert result.turn_onsets_s == result.audible_onsets_s
         assert result.turn_offsets_s == result.audible_ends_s
+
+    def test_overlap_as_first_segment_clamps_to_zero(self):
+        """OVERLAP as first segment (no previous turn in buffer) must clamp onset to ≥ 0."""
+        mixer = SceneMixer()
+        wav = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
+        # amount_s would push onset to render_cursor_s(0) - 0.5 = -0.5 → clamped to 0.
+        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.OVERLAP)])
+        assert result.rendered_onsets_s[0] == pytest.approx(0.0, abs=1e-4)
+        assert result.duration_s == pytest.approx(1.0, abs=0.05)
+
+    def test_barge_in_as_first_segment_clamps_to_zero(self):
+        """BARGE_IN as first segment (no previous turn in buffer) must clamp onset to ≥ 0."""
+        mixer = SceneMixer()
+        wav = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
+        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.BARGE_IN)])
+        assert result.rendered_onsets_s[0] == pytest.approx(0.0, abs=1e-4)
+
+    def test_barge_in_full_depth_truncates_entirely(self):
+        """BARGE_IN with overlap depth ≥ previous duration zeroes out the previous turn."""
+        mixer = SceneMixer()
+        wav1 = _sine_wav_bytes(freq=440, duration_s=0.5, sample_rate=_TARGET_SR, amplitude=0.4)
+        wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR)
+        # overlap depth (1.0) > prev duration (0.5): onset_sample == prev_onset_sample → max_samples == 0.
+        result = mixer.mix_sequential(
+            [
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
+                (wav2, 1.0, "B", None, MixMode.BARGE_IN),
+            ]
+        )
+        # The interrupted turn's audible end should collapse to its onset.
+        assert result.audible_ends_s[0] == pytest.approx(result.audible_onsets_s[0], abs=1e-4)

@@ -164,7 +164,14 @@ class SceneMixer:
             if mix_mode == MixMode.BARGE_IN and placed:
                 prev_mono, prev_onset_sample = placed[-1]
                 max_samples = onset_sample - prev_onset_sample
-                if 0 < max_samples < len(prev_mono):
+                if max_samples <= 0:
+                    # Full-depth barge-in: new turn starts at or before the previous
+                    # turn's onset — replace it with an empty array (COPILOT-3).
+                    placed[-1] = (np.zeros(0, dtype=np.float32), prev_onset_sample)
+                    prev_onset_s_f = float(prev_onset_sample) / _TARGET_SR
+                    rendered_offsets[-1] = prev_onset_s_f
+                    audible_ends[-1] = prev_onset_s_f
+                elif max_samples < len(prev_mono):
                     placed[-1] = (prev_mono[:max_samples], prev_onset_sample)
                     # Update both rendered and audible ends of the interrupted turn
                     # so all offsets stay within the final waveform duration (COPILOT-6).
@@ -173,7 +180,9 @@ class SceneMixer:
 
             placed.append((mono, onset_sample))
 
-            render_cursor_s = offset_s
+            # Never let the cursor move backward — short OVERLAP turns must not
+            # pull render_cursor_s behind where it already is (COPILOT-2).
+            render_cursor_s = max(render_cursor_s, offset_s)
 
             script_onsets.append(script_onset_s)
             script_offsets.append(script_onset_s + seg_duration_s)

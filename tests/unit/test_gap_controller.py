@@ -243,6 +243,15 @@ class TestUnknownRole:
         draws = _draw_many(ctrl, wit_turn, prev, "WIT", prev_role="AGG")
         assert all(g > 0 for g, _ in draws)
 
+    def test_prev_role_none_with_prev_turn_skips_overlap(self) -> None:
+        """prev_role=None with a real prev_turn bypasses the overlap table (line 175)."""
+        ctrl = TurnGapController(project="she_proves")
+        # High-intensity AGG turn that would normally trigger BARGE_IN when prev_role="VIC".
+        current = _turn("AGG_M_30-45_001", 5)
+        prev = _turn("VIC_F_25-35_001", 3)
+        draws = _draw_many(ctrl, current, prev, "AGG", prev_role=None, n=300)
+        assert all(m == MixMode.SEQUENTIAL for m in _modes_only(draws))
+
 
 # ---------------------------------------------------------------------------
 # Reproducibility

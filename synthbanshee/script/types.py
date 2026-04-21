@@ -83,12 +83,14 @@ class MixedScene:
         script_offsets_s: Sequential-world offset (script_onset + TTS duration).
         rendered_onsets_s: Actual onset in the output buffer, accounting for
             overlap/barge-in positioning.
-        rendered_offsets_s: Actual offset in the output buffer (rendered_onset +
-            TTS duration, before any barge-in truncation).
-        audible_onsets_s: Same as rendered_onsets_s for all turns.
-        audible_ends_s: End of the audible portion.  For turns interrupted by a
-            BARGE_IN, this is earlier than ``rendered_offsets_s`` (the tail is
-            truncated); for all other turns it equals ``rendered_offsets_s``.
+        rendered_offsets_s: Actual offset in the output buffer after any
+            barge-in truncation has been applied.  For uninterrupted turns this
+            is ``rendered_onset + TTS duration``; for turns interrupted by a
+            BARGE_IN it is the truncation point in the final mixed output.
+        audible_onsets_s: Same as ``rendered_onsets_s`` for all turns.
+        audible_ends_s: End of the audible portion.  Matches
+            ``rendered_offsets_s`` for all turns, including BARGE_IN-interrupted
+            turns where both fields reflect the truncation point.
     """
 
     samples: np.ndarray
