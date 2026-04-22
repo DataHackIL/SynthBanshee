@@ -147,9 +147,10 @@ class TestRenderScene:
         assert lo <= scene.turn_onsets_s[0] <= hi
 
     def test_second_turn_onset_after_first_offset(self, renderer, speakers, dialogue_turns):
-        """Second turn onset must be strictly after the first turn's offset."""
+        """With M8a overlap mixing, turns can start before the previous turn ends.
+        The invariant that always holds is that audible onsets are non-decreasing."""
         scene = renderer.render_scene(dialogue_turns, speakers)
-        assert scene.turn_onsets_s[1] > scene.turn_offsets_s[0]
+        assert scene.turn_onsets_s[1] >= scene.turn_onsets_s[0]
 
     def test_unknown_speaker_raises(self, renderer, dialogue_turns):
         """render_scene should raise KeyError for unknown speaker_id."""

@@ -4,7 +4,14 @@ Replaces fixed ``pause_before_s`` values with context-sensitive silence duration
 drawn from project-specific tables (spec §4.5).  All draws are reproducible via
 a caller-supplied ``random.Random`` instance seeded from the scene's ``random_seed``.
 
+At I3–I5 intensities, the controller also decides whether the current turn
+*overlaps* or *barges in* on the previous turn, according to the asymmetric
+probability tables in §4.6.  When overlap/barge-in is selected, the returned
+amount is drawn from a fixed range representing the depth of the interruption
+rather than a silence gap.
+
 Gap table reference: docs/audio_generation_v3_design.md §4.5
+Overlap probability table: docs/audio_generation_v3_design.md §4.6
 """
 
 from __future__ import annotations
@@ -14,6 +21,7 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from synthbanshee.script.types import DialogueTurn
+from synthbanshee.tts.mix_mode import MixMode
 
 
 class _GapRange(NamedTuple):
@@ -81,10 +89,34 @@ _PROJECT_TABLES: dict[str, dict[str, _GapRange]] = {
 # rather than an immediate cutting-in response.
 _AGG_PAUSE_PROB = 0.30
 
+# ---------------------------------------------------------------------------
+# Overlap probability tables (§4.6)
+# Maps (prev_role, current_role, current_intensity) → (barge_in_prob, overlap_prob).
+# Keyed on the *transition* (who is cutting off whom) to prevent same-role
+# self-interruption, which has no psychological basis in the spec.
+# ---------------------------------------------------------------------------
+
+_OVERLAP_PROBS: dict[tuple[str, str, int], tuple[float, float]] = {
+    # AGG cuts off VIC at I3–I5 (spec §4.6 table rows 1–3)
+    ("VIC", "AGG", 3): (0.10, 0.15),
+    ("VIC", "AGG", 4): (0.25, 0.20),
+    ("VIC", "AGG", 5): (0.40, 0.15),
+    # VIC cuts off AGG at any intensity (spec §4.6 table row 4)
+    ("AGG", "VIC", 1): (0.05, 0.10),
+    ("AGG", "VIC", 2): (0.05, 0.10),
+    ("AGG", "VIC", 3): (0.05, 0.10),
+    ("AGG", "VIC", 4): (0.05, 0.10),
+    ("AGG", "VIC", 5): (0.05, 0.10),
+}
+
+# Depth ranges (seconds) drawn when an overlap/barge-in mode is selected.
+_OVERLAP_DEPTH_RANGE = _GapRange(0.10, 0.35)  # how far into prev turn OVERLAP starts
+_BARGE_IN_DEPTH_RANGE = _GapRange(0.20, 0.50)  # how far into prev turn BARGE_IN starts
+
 
 @dataclass
 class TurnGapController:
-    """Return psychologically-motivated inter-turn silence durations.
+    """Return psychologically-motivated inter-turn silence durations and mix modes.
 
     Args:
         project: Scene project identifier (``"she_proves"`` or
@@ -104,30 +136,56 @@ class TurnGapController:
         prev_turn: DialogueTurn | None,
         rng: random.Random,
         current_role: str,
-    ) -> float:
-        """Return a gap duration (in seconds) to insert before *current_turn*.
+        prev_role: str | None = None,
+    ) -> tuple[float, MixMode]:
+        """Return an (amount, MixMode) pair for the transition to *current_turn*.
+
+        For ``MixMode.SEQUENTIAL``, *amount* is a silence gap in seconds inserted
+        before the turn.  For ``MixMode.OVERLAP`` and ``MixMode.BARGE_IN``,
+        *amount* is the overlap depth in seconds — how far back into the previous
+        turn the current turn starts.
 
         Args:
             current_turn: The turn about to be spoken.
             prev_turn: The immediately preceding turn, or ``None`` for the
-                first turn in a scene (returns a short default gap).
+                first turn in a scene (returns a short default gap, SEQUENTIAL).
             rng: Seeded ``random.Random`` instance for reproducible draws.
             current_role: Semantic role of the current speaker (``"AGG"`` or
                 ``"VIC"``), taken from ``SpeakerConfig.role``.  Must not be
                 inferred from ``speaker_id`` because Elephant scenes use persona
                 prefixes (``BEN_``, ``SW_``) rather than role prefixes.
+            prev_role: Semantic role of the *previous* speaker.  ``None`` when
+                ``prev_turn`` is ``None`` (first turn).  Overlap/barge-in is only
+                considered when both roles are known and differ, matching the
+                spec §4.6 transition table.
 
         Returns:
-            Gap duration in seconds (≥ 0.0).
+            ``(amount_s, MixMode)`` tuple.
         """
         if prev_turn is None:
             # First turn: use a brief ambient lead-in from the low range.
             r = self._table["agg_low"]
-            return rng.uniform(r.lo, r.hi)
+            return rng.uniform(r.lo, r.hi), MixMode.SEQUENTIAL
 
         intensity = current_turn.intensity
-        prev_intensity = prev_turn.intensity
 
+        # --- Overlap / barge-in decision (§4.6) ---
+        # Only consider overlap when both roles are known; prevents same-role
+        # self-interruption (e.g. AGG→AGG) which has no spec support.
+        if prev_role is not None:
+            probs = _OVERLAP_PROBS.get((prev_role, current_role, intensity))
+            if probs is not None:
+                barge_in_p, overlap_p = probs
+                roll = rng.random()
+                if roll < barge_in_p:
+                    depth = rng.uniform(_BARGE_IN_DEPTH_RANGE.lo, _BARGE_IN_DEPTH_RANGE.hi)
+                    return depth, MixMode.BARGE_IN
+                if roll < barge_in_p + overlap_p:
+                    depth = rng.uniform(_OVERLAP_DEPTH_RANGE.lo, _OVERLAP_DEPTH_RANGE.hi)
+                    return depth, MixMode.OVERLAP
+
+        # --- SEQUENTIAL path ---
+        prev_intensity = prev_turn.intensity
         if current_role == "VIC":
             context_key = self._vic_context(prev_intensity)
         elif current_role == "AGG":
@@ -137,7 +195,7 @@ class TurnGapController:
             context_key = "agg_low"
 
         r = self._table[context_key]
-        return rng.uniform(r.lo, r.hi)
+        return rng.uniform(r.lo, r.hi), MixMode.SEQUENTIAL
 
     # ------------------------------------------------------------------
     # Internal helpers
