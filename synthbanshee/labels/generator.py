@@ -146,11 +146,18 @@ class LabelGenerator:
             One EventLabel per turn, timestamped from the audible timeline.
 
         Raises:
-            ValueError: If len(events) != number of turns in scene.
+            ValueError: If len(events) != number of turns in scene, or if
+                scene.audible_ends_s has a different length than
+                scene.audible_onsets_s.
         """
         n = len(scene.audible_onsets_s)
         if len(events) != n:
             raise ValueError(f"events length {len(events)} does not match scene turns {n}")
+        if len(scene.audible_ends_s) != n:
+            raise ValueError(
+                f"scene.audible_ends_s length {len(scene.audible_ends_s)}"
+                f" does not match audible_onsets_s length {n}"
+            )
         labels: list[EventLabel] = []
         for idx, (evt, onset, end) in enumerate(
             zip(events, scene.audible_onsets_s, scene.audible_ends_s, strict=True)
