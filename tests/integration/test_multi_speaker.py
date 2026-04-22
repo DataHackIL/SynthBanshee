@@ -15,8 +15,11 @@ import numpy as np
 import pytest
 
 from synthbanshee.config.speaker_config import SpeakerConfig
+from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
 from synthbanshee.script.types import DialogueTurn
 from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.mix_mode import MixMode
+from synthbanshee.tts.mixer import SceneMixer
 from synthbanshee.tts.renderer import TTSRenderer
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
@@ -179,3 +182,120 @@ class TestRenderScene:
         # Both should produce valid scenes (behaviour tested, not identity)
         assert scene1.duration_s > 0.0
         assert scene2.duration_s > 0.0
+
+    def test_three_timeline_fields_populated(self, renderer, speakers, dialogue_turns):
+        """All three timeline fields must be populated and have the right length."""
+        scene = renderer.render_scene(dialogue_turns, speakers)
+        n = len(dialogue_turns)
+        assert len(scene.script_onsets_s) == n
+        assert len(scene.script_offsets_s) == n
+        assert len(scene.rendered_onsets_s) == n
+        assert len(scene.rendered_offsets_s) == n
+        assert len(scene.audible_onsets_s) == n
+        assert len(scene.audible_ends_s) == n
+
+    def test_audible_mirrors_turn_compat_fields(self, renderer, speakers, dialogue_turns):
+        """turn_onsets_s / turn_offsets_s must equal the audible timeline exactly."""
+        scene = renderer.render_scene(dialogue_turns, speakers)
+        assert scene.turn_onsets_s == scene.audible_onsets_s
+        assert scene.turn_offsets_s == scene.audible_ends_s
+
+
+# ---------------------------------------------------------------------------
+# Overlapped segment label integration tests (M8b)
+# ---------------------------------------------------------------------------
+
+
+def _make_wav_bytes_16k(duration_s: float = 2.0) -> bytes:
+    """Minimal 16 kHz mono WAV for direct use with SceneMixer."""
+    sample_rate = 16_000
+    n = int(sample_rate * duration_s)
+    t = np.linspace(0, duration_s, n, endpoint=False)
+    samples = (0.3 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(samples.tobytes())
+    return buf.getvalue()
+
+
+class TestOverlapLabelIntegration:
+    """Integration: SceneMixer audible timeline → LabelGenerator → EventLabel timestamps."""
+
+    def _three_turn_scene(self, mix_mode_third: MixMode) -> object:
+        """Mix three turns where the third uses the specified mix_mode."""
+        mixer = SceneMixer()
+        wav = _make_wav_bytes_16k(duration_s=2.0)
+        segments = [
+            (wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL),
+            (wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL),
+            (wav, 0.4, "SPK_A", None, mix_mode_third),
+        ]
+        return mixer.mix_sequential(segments)
+
+    def _make_events(self, n: int) -> list[ScriptEvent]:
+        return [
+            ScriptEvent(
+                tier1_category="VERB",
+                tier2_subtype="VERB_SHOUT",
+                onset=0.0,
+                offset=2.0,
+                intensity=3,
+                speaker_role="AGG",
+            )
+            for _ in range(n)
+        ]
+
+    def test_sequential_label_onset_from_audible(self):
+        """SEQUENTIAL: EventLabel onset equals audible_onsets_s."""
+        scene = self._three_turn_scene(MixMode.SEQUENTIAL)
+        gen = LabelGenerator()
+        labels = gen.generate_events_from_scene("clip_seq", self._make_events(3), scene)
+        for lbl, audible_onset in zip(labels, scene.audible_onsets_s, strict=True):
+            assert lbl.onset == pytest.approx(audible_onset)
+
+    def test_overlap_label_onset_earlier_than_script(self):
+        """OVERLAP: audible onset is earlier than the script onset for the overlapping turn."""
+        scene = self._three_turn_scene(MixMode.OVERLAP)
+        # Third turn starts before its sequential script position.
+        assert scene.audible_onsets_s[2] < scene.script_onsets_s[2]
+
+    def test_overlap_turn_not_truncated(self):
+        """OVERLAP: previous turn is not truncated — truncated must be False."""
+        scene = self._three_turn_scene(MixMode.OVERLAP)
+        gen = LabelGenerator()
+        labels = gen.generate_events_from_scene("clip_ovlp", self._make_events(3), scene)
+        # Previous turn (index 1) should not be truncated.
+        assert labels[1].truncated is False
+
+    def test_barge_in_previous_turn_label_truncated(self):
+        """BARGE_IN: previous turn (index 1) must have truncated=True on its label."""
+        scene = self._three_turn_scene(MixMode.BARGE_IN)
+        gen = LabelGenerator()
+        labels = gen.generate_events_from_scene("clip_barge", self._make_events(3), scene)
+        assert labels[1].truncated is True
+
+    def test_barge_in_interrupted_label_offset_within_waveform(self):
+        """BARGE_IN: truncated turn's label offset must not exceed scene duration."""
+        scene = self._three_turn_scene(MixMode.BARGE_IN)
+        gen = LabelGenerator()
+        labels = gen.generate_events_from_scene("clip_barge", self._make_events(3), scene)
+        assert labels[1].offset <= scene.duration_s + 1e-6
+
+    def test_barge_in_non_interrupted_turns_not_truncated(self):
+        """BARGE_IN: turns that are NOT interrupted keep truncated=False."""
+        scene = self._three_turn_scene(MixMode.BARGE_IN)
+        gen = LabelGenerator()
+        labels = gen.generate_events_from_scene("clip_barge", self._make_events(3), scene)
+        # First turn (index 0) is not interrupted.
+        assert labels[0].truncated is False
+        # Third turn (the barge-in turn itself) is not interrupted.
+        assert labels[2].truncated is False
+
+    def test_audible_onsets_non_decreasing_for_barge_in(self):
+        """BARGE_IN: audible_onsets_s must be non-decreasing (invariant holds)."""
+        scene = self._three_turn_scene(MixMode.BARGE_IN)
+        for i in range(1, len(scene.audible_onsets_s)):
+            assert scene.audible_onsets_s[i] >= scene.audible_onsets_s[i - 1]

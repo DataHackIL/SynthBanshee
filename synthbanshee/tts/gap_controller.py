@@ -97,6 +97,10 @@ _AGG_PAUSE_PROB = 0.30
 # ---------------------------------------------------------------------------
 
 _OVERLAP_PROBS: dict[tuple[str, str, int], tuple[float, float]] = {
+    # AGG cuts off VIC at I1–I2 (confusor/low-intensity scenes — spec §4.6 note)
+    # Non-zero rates prevent the model from learning "overlap = violence".
+    ("VIC", "AGG", 1): (0.02, 0.05),
+    ("VIC", "AGG", 2): (0.05, 0.08),
     # AGG cuts off VIC at I3–I5 (spec §4.6 table rows 1–3)
     ("VIC", "AGG", 3): (0.10, 0.15),
     ("VIC", "AGG", 4): (0.25, 0.20),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
@@ -11,6 +12,7 @@ from synthbanshee.labels.schema import (
     EventLabel,
     WeakLabel,
 )
+from synthbanshee.script.types import MixedScene
 
 # ---------------------------------------------------------------------------
 # EventLabel tests
@@ -261,3 +263,193 @@ class TestLabelGenerator:
         loaded = self.gen.read_clip_metadata_json(json_path)
         assert loaded.clip_id == metadata.clip_id
         assert loaded.is_synthetic is True
+
+    def test_truncated_propagates_through_generate_event_labels(self):
+        """truncated=True on ScriptEvent must appear on the EventLabel."""
+        events = [
+            ScriptEvent(
+                tier1_category="VERB",
+                tier2_subtype="VERB_SHOUT",
+                onset=1.0,
+                offset=2.0,
+                intensity=3,
+                truncated=True,
+            )
+        ]
+        labels = self.gen.generate_event_labels("clip_001", events)
+        assert labels[0].truncated is True
+
+    def test_truncated_default_false(self):
+        """truncated defaults to False when not set on ScriptEvent or EventLabel."""
+        events = [
+            ScriptEvent(
+                tier1_category="NONE",
+                tier2_subtype="NONE_AMBIENT",
+                onset=0.5,
+                offset=1.5,
+                intensity=1,
+            )
+        ]
+        labels = self.gen.generate_event_labels("clip_001", events)
+        assert labels[0].truncated is False
+
+    def test_truncated_round_trips_jsonl(self, tmp_path):
+        """truncated=True survives a JSONL write/read round-trip."""
+        events = [
+            ScriptEvent(
+                tier1_category="PHYS",
+                tier2_subtype="PHYS_HARD",
+                onset=1.0,
+                offset=2.0,
+                intensity=4,
+                truncated=True,
+            )
+        ]
+        labels = self.gen.generate_event_labels("clip_002", events)
+        path = tmp_path / "labels.jsonl"
+        self.gen.write_strong_labels_jsonl(labels, path)
+        loaded = self.gen.read_strong_labels_jsonl(path)
+        assert loaded[0].truncated is True
+
+
+# ---------------------------------------------------------------------------
+# generate_events_from_scene tests (M8b)
+# ---------------------------------------------------------------------------
+
+
+def _make_scene(
+    audible_onsets: list[float],
+    audible_ends: list[float],
+    script_offsets: list[float] | None = None,
+    speaker_ids: list[str] | None = None,
+) -> MixedScene:
+    """Build a minimal MixedScene with just the timeline fields needed for labelling."""
+    n = len(audible_onsets)
+    total_s = max(audible_ends) if audible_ends else 0.0
+    samples = np.zeros(int(total_s * 16_000), dtype=np.float32)
+    return MixedScene(
+        samples=samples,
+        sample_rate=16_000,
+        turn_onsets_s=audible_onsets,
+        turn_offsets_s=audible_ends,
+        duration_s=total_s,
+        speaker_ids=speaker_ids or [f"SPK_{i}" for i in range(n)],
+        script_onsets_s=[0.0] * n,
+        script_offsets_s=script_offsets or audible_ends,
+        rendered_onsets_s=audible_onsets,
+        rendered_offsets_s=audible_ends,
+        audible_onsets_s=audible_onsets,
+        audible_ends_s=audible_ends,
+    )
+
+
+def _make_script_events(n: int) -> list[ScriptEvent]:
+    return [
+        ScriptEvent(
+            tier1_category="VERB",
+            tier2_subtype="VERB_SHOUT",
+            onset=0.0,
+            offset=1.0,
+            intensity=3,
+            speaker_role="AGG",
+        )
+        for _ in range(n)
+    ]
+
+
+class TestGenerateEventsFromScene:
+    def setup_method(self):
+        self.gen = LabelGenerator()
+
+    def test_onset_offset_from_audible_timeline(self):
+        """EventLabel onset/offset must come from scene.audible_* fields."""
+        scene = _make_scene(audible_onsets=[0.5], audible_ends=[1.8])
+        events = _make_script_events(1)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].onset == pytest.approx(0.5)
+        assert labels[0].offset == pytest.approx(1.8)
+
+    def test_untruncated_turn_not_flagged(self):
+        """When audible_end == script_offset, truncated must be False."""
+        scene = _make_scene(
+            audible_onsets=[0.0],
+            audible_ends=[2.0],
+            script_offsets=[2.0],
+        )
+        events = _make_script_events(1)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].truncated is False
+
+    def test_barge_in_turn_flagged_truncated(self):
+        """When audible_end < script_offset, truncated must be True."""
+        scene = _make_scene(
+            audible_onsets=[0.5],
+            audible_ends=[1.2],
+            script_offsets=[2.0],  # turn was cut short
+        )
+        events = _make_script_events(1)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].truncated is True
+
+    def test_full_depth_barge_in_gets_min_duration(self):
+        """Full-depth barge-in (audible_end == onset) gets a floor offset."""
+        onset = 1.0
+        scene = _make_scene(
+            audible_onsets=[onset],
+            audible_ends=[onset],  # zero audible duration
+            script_offsets=[2.5],
+        )
+        events = _make_script_events(1)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        lbl = labels[0]
+        assert lbl.truncated is True
+        assert lbl.offset > lbl.onset
+
+    def test_multiple_turns_first_not_truncated_second_truncated(self):
+        scene = _make_scene(
+            audible_onsets=[0.0, 2.0],
+            audible_ends=[2.0, 2.5],
+            script_offsets=[2.0, 3.0],  # second turn cut short
+        )
+        events = _make_script_events(2)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].truncated is False
+        assert labels[1].truncated is True
+
+    def test_event_ids_are_sequential(self):
+        scene = _make_scene(audible_onsets=[0.0, 2.0], audible_ends=[2.0, 4.0])
+        events = _make_script_events(2)
+        labels = self.gen.generate_events_from_scene("myclip", events, scene)
+        assert labels[0].event_id == "myclip_EVT_000"
+        assert labels[1].event_id == "myclip_EVT_001"
+
+    def test_length_mismatch_raises(self):
+        scene = _make_scene(audible_onsets=[0.0, 2.0], audible_ends=[2.0, 4.0])
+        events = _make_script_events(3)
+        with pytest.raises(ValueError, match="events length"):
+            self.gen.generate_events_from_scene("clip_x", events, scene)
+
+    def test_script_event_truncated_true_propagates(self):
+        """truncated=True on a ScriptEvent must appear even if audible_end == script_offset."""
+        scene = _make_scene(
+            audible_onsets=[0.0],
+            audible_ends=[2.0],
+            script_offsets=[2.0],
+        )
+        events = [
+            ScriptEvent(
+                tier1_category="VERB",
+                tier2_subtype="VERB_SHOUT",
+                onset=0.0,
+                offset=2.0,
+                intensity=3,
+                truncated=True,
+            )
+        ]
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].truncated is True
+
+    def test_empty_scene_returns_empty_list(self):
+        scene = _make_scene(audible_onsets=[], audible_ends=[])
+        labels = self.gen.generate_events_from_scene("clip_x", [], scene)
+        assert labels == []

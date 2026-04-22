@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import jsonlines
 
@@ -25,6 +25,19 @@ from synthbanshee.labels.schema import (
     SpeakerInfo,
     WeakLabel,
 )
+
+if TYPE_CHECKING:
+    from synthbanshee.script.types import MixedScene
+
+# One sample at 16 kHz — minimum label duration for BARGE_IN-zeroed turns.
+_MIN_LABEL_DURATION_S = 1.0 / 16_000
+
+# Truncation detection threshold (seconds).  Quantization of onset_sample via
+# int() can leave audible_end up to 1 sample (1/16000 ≈ 6.25e-5 s) below the
+# unquantized script_offset on purely SEQUENTIAL turns.  A threshold of two
+# samples (≈1.25e-4 s) comfortably clears that noise while remaining far below
+# the minimum real barge-in depth (_BARGE_IN_DEPTH_RANGE.lo = 0.10 s).
+_TRUNCATION_THRESHOLD_S = 2.0 / 16_000
 
 
 class ScriptEvent:
@@ -42,6 +55,7 @@ class ScriptEvent:
         speaker_role: str | None = None,
         emotional_state: str | None = None,
         confidence: float = 1.0,
+        truncated: bool = False,
         notes: str | None = None,
     ) -> None:
         self.tier1_category = tier1_category
@@ -53,6 +67,7 @@ class ScriptEvent:
         self.speaker_role = speaker_role
         self.emotional_state = emotional_state
         self.confidence = confidence
+        self.truncated = truncated
         self.notes = notes
 
 
@@ -85,6 +100,84 @@ class LabelGenerator:
                     emotional_state=evt.emotional_state,
                     confidence=evt.confidence,
                     label_source="auto",
+                    truncated=evt.truncated,
+                    notes=evt.notes,
+                )
+            )
+        return labels
+
+    def generate_events_from_scene(
+        self,
+        clip_id: str,
+        events: list[ScriptEvent],
+        scene: MixedScene,
+    ) -> list[EventLabel]:
+        """Generate EventLabels using audible timing from a MixedScene.
+
+        Onset/offset for each label comes from ``scene.audible_onsets_s`` /
+        ``scene.audible_ends_s`` rather than the ScriptEvent's own onset/offset.
+        When ``scene.script_offsets_s`` is populated and a turn's audible end is
+        strictly earlier than its script offset (as happens for BARGE_IN-interrupted
+        turns), ``truncated=True`` is set on the resulting label.
+
+        For fully-barged-in turns where the audible end equals the onset (zero
+        audible duration), the label offset is floored to
+        ``onset + _MIN_LABEL_DURATION_S`` (one sample at 16 kHz) so that the
+        ``offset > onset`` invariant is maintained; ``truncated`` is still ``True``.
+
+        Args:
+            clip_id: Clip identifier used to form event_id strings.
+            events: One ScriptEvent per turn providing taxonomy codes and
+                speaker metadata.  Must be parallel to scene.audible_onsets_s.
+            scene: MixedScene produced by SceneMixer with three-timeline fields.
+
+        Returns:
+            One EventLabel per turn, timestamped from the audible timeline.
+
+        Raises:
+            ValueError: If len(events) != number of turns in scene.
+        """
+        n = len(scene.audible_onsets_s)
+        if len(events) != n:
+            raise ValueError(f"events length {len(events)} does not match scene turns {n}")
+        labels: list[EventLabel] = []
+        for idx, (evt, onset, end) in enumerate(
+            zip(events, scene.audible_onsets_s, scene.audible_ends_s, strict=True)
+        ):
+            # Detect truncation by comparing the *audible duration* against the
+            # *script duration* for this turn.  Using absolute onset vs. script
+            # onset would incorrectly flag OVERLAP/BARGE_IN turns that started
+            # early but spoke their full audio.
+            script_onset = scene.script_onsets_s[idx] if idx < len(scene.script_onsets_s) else None
+            script_offset = (
+                scene.script_offsets_s[idx] if idx < len(scene.script_offsets_s) else None
+            )
+            if script_onset is not None and script_offset is not None:
+                script_duration = script_offset - script_onset
+                audible_duration = end - onset
+                scene_truncated = audible_duration < script_duration - _TRUNCATION_THRESHOLD_S
+            else:
+                scene_truncated = False
+            truncated = evt.truncated or scene_truncated
+            # Floor zero-duration audible spans (fully-barged-in turns) to one
+            # sample so the offset > onset validator is satisfied.
+            safe_end = max(end, onset + _MIN_LABEL_DURATION_S)
+            event_id = f"{clip_id}_EVT_{idx:03d}"
+            labels.append(
+                EventLabel(
+                    event_id=event_id,
+                    clip_id=clip_id,
+                    onset=onset,
+                    offset=safe_end,
+                    tier1_category=evt.tier1_category,
+                    tier2_subtype=evt.tier2_subtype,
+                    intensity=evt.intensity,
+                    speaker_id=evt.speaker_id,
+                    speaker_role=evt.speaker_role,
+                    emotional_state=evt.emotional_state,
+                    confidence=evt.confidence,
+                    label_source="auto",
+                    truncated=truncated,
                     notes=evt.notes,
                 )
             )
