@@ -420,6 +420,10 @@ def _run_generate_pipeline(
     messages: list[str] = []
     emotion_downgrade_turns: list[str] = []
     events: list[ScriptEvent] = []
+    # Threshold: 2 samples at 16 kHz — clears float-quantization noise while
+    # remaining far below the min barge-in depth (0.10 s).  Mirrors the constant
+    # in labels/generator.py (_TRUNCATION_THRESHOLD_S).
+    _TRUNC_THRESHOLD = 2.0 / 16_000
     for i, turn in enumerate(turns):
         raw_onset = mixed.turn_onsets_s[i] if i < len(mixed.turn_onsets_s) else 0.0
         raw_offset = mixed.turn_offsets_s[i] if i < len(mixed.turn_offsets_s) else mixed.duration_s
@@ -434,6 +438,13 @@ def _run_generate_pipeline(
                 f"turn[{i}]: emotional_state {turn.emotional_state!r} remapped to {emotion!r}"
             )
             messages.append(emotion_downgrade_turns[-1])
+        # Detect BARGE_IN-interrupted turns: audible duration < script duration.
+        if i < len(mixed.script_offsets_s) and i < len(mixed.script_onsets_s):
+            script_dur = mixed.script_offsets_s[i] - mixed.script_onsets_s[i]
+            audible_dur = raw_offset - raw_onset
+            turn_truncated = audible_dur < script_dur - _TRUNC_THRESHOLD
+        else:
+            turn_truncated = False
         events.append(
             ScriptEvent(
                 tier1_category=tier1,
@@ -444,6 +455,7 @@ def _run_generate_pipeline(
                 speaker_id=turn.speaker_id,
                 speaker_role=role,
                 emotional_state=emotion,
+                truncated=turn_truncated,
             )
         )
     # Stage 3b ACOU_* SFX events (Tier B and Tier C). Their onset/offset times are
