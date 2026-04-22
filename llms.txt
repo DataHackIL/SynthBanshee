@@ -79,6 +79,12 @@ Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
 - tests/unit/test_labels.py           — label generation
 - tests/integration/                  — end-to-end clip generation tests
 
+## CI / Workflows
+- .github/workflows/ci.yml                       — test matrix (3.11+3.12), lint, coverage, pr-agent-context baseline
+- .github/workflows/pr-agent-context-refresh.yml — refresh on review/check/schedule events
+- pr-agent-context uses @v4 (floating major tag) — intentional; do not pin to a patch version
+- Coverage artifacts: prefix pr-agent-context-coverage-py<ver>; referenced via coverage_artifact_prefix in both workflow files
+
 ## Milestone status (as of 2026-04-16)
 Done (P0):  M1, M2a, M3a, M3b, IAA utilities (kappa, IAAReport, iaa-report CLI)
 Next (P0):  M4 — Emotional-state metadata consistency
