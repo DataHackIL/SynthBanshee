@@ -154,7 +154,10 @@ class SceneMixer:
                 script_cursor_s = script_onset_s + seg_duration_s
 
             onset_sample = int(onset_s * _TARGET_SR)
-            offset_s = onset_s + seg_duration_s
+            # Quantise onset/offset to the actual sample boundaries used for buffer
+            # placement so all timeline metadata stays exactly sample-aligned.
+            onset_s = float(onset_sample) / _TARGET_SR
+            offset_s = float(onset_sample + len(mono)) / _TARGET_SR
 
             # --- BARGE_IN: truncate the previous segment at the barge-in point ---
             if mix_mode == MixMode.BARGE_IN and placed:
@@ -162,24 +165,23 @@ class SceneMixer:
                 max_samples = onset_sample - prev_onset_sample
                 if max_samples <= 0:
                     # Full-depth barge-in: new turn starts at or before the previous
-                    # turn's onset — replace it with an empty array (COPILOT-3).
+                    # turn's onset — replace it with an empty array.
                     placed[-1] = (np.zeros(0, dtype=np.float32), prev_onset_sample)
                     prev_onset_s_f = float(prev_onset_sample) / _TARGET_SR
                     rendered_offsets[-1] = prev_onset_s_f
                     audible_ends[-1] = prev_onset_s_f
                 elif max_samples < len(prev_mono):
                     placed[-1] = (prev_mono[:max_samples], prev_onset_sample)
-                    # Use the quantised sample boundary rather than onset_s to keep
-                    # metadata timestamps exactly aligned with the audio buffer.
-                    quantised_onset_s = float(onset_sample) / _TARGET_SR
-                    rendered_offsets[-1] = quantised_onset_s
-                    audible_ends[-1] = quantised_onset_s
+                    # onset_s is already quantised to the sample boundary above.
+                    rendered_offsets[-1] = onset_s
+                    audible_ends[-1] = onset_s
 
             placed.append((mono, onset_sample))
 
-            # Never let the cursor move backward — short OVERLAP turns must not
-            # pull render_cursor_s behind where it already is (COPILOT-2).
-            render_cursor_s = max(render_cursor_s, offset_s)
+            # Recompute cursor from the actual max end-sample across all placed
+            # segments so BARGE_IN truncation can move it earlier and OVERLAP
+            # never overstates the true audio extent.
+            render_cursor_s = max(onset + len(m) for m, onset in placed) / _TARGET_SR
 
             script_onsets.append(script_onset_s)
             script_offsets.append(script_onset_s + seg_duration_s)

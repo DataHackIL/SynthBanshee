@@ -18,7 +18,7 @@ from pathlib import Path
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
-from synthbanshee.tts.mixer import MixMode
+from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody

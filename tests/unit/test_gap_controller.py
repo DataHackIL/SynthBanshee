@@ -15,7 +15,7 @@ from synthbanshee.tts.gap_controller import (
     _SHE_PROVES_GAPS,
     TurnGapController,
 )
-from synthbanshee.tts.mixer import MixMode
+from synthbanshee.tts.mix_mode import MixMode
 
 
 def _turn(speaker_id: str, intensity: int) -> DialogueTurn:
