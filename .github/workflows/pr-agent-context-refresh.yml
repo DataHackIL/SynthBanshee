@@ -126,21 +126,43 @@ jobs:
             });
 
             const hasCurrentRefreshComment = async (pull) => {
-              const { data: comments } = await github.rest.issues.listComments({
-                owner,
-                repo,
-                issue_number: pull.number,
-                per_page: 50,
-                sort: 'created',
-                direction: 'desc',
-              });
+              const perPage = 100;
+              const maxCommentsToInspect = 500;
+              let page = 1;
+              let inspectedComments = 0;
 
-              return comments.some(
-                (comment) =>
-                  comment.body?.startsWith(markerPrefix) &&
-                  comment.body.includes('execution_mode=refresh;') &&
-                  comment.body.includes(`head_sha=${pull.head.sha};`),
-              );
+              while (inspectedComments < maxCommentsToInspect) {
+                const { data: comments } = await github.rest.issues.listComments({
+                  owner,
+                  repo,
+                  issue_number: pull.number,
+                  per_page: perPage,
+                  page,
+                  sort: 'created',
+                  direction: 'desc',
+                });
+
+                if (
+                  comments.some(
+                    (comment) =>
+                      comment.body?.startsWith(markerPrefix) &&
+                      comment.body.includes('execution_mode=refresh;') &&
+                      comment.body.includes(`head_sha=${pull.head.sha};`),
+                  )
+                ) {
+                  return true;
+                }
+
+                inspectedComments += comments.length;
+
+                if (comments.length < perPage) {
+                  break;
+                }
+
+                page += 1;
+              }
+
+              return false;
             };
 
             const hasRecentOrInFlightScheduledDispatchRun = (pull) => {
