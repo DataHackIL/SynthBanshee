@@ -122,10 +122,12 @@ class LabelGenerator:
         Onset/offset for each label comes from ``scene.audible_onsets_s`` /
         ``scene.audible_ends_s`` rather than the ScriptEvent's own onset/offset.
         When ``scene.script_offsets_s`` is populated and a turn's audible
-        duration (``audible_end - audible_onset``) is strictly shorter than its
-        script duration (``script_offset - script_onset``), ``truncated=True`` is
-        set on the resulting label.  This captures BARGE_IN-interrupted turns
-        without falsely flagging OVERLAP turns whose absolute audible end may be
+        duration (``audible_end - audible_onset``) is shorter than its script
+        duration (``script_offset - script_onset``) by more than
+        ``TRUNCATION_THRESHOLD_S`` (a two-sample tolerance to avoid sample-
+        quantization false positives), ``truncated=True`` is set on the
+        resulting label.  This captures BARGE_IN-interrupted turns without
+        falsely flagging OVERLAP turns whose absolute audible end may be
         earlier than the script offset for reasons unrelated to truncation.
 
         For fully-barged-in turns where the audible end equals the onset (zero
