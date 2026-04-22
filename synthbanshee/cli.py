@@ -185,7 +185,12 @@ def _run_generate_pipeline(
     from synthbanshee.augment.preprocessing import preprocess
     from synthbanshee.config.scene_config import SceneConfig
     from synthbanshee.config.speaker_config import SpeakerConfig
-    from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
+    from synthbanshee.labels.generator import (
+        MIN_LABEL_DURATION_S,
+        TRUNCATION_THRESHOLD_S,
+        LabelGenerator,
+        ScriptEvent,
+    )
     from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
     from synthbanshee.package.validator import validate_clip
     from synthbanshee.script.generator import ScriptGenerator
@@ -434,16 +439,30 @@ def _run_generate_pipeline(
                 f"turn[{i}]: emotional_state {turn.emotional_state!r} remapped to {emotion!r}"
             )
             messages.append(emotion_downgrade_turns[-1])
+        # Detect BARGE_IN-interrupted turns: audible duration < script duration.
+        # Uses the canonical threshold from LabelGenerator so both code paths agree.
+        if i < len(mixed.script_offsets_s) and i < len(mixed.script_onsets_s):
+            script_dur = mixed.script_offsets_s[i] - mixed.script_onsets_s[i]
+            audible_dur = raw_offset - raw_onset
+            turn_truncated = audible_dur < script_dur - TRUNCATION_THRESHOLD_S
+        else:
+            turn_truncated = False
+        # For truncated turns (incl. full-depth barge-in where offset == onset),
+        # use the one-sample floor from LabelGenerator to keep the label duration
+        # consistent with generate_events_from_scene(); non-truncated turns keep
+        # the 0.1 s minimum to guard against near-zero TTS output.
+        min_dur = MIN_LABEL_DURATION_S if turn_truncated else 0.1
         events.append(
             ScriptEvent(
                 tier1_category=tier1,
                 tier2_subtype=tier2,
                 onset=onset,
-                offset=max(offset, onset + 0.1),
+                offset=max(offset, onset + min_dur),
                 intensity=turn.intensity,
                 speaker_id=turn.speaker_id,
                 speaker_role=role,
                 emotional_state=emotion,
+                truncated=turn_truncated,
             )
         )
     # Stage 3b ACOU_* SFX events (Tier B and Tier C). Their onset/offset times are

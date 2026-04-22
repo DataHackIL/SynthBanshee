@@ -18,6 +18,7 @@ from pathlib import Path
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
+from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody
@@ -215,7 +216,7 @@ class TTSRenderer:
         # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
         states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
 
-        segments: list[tuple[bytes, float, str, float | None]] = []
+        segments: list[tuple[bytes, float, str, float | None, MixMode]] = []
         prev_turn: DialogueTurn | None = None
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
@@ -259,13 +260,17 @@ class TTSRenderer:
                     f" [{turn.speaker_id}] intensity={turn.intensity}"
                     f" → {status}[/dim]"
                 )
-            gap_s = gap_ctrl.gap_seconds(turn, prev_turn, gap_rng, speaker.role)
+            prev_role = speakers[prev_turn.speaker_id].role if prev_turn is not None else None
+            gap_s, mix_mode = gap_ctrl.gap_seconds(
+                turn, prev_turn, gap_rng, speaker.role, prev_role
+            )
             segments.append(
                 (
                     wav_bytes,
                     gap_s,
                     turn.speaker_id,
                     speaker.style_for_intensity(turn.intensity).rms_target_dbfs,
+                    mix_mode,
                 )
             )
             prev_turn = turn

@@ -191,6 +191,7 @@ class EventLabel(BaseModel):
     confidence: Annotated[float, Field(ge=0.0, le=1.0)] = 1.0
     label_source: Literal["auto", "human", "auto_reviewed"] = "auto"
     iaa_reviewed: bool = False
+    truncated: bool = False
     notes: str | None = None
 
     @field_validator("tier1_category")

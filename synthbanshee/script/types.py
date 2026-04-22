@@ -70,10 +70,27 @@ class MixedScene:
     Attributes:
         samples: Float32 numpy array, mono, 16 kHz.
         sample_rate: Always 16000.
-        turn_onsets_s: Per-turn onset time in seconds (after silence pad).
-        turn_offsets_s: Per-turn offset time in seconds.
+        turn_onsets_s: Per-turn audible onset in seconds (backward-compat alias
+            for ``audible_onsets_s``; safe for all consumers since values are
+            always within the final waveform duration).
+        turn_offsets_s: Per-turn audible end in seconds (backward-compat alias
+            for ``audible_ends_s``; for BARGE_IN-interrupted turns this is the
+            truncation point, not the original TTS end).
         duration_s: Total scene duration in seconds.
         speaker_ids: Speaker ID for each turn (parallel with onsets/offsets).
+        script_onsets_s: Sequential-world onset — where the turn would start if
+            no overlap were applied (§4.6).
+        script_offsets_s: Sequential-world offset (script_onset + TTS duration).
+        rendered_onsets_s: Actual onset in the output buffer, accounting for
+            overlap/barge-in positioning.
+        rendered_offsets_s: Actual offset in the output buffer after any
+            barge-in truncation has been applied.  For uninterrupted turns this
+            is ``rendered_onset + TTS duration``; for turns interrupted by a
+            BARGE_IN it is the truncation point in the final mixed output.
+        audible_onsets_s: Same as ``rendered_onsets_s`` for all turns.
+        audible_ends_s: End of the audible portion.  Matches
+            ``rendered_offsets_s`` for all turns, including BARGE_IN-interrupted
+            turns where both fields reflect the truncation point.
     """
 
     samples: np.ndarray
@@ -82,3 +99,10 @@ class MixedScene:
     turn_offsets_s: list[float]
     duration_s: float
     speaker_ids: list[str] = field(default_factory=list)
+    # M8a: three-timeline timestamps (§4.6).
+    script_onsets_s: list[float] = field(default_factory=list)
+    script_offsets_s: list[float] = field(default_factory=list)
+    rendered_onsets_s: list[float] = field(default_factory=list)
+    rendered_offsets_s: list[float] = field(default_factory=list)
+    audible_onsets_s: list[float] = field(default_factory=list)
+    audible_ends_s: list[float] = field(default_factory=list)

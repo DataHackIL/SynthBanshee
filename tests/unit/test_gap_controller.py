@@ -8,11 +8,14 @@ import pytest
 
 from synthbanshee.script.types import DialogueTurn
 from synthbanshee.tts.gap_controller import (
+    _BARGE_IN_DEPTH_RANGE,
     _DEFAULT_GAPS,
     _ELEPHANT_GAPS,
+    _OVERLAP_DEPTH_RANGE,
     _SHE_PROVES_GAPS,
     TurnGapController,
 )
+from synthbanshee.tts.mix_mode import MixMode
 
 
 def _turn(speaker_id: str, intensity: int) -> DialogueTurn:
@@ -37,10 +40,21 @@ def _draw_many(
     current: DialogueTurn,
     prev: DialogueTurn | None,
     current_role: str,
+    prev_role: str | None = None,
     n: int = 200,
-) -> list[float]:
+) -> list[tuple[float, MixMode]]:
     rng = random.Random(42)
-    return [ctrl.gap_seconds(current, prev, rng, current_role) for _ in range(n)]
+    return [ctrl.gap_seconds(current, prev, rng, current_role, prev_role) for _ in range(n)]
+
+
+def _gaps_only(draws: list[tuple[float, MixMode]]) -> list[float]:
+    """Extract just the amount values from gap_seconds() results."""
+    return [amount for amount, _ in draws]
+
+
+def _modes_only(draws: list[tuple[float, MixMode]]) -> list[MixMode]:
+    """Extract just the MixMode values from gap_seconds() results."""
+    return [mode for _, mode in draws]
 
 
 # ---------------------------------------------------------------------------
@@ -70,9 +84,14 @@ class TestProjectTableSelection:
 class TestFirstTurn:
     def test_first_turn_gap_in_range(self) -> None:
         ctrl = TurnGapController(project="she_proves")
-        gaps = _draw_many(ctrl, _turn("AGG_M_30-45_001", 1), None, "AGG")
+        draws = _draw_many(ctrl, _turn("AGG_M_30-45_001", 1), None, "AGG")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(_gaps_only(draws), lo, hi)
+
+    def test_first_turn_always_sequential(self) -> None:
+        ctrl = TurnGapController(project="she_proves")
+        draws = _draw_many(ctrl, _turn("AGG_M_30-45_001", 5), None, "AGG")
+        assert all(m == MixMode.SEQUENTIAL for m in _modes_only(draws))
 
 
 # ---------------------------------------------------------------------------
@@ -87,33 +106,38 @@ class TestVICSheProves:
 
     def test_vic_after_agg_i1(self) -> None:
         prev = _turn("AGG_M_30-45_001", 1)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["vic_low"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_after_agg_i2(self) -> None:
         prev = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["vic_low"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_after_agg_i3(self) -> None:
         prev = _turn("AGG_M_30-45_001", 3)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["vic_i3"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_after_agg_i4(self) -> None:
         prev = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["vic_i4"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_after_agg_i5(self) -> None:
         prev = _turn("AGG_M_30-45_001", 5)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["vic_i5"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +155,17 @@ class TestVICElephant:
 
     def test_vic_after_i1_in_elephant_range(self) -> None:
         prev = _turn("BEN_M_40-55_003", 1)  # Beneficiary — role AGG
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _ELEPHANT_GAPS["vic_low"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_after_i4_in_elephant_range(self) -> None:
         prev = _turn("BEN_M_40-55_003", 4)
-        gaps = _draw_many(self.ctrl, self.vic, prev, "VIC")
+        draws = _draw_many(self.ctrl, self.vic, prev, "VIC", prev_role="AGG", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _ELEPHANT_GAPS["vic_i4"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_vic_elephant_i4_shorter_than_she_proves(self) -> None:
         # Elephant vic_i4 hi (0.100) < She-Proves vic_i4 hi (0.150)
@@ -159,45 +185,53 @@ class TestAGGSheProves:
 
     def test_agg_i1_low_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 1)
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
-        assert _all_in_range(gaps, lo, hi)
+        # Since M8b added low-intensity confusor overlap, filter to SEQUENTIAL only.
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        assert seq_gaps, "expected at least one SEQUENTIAL draw for AGG intensity 1"
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_agg_i2_low_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
-        assert _all_in_range(gaps, lo, hi)
+        # Since M8b added low-intensity confusor overlap, filter to SEQUENTIAL only.
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        assert seq_gaps, "expected at least one SEQUENTIAL draw for AGG intensity 2"
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_agg_i3_high_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 3)
-        # At I3, no pause chance (only I4–I5 allow deliberate pause).
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG")
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC", n=500)
+        # At I3, sequential gaps must be in agg_high; overlap amounts in their own range.
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         lo, hi = _SHE_PROVES_GAPS["agg_high"]
-        assert _all_in_range(gaps, lo, hi)
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_agg_i4_within_combined_range(self) -> None:
-        # At I4 the gap is from agg_high OR agg_pause — both must fit within
-        # the union [agg_high.lo, agg_pause.hi].
+        # At I4 the sequential gap is from agg_high OR agg_pause.
         agg = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
         combined_lo = _SHE_PROVES_GAPS["agg_high"].lo
         combined_hi = _SHE_PROVES_GAPS["agg_pause"].hi
-        assert _all_in_range(gaps, combined_lo, combined_hi)
+        assert _all_in_range(seq_gaps, combined_lo, combined_hi)
 
     def test_agg_i4_pause_drawn_sometimes(self) -> None:
-        # With 500 draws and 30 % probability, the chance of zero pauses is
-        # < (0.70)^500 ≈ 10^{-79} — effectively impossible.
+        # With 500 draws and ~55% chance of SEQUENTIAL + 30% pause probability
+        # among sequential, we still expect some pauses.
         agg = _turn("AGG_M_30-45_001", 4)
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
-        # Pauses must exceed agg_high.hi (0.200 s) to be distinguishable.
-        long_gaps = [g for g in gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        long_gaps = [g for g in seq_gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
         assert len(long_gaps) > 0, "expected some deliberate AGG pauses at I4"
 
     def test_agg_i5_pause_drawn_sometimes(self) -> None:
         agg = _turn("AGG_M_30-45_001", 5)
-        gaps = _draw_many(self.ctrl, agg, self.prev, "AGG", n=500)
-        long_gaps = [g for g in gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
+        draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC", n=500)
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        long_gaps = [g for g in seq_gaps if g > _SHE_PROVES_GAPS["agg_high"].hi]
         assert len(long_gaps) > 0, "expected some deliberate AGG pauses at I5"
 
 
@@ -212,8 +246,17 @@ class TestUnknownRole:
         # WIT (witness) is not a defined role
         wit_turn = _turn("WIT_F_40-50_001", 2)
         prev = _turn("AGG_M_30-45_001", 2)
-        gaps = _draw_many(ctrl, wit_turn, prev, "WIT")
-        assert all(g > 0 for g in gaps)
+        draws = _draw_many(ctrl, wit_turn, prev, "WIT", prev_role="AGG")
+        assert all(g > 0 for g, _ in draws)
+
+    def test_prev_role_none_with_prev_turn_skips_overlap(self) -> None:
+        """prev_role=None with a real prev_turn bypasses the overlap table (line 175)."""
+        ctrl = TurnGapController(project="she_proves")
+        # High-intensity AGG turn that would normally trigger BARGE_IN when prev_role="VIC".
+        current = _turn("AGG_M_30-45_001", 5)
+        prev = _turn("VIC_F_25-35_001", 3)
+        draws = _draw_many(ctrl, current, prev, "AGG", prev_role=None, n=300)
+        assert all(m == MixMode.SEQUENTIAL for m in _modes_only(draws))
 
 
 # ---------------------------------------------------------------------------
@@ -228,10 +271,10 @@ class TestReproducibility:
         prev = _turn("AGG_M_30-45_001", 3)
 
         rng_a = random.Random(7)
-        gaps_a = [ctrl.gap_seconds(current, prev, rng_a, "VIC") for _ in range(20)]
+        results_a = [ctrl.gap_seconds(current, prev, rng_a, "VIC", "AGG") for _ in range(20)]
         rng_b = random.Random(7)
-        gaps_b = [ctrl.gap_seconds(current, prev, rng_b, "VIC") for _ in range(20)]
-        assert gaps_a == gaps_b
+        results_b = [ctrl.gap_seconds(current, prev, rng_b, "VIC", "AGG") for _ in range(20)]
+        assert results_a == results_b
 
     def test_different_seeds_different_output(self) -> None:
         ctrl = TurnGapController(project="she_proves")
@@ -239,10 +282,10 @@ class TestReproducibility:
         prev = _turn("AGG_M_30-45_001", 3)
 
         rng_1 = random.Random(1)
-        gaps_a = [ctrl.gap_seconds(current, prev, rng_1, "VIC") for _ in range(20)]
+        results_a = [ctrl.gap_seconds(current, prev, rng_1, "VIC", "AGG") for _ in range(20)]
         rng_2 = random.Random(2)
-        gaps_b = [ctrl.gap_seconds(current, prev, rng_2, "VIC") for _ in range(20)]
-        assert gaps_a != gaps_b
+        results_b = [ctrl.gap_seconds(current, prev, rng_2, "VIC", "AGG") for _ in range(20)]
+        assert results_a != results_b
 
 
 # ---------------------------------------------------------------------------
@@ -273,3 +316,116 @@ class TestGapOrdering:
     def test_agg_pause_longer_than_agg_high(self, project: str, table: dict) -> None:
         # Menacing pause must be noticeably longer than cutting-in gap.
         assert table["agg_pause"].lo > table["agg_high"].hi
+
+
+# ---------------------------------------------------------------------------
+# M8a: MixMode selection and overlap depth (§4.6)
+# ---------------------------------------------------------------------------
+
+
+class TestOverlapModeSelection:
+    """Verify that gap_seconds() emits OVERLAP / BARGE_IN at the expected rates."""
+
+    def setup_method(self) -> None:
+        self.ctrl = TurnGapController(project="she_proves")
+        self.prev_vic = _turn("VIC_F_25-35_001", 3)  # used as prev for AGG-current tests
+        self.prev_agg = _turn("AGG_M_30-45_001", 3)  # used as prev for VIC-current tests
+
+    def _mode_counts(
+        self,
+        current: DialogueTurn,
+        role: str,
+        prev_role: str | None,
+        prev: DialogueTurn | None = None,
+        n: int = 1000,
+    ) -> dict[MixMode, int]:
+        rng = random.Random(99)
+        prev_turn = (
+            prev if prev is not None else (self.prev_agg if role == "VIC" else self.prev_vic)
+        )
+        counts: dict[MixMode, int] = {m: 0 for m in MixMode}
+        for _ in range(n):
+            _, mode = self.ctrl.gap_seconds(current, prev_turn, rng, role, prev_role)
+            counts[mode] += 1
+        return counts
+
+    def test_agg_i3_barge_in_rate(self) -> None:
+        """AGG at I3 should produce BARGE_IN ~10% of the time (±5% tolerance)."""
+        counts = self._mode_counts(_turn("AGG_M_30-45_001", 3), "AGG", prev_role="VIC")
+        barge_in_rate = counts[MixMode.BARGE_IN] / 1000
+        assert 0.05 <= barge_in_rate <= 0.20, f"expected ~10%, got {barge_in_rate:.2%}"
+
+    def test_agg_i5_barge_in_rate(self) -> None:
+        """AGG at I5 should produce BARGE_IN ~40% of the time (±10% tolerance)."""
+        counts = self._mode_counts(_turn("AGG_M_30-45_001", 5), "AGG", prev_role="VIC")
+        barge_in_rate = counts[MixMode.BARGE_IN] / 1000
+        assert 0.30 <= barge_in_rate <= 0.55, f"expected ~40%, got {barge_in_rate:.2%}"
+
+    def test_vic_overlap_rate(self) -> None:
+        """VIC at any intensity should produce OVERLAP ~10% of the time (±5%)."""
+        counts = self._mode_counts(_turn("VIC_F_25-35_001", 2), "VIC", prev_role="AGG")
+        overlap_rate = counts[MixMode.OVERLAP] / 1000
+        assert 0.05 <= overlap_rate <= 0.20, f"expected ~10%, got {overlap_rate:.2%}"
+
+    def test_agg_i1_i2_confusor_overlap_rates(self) -> None:
+        """AGG at I1–I2 now has small non-zero overlap rates for confusor realism (M8b).
+        Rates: I1 BARGE_IN≈2%, OVERLAP≈5%; I2 BARGE_IN≈5%, OVERLAP≈8%.
+        Both lower and upper bounds are checked so the test fails if rates regress to 0%.
+        """
+        # (intensity, min_barge_in, max_barge_in, min_overlap, max_overlap)
+        cases = [
+            (1, 0.005, 0.08, 0.02, 0.12),
+            (2, 0.02, 0.12, 0.04, 0.18),
+        ]
+        for intensity, min_barge_in, max_barge_in, min_overlap, max_overlap in cases:
+            counts = self._mode_counts(_turn("AGG_M_30-45_001", intensity), "AGG", prev_role="VIC")
+            barge_in_rate = counts[MixMode.BARGE_IN] / 1000
+            overlap_rate = counts[MixMode.OVERLAP] / 1000
+            assert barge_in_rate >= min_barge_in, (
+                f"I{intensity} BARGE_IN rate {barge_in_rate:.2%} below minimum {min_barge_in:.1%}"
+            )
+            assert barge_in_rate <= max_barge_in, (
+                f"I{intensity} BARGE_IN rate {barge_in_rate:.2%} exceeds {max_barge_in:.0%}"
+            )
+            assert overlap_rate >= min_overlap, (
+                f"I{intensity} OVERLAP rate {overlap_rate:.2%} below minimum {min_overlap:.1%}"
+            )
+            assert overlap_rate <= max_overlap, (
+                f"I{intensity} OVERLAP rate {overlap_rate:.2%} exceeds {max_overlap:.0%}"
+            )
+
+    def test_same_role_never_overlaps(self) -> None:
+        """Same-role transitions (AGG→AGG) must always be SEQUENTIAL per §4.6."""
+        # _OVERLAP_PROBS has no (AGG, AGG, *) or (VIC, VIC, *) entries.
+        for intensity in (3, 4, 5):
+            counts = self._mode_counts(
+                _turn("AGG_M_30-45_001", intensity),
+                "AGG",
+                prev_role="AGG",  # same role
+            )
+            assert counts[MixMode.OVERLAP] == 0
+            assert counts[MixMode.BARGE_IN] == 0
+
+    def test_barge_in_amount_in_range(self) -> None:
+        """BARGE_IN amount must lie within _BARGE_IN_DEPTH_RANGE."""
+        rng = random.Random(42)
+        current = _turn("AGG_M_30-45_001", 5)
+        depths = []
+        for _ in range(1000):
+            amount, mode = self.ctrl.gap_seconds(current, self.prev_vic, rng, "AGG", "VIC")
+            if mode == MixMode.BARGE_IN:
+                depths.append(amount)
+        assert depths, "no BARGE_IN draws in 1000 trials at I5"
+        assert all(_BARGE_IN_DEPTH_RANGE.lo <= d <= _BARGE_IN_DEPTH_RANGE.hi for d in depths)
+
+    def test_overlap_amount_in_range(self) -> None:
+        """OVERLAP amount must lie within _OVERLAP_DEPTH_RANGE."""
+        rng = random.Random(42)
+        current = _turn("AGG_M_30-45_001", 3)
+        depths = []
+        for _ in range(1000):
+            amount, mode = self.ctrl.gap_seconds(current, self.prev_vic, rng, "AGG", "VIC")
+            if mode == MixMode.OVERLAP:
+                depths.append(amount)
+        assert depths, "no OVERLAP draws in 1000 trials at I3"
+        assert all(_OVERLAP_DEPTH_RANGE.lo <= d <= _OVERLAP_DEPTH_RANGE.hi for d in depths)
