@@ -453,3 +453,22 @@ class TestGenerateEventsFromScene:
         scene = _make_scene(audible_onsets=[], audible_ends=[])
         labels = self.gen.generate_events_from_scene("clip_x", [], scene)
         assert labels == []
+
+    def test_missing_script_timeline_not_truncated(self):
+        """When MixedScene has no script_onsets_s/script_offsets_s (legacy),
+        truncated must default to False (else branch at generator.py:160)."""
+        samples = np.zeros(32000, dtype=np.float32)
+        scene = MixedScene(
+            samples=samples,
+            sample_rate=16_000,
+            turn_onsets_s=[0.5],
+            turn_offsets_s=[2.5],
+            duration_s=2.0,
+            speaker_ids=["SPK_0"],
+            # script timeline deliberately omitted (empty defaults)
+            audible_onsets_s=[0.5],
+            audible_ends_s=[2.5],
+        )
+        events = _make_script_events(1)
+        labels = self.gen.generate_events_from_scene("clip_x", events, scene)
+        assert labels[0].truncated is False
