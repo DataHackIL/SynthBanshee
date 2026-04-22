@@ -30,14 +30,19 @@ if TYPE_CHECKING:
     from synthbanshee.script.types import MixedScene
 
 # One sample at 16 kHz — minimum label duration for BARGE_IN-zeroed turns.
-_MIN_LABEL_DURATION_S = 1.0 / 16_000
+# Exposed as a public constant so callers (e.g. cli.py) can import and reuse it.
+MIN_LABEL_DURATION_S = 1.0 / 16_000
+_MIN_LABEL_DURATION_S = MIN_LABEL_DURATION_S  # private alias for internal use
 
 # Truncation detection threshold (seconds).  Quantization of onset_sample via
 # int() can leave audible_end up to 1 sample (1/16000 ≈ 6.25e-5 s) below the
 # unquantized script_offset on purely SEQUENTIAL turns.  A threshold of two
 # samples (≈1.25e-4 s) comfortably clears that noise while remaining far below
 # the minimum real barge-in depth (_BARGE_IN_DEPTH_RANGE.lo = 0.10 s).
-_TRUNCATION_THRESHOLD_S = 2.0 / 16_000
+# Exposed as a public constant so callers (e.g. cli.py) can import it rather
+# than duplicating the magic number.
+TRUNCATION_THRESHOLD_S = 2.0 / 16_000
+_TRUNCATION_THRESHOLD_S = TRUNCATION_THRESHOLD_S  # private alias for internal use
 
 
 class ScriptEvent:

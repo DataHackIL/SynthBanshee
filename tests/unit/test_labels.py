@@ -455,8 +455,8 @@ class TestGenerateEventsFromScene:
         assert labels == []
 
     def test_missing_script_timeline_not_truncated(self):
-        """When MixedScene has no script_onsets_s/script_offsets_s (legacy),
-        truncated must default to False (else branch at generator.py:160)."""
+        """When MixedScene has empty script_onsets_s/script_offsets_s (legacy scenes
+        built without the three-timeline fields), truncated must default to False."""
         # 32 000 samples at 16 kHz = 2.0 s; turn ends at 2.0 s (within waveform).
         samples = np.zeros(32000, dtype=np.float32)
         scene = MixedScene(
