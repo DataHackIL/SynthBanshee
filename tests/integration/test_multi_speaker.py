@@ -16,7 +16,7 @@ import pytest
 
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
-from synthbanshee.script.types import DialogueTurn
+from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.mixer import SceneMixer
@@ -224,7 +224,7 @@ def _make_wav_bytes_16k(duration_s: float = 2.0) -> bytes:
 class TestOverlapLabelIntegration:
     """Integration: SceneMixer audible timeline → LabelGenerator → EventLabel timestamps."""
 
-    def _three_turn_scene(self, mix_mode_third: MixMode) -> object:
+    def _three_turn_scene(self, mix_mode_third: MixMode) -> MixedScene:
         """Mix three turns where the third uses the specified mix_mode."""
         mixer = SceneMixer()
         wav = _make_wav_bytes_16k(duration_s=2.0)

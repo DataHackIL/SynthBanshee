@@ -180,6 +180,11 @@ class LabelGenerator:
             # Floor zero-duration audible spans (fully-barged-in turns) to one
             # sample so the offset > onset validator is satisfied.
             safe_end = max(end, onset + _MIN_LABEL_DURATION_S)
+            # Clamp to scene duration so the label doesn't extend past the
+            # waveform.  Skip the clamp if scene.duration_s <= onset to avoid
+            # pushing safe_end back to onset and violating offset > onset.
+            if scene.duration_s > onset:
+                safe_end = min(safe_end, scene.duration_s)
             event_id = f"{clip_id}_EVT_{idx:03d}"
             labels.append(
                 EventLabel(
