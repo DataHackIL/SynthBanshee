@@ -4,11 +4,14 @@ Replaces fixed ``pause_before_s`` values with context-sensitive silence duration
 drawn from project-specific tables (spec §4.5).  All draws are reproducible via
 a caller-supplied ``random.Random`` instance seeded from the scene's ``random_seed``.
 
-At I3–I5 intensities, the controller also decides whether the current turn
-*overlaps* or *barges in* on the previous turn, according to the asymmetric
-probability tables in §4.6.  When overlap/barge-in is selected, the returned
-amount is drawn from a fixed range representing the depth of the interruption
-rather than a silence gap.
+At all intensities the controller checks whether the current turn *overlaps* or
+*barges in* on the previous turn, according to the asymmetric probability tables
+in §4.6.  Low-intensity (I1–I2) transitions carry small non-zero probabilities so
+that confusor scenes receive realistic overlap without the model learning
+"overlap = violence".  High-intensity (I3–I5) transitions carry higher
+probabilities matching the dominant-behaviour pattern in the spec.  When
+overlap/barge-in is selected, the returned amount is drawn from a fixed range
+representing the depth of the interruption rather than a silence gap.
 
 Gap table reference: docs/audio_generation_v3_design.md §4.5
 Overlap probability table: docs/audio_generation_v3_design.md §4.6
@@ -97,6 +100,10 @@ _AGG_PAUSE_PROB = 0.30
 # ---------------------------------------------------------------------------
 
 _OVERLAP_PROBS: dict[tuple[str, str, int], tuple[float, float]] = {
+    # AGG cuts off VIC at I1–I2 (confusor/low-intensity scenes — spec §4.6 note)
+    # Non-zero rates prevent the model from learning "overlap = violence".
+    ("VIC", "AGG", 1): (0.02, 0.05),
+    ("VIC", "AGG", 2): (0.05, 0.08),
     # AGG cuts off VIC at I3–I5 (spec §4.6 table rows 1–3)
     ("VIC", "AGG", 3): (0.10, 0.15),
     ("VIC", "AGG", 4): (0.25, 0.20),

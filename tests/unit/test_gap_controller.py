@@ -187,13 +187,19 @@ class TestAGGSheProves:
         agg = _turn("AGG_M_30-45_001", 1)
         draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
-        assert _all_in_range(_gaps_only(draws), lo, hi)
+        # Since M8b added low-intensity confusor overlap, filter to SEQUENTIAL only.
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        assert seq_gaps, "expected at least one SEQUENTIAL draw for AGG intensity 1"
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_agg_i2_low_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 2)
         draws = _draw_many(self.ctrl, agg, self.prev, "AGG", prev_role="VIC")
         lo, hi = _SHE_PROVES_GAPS["agg_low"]
-        assert _all_in_range(_gaps_only(draws), lo, hi)
+        # Since M8b added low-intensity confusor overlap, filter to SEQUENTIAL only.
+        seq_gaps = [g for g, m in draws if m == MixMode.SEQUENTIAL]
+        assert seq_gaps, "expected at least one SEQUENTIAL draw for AGG intensity 2"
+        assert _all_in_range(seq_gaps, lo, hi)
 
     def test_agg_i3_high_range(self) -> None:
         agg = _turn("AGG_M_30-45_001", 3)
@@ -361,12 +367,32 @@ class TestOverlapModeSelection:
         overlap_rate = counts[MixMode.OVERLAP] / 1000
         assert 0.05 <= overlap_rate <= 0.20, f"expected ~10%, got {overlap_rate:.2%}"
 
-    def test_agg_i1_always_sequential(self) -> None:
-        """AGG at I1–I2 must never produce OVERLAP or BARGE_IN."""
-        for intensity in (1, 2):
+    def test_agg_i1_i2_confusor_overlap_rates(self) -> None:
+        """AGG at I1–I2 now has small non-zero overlap rates for confusor realism (M8b).
+        Rates: I1 BARGE_IN≈2%, OVERLAP≈5%; I2 BARGE_IN≈5%, OVERLAP≈8%.
+        Both lower and upper bounds are checked so the test fails if rates regress to 0%.
+        """
+        # (intensity, min_barge_in, max_barge_in, min_overlap, max_overlap)
+        cases = [
+            (1, 0.005, 0.08, 0.02, 0.12),
+            (2, 0.02, 0.12, 0.04, 0.18),
+        ]
+        for intensity, min_barge_in, max_barge_in, min_overlap, max_overlap in cases:
             counts = self._mode_counts(_turn("AGG_M_30-45_001", intensity), "AGG", prev_role="VIC")
-            assert counts[MixMode.OVERLAP] == 0
-            assert counts[MixMode.BARGE_IN] == 0
+            barge_in_rate = counts[MixMode.BARGE_IN] / 1000
+            overlap_rate = counts[MixMode.OVERLAP] / 1000
+            assert barge_in_rate >= min_barge_in, (
+                f"I{intensity} BARGE_IN rate {barge_in_rate:.2%} below minimum {min_barge_in:.1%}"
+            )
+            assert barge_in_rate <= max_barge_in, (
+                f"I{intensity} BARGE_IN rate {barge_in_rate:.2%} exceeds {max_barge_in:.0%}"
+            )
+            assert overlap_rate >= min_overlap, (
+                f"I{intensity} OVERLAP rate {overlap_rate:.2%} below minimum {min_overlap:.1%}"
+            )
+            assert overlap_rate <= max_overlap, (
+                f"I{intensity} OVERLAP rate {overlap_rate:.2%} exceeds {max_overlap:.0%}"
+            )
 
     def test_same_role_never_overlaps(self) -> None:
         """Same-role transitions (AGG→AGG) must always be SEQUENTIAL per §4.6."""
