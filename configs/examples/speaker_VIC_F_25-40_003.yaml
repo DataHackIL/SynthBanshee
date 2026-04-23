@@ -1,0 +1,69 @@
+# Speaker persona — Female victim, age 25–40, instance 003
+# Google Cloud TTS Chirp 3 HD variant — provides backend diversity.
+#
+# Verify the voice ID against the current Google catalog:
+#   gcloud text-to-speech voices list --language-code=he-IL --filter="name~Chirp3"
+#
+# This speaker uses tts_provider: google so TTSRenderer routes synthesis
+# through GoogleProvider (requires [google-tts] extra and
+# GOOGLE_APPLICATION_CREDENTIALS env var).
+
+speaker_id: VIC_F_25-40_003
+role: VIC
+gender: female
+age_range: "25-40"
+context: she_proves
+
+# --- Google Cloud TTS voice ---
+tts_voice_id: he-IL-Chirp3-HD-Bet    # Female Chirp 3 HD — verify with gcloud
+tts_provider: google
+
+# --- Baseline prosody ---
+prosody_baseline:
+  rate: 0.97
+  pitch_hz: 200
+  volume_db: 0
+
+# --- Style / emotional range ---
+# Google does not support <mstts:express-as>; style field is metadata only.
+# M2a: VIC pitch lowered to adult range (-4 → -1 st across I1 → I5).
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 0.95
+    pitch_delta_st: -4
+    volume_delta_db: 0
+    rms_target_dbfs: -26
+  2:
+    style: "General"
+    rate_multiplier: 0.97
+    pitch_delta_st: -3
+    volume_delta_db: -1
+    rms_target_dbfs: -27
+  3:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: -2
+    volume_delta_db: -2
+    rms_target_dbfs: -28
+  4:
+    style: "General"
+    rate_multiplier: 1.02
+    pitch_delta_st: -1
+    volume_delta_db: -3
+    rms_target_dbfs: -29
+  5:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: -1
+    volume_delta_db: -4
+    rms_target_dbfs: -30
+
+# --- Disfluency profile ---
+disfluency:
+  filled_pause_prob: 0.12
+  false_start_prob: 0.06
+  truncation_prob: 0.03
+
+# --- Split assignment ---
+split: train

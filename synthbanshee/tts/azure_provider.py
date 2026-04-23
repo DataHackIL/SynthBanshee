@@ -12,11 +12,22 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
+from synthbanshee.tts.provider import ProviderCapabilities
+
 
 class SpeechSDKProtocol(Protocol):
     """Protocol for dependency injection / testing without real Azure credentials."""
 
     def speak_ssml_async(self, ssml: str): ...
+
+
+_AZURE_CAPABILITIES = ProviderCapabilities(
+    supports_ssml=True,
+    supports_style_tags=True,
+    supports_phoneme_tags=True,
+    supports_api_emotion_sliders=False,
+    max_volume_delta_db=None,
+)
 
 
 class AzureProvider:
@@ -93,6 +104,11 @@ class AzureProvider:
         if not isinstance(audio_data, bytes | bytearray):
             raise RuntimeError(f"Unexpected audio_data type: {type(audio_data)}")
         return bytes(audio_data)
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Return Azure TTS capability matrix."""
+        return _AZURE_CAPABILITIES
 
     def is_configured(self) -> bool:
         """Return True if credentials are present in the environment."""
