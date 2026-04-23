@@ -1,0 +1,72 @@
+# Speaker persona — Male aggressor, age 30–45, instance 002
+# Google Cloud TTS Chirp 3 HD variant — provides backend diversity.
+#
+# Verify the voice ID against the current Google catalog:
+#   gcloud text-to-speech voices list --language-code=he-IL --filter="name~Chirp3"
+#
+# This speaker uses tts_provider: google so TTSRenderer routes synthesis
+# through GoogleProvider (requires [google-tts] extra and
+# GOOGLE_APPLICATION_CREDENTIALS env var).
+
+speaker_id: AGG_M_30-45_002
+role: AGG
+gender: male
+age_range: "30-45"
+context: she_proves
+
+# --- Google Cloud TTS voice ---
+tts_voice_id: he-IL-Chirp3-HD-Alef   # Male Chirp 3 HD — verify with gcloud
+tts_provider: google
+
+# --- Baseline prosody ---
+# Google TTS maps <prosody rate/pitch/volume> identically to Azure for
+# standard SSML attributes.  <mstts:express-as> is omitted automatically.
+prosody_baseline:
+  rate: 1.05
+  pitch_hz: 115
+  volume_db: 0
+
+# --- Style / emotional range ---
+# Google does not support <mstts:express-as>; the style field is stored
+# for metadata consistency but has no effect on synthesis.  Expressiveness
+# is carried by rate, pitch, and volume escalation only.
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0
+    volume_delta_db: 0
+    rms_target_dbfs: -28
+  2:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: 0
+    volume_delta_db: +2
+    rms_target_dbfs: -25
+  3:
+    style: "General"
+    rate_multiplier: 1.15
+    pitch_delta_st: 0
+    volume_delta_db: +5
+    rms_target_dbfs: -22
+  4:
+    style: "General"
+    rate_multiplier: 1.20
+    pitch_delta_st: +1
+    volume_delta_db: +9
+    rms_target_dbfs: -19
+  5:
+    style: "General"
+    rate_multiplier: 1.25
+    pitch_delta_st: +1
+    volume_delta_db: +13
+    rms_target_dbfs: -15
+
+# --- Disfluency profile ---
+disfluency:
+  filled_pause_prob: 0.04
+  false_start_prob: 0.02
+  truncation_prob: 0.01
+
+# --- Split assignment ---
+split: train

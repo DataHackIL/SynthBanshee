@@ -1,8 +1,9 @@
-"""SSML document builder for Azure Cognitive Services he-IL voices.
+"""SSML document builder for he-IL TTS voices (Azure and Google).
 
 Generates SSML 1.1 documents with:
   - <voice> elements for each speaker
-  - <mstts:express-as> style tags (angry, cheerful, sad, etc.)
+  - <mstts:express-as> style tags (Azure only — omitted when
+    ``supports_style_tags=False``)
   - <prosody> elements for rate, pitch, and volume control
   - Nested per-phrase <prosody> + <break> elements (M2b)
 
@@ -135,36 +136,54 @@ def _apply_phrase_prosody(
 
 
 class SSMLBuilder:
-    """Build SSML documents for Azure he-IL TTS rendering."""
+    """Build SSML documents for he-IL TTS rendering (Azure and Google)."""
 
-    def build_single(self, utt: UtteranceSpec) -> str:
-        """Build an SSML document for a single utterance."""
-        return self.build_multi([utt])
+    def build_single(self, utt: UtteranceSpec, *, supports_style_tags: bool = True) -> str:
+        """Build an SSML document for a single utterance.
 
-    def build_multi(self, utterances: list[UtteranceSpec]) -> str:
+        Args:
+            utt: Utterance specification.
+            supports_style_tags: When False, ``<mstts:express-as>`` elements
+                and the ``xmlns:mstts`` namespace declaration are omitted.
+                Set to False for Google TTS and any non-Azure backend.
+        """
+        return self.build_multi([utt], supports_style_tags=supports_style_tags)
+
+    def build_multi(
+        self,
+        utterances: list[UtteranceSpec],
+        *,
+        supports_style_tags: bool = True,
+    ) -> str:
         """Build an SSML document containing multiple utterances.
 
         Each utterance is wrapped in its own <voice> block, so different
-        voices can appear in the same request (Azure supports this).
+        voices can appear in the same request.
+
+        Args:
+            utterances: List of utterance specifications.
+            supports_style_tags: When False, ``<mstts:express-as>`` elements
+                are omitted.  Use False for Google TTS.
         """
         ET.register_namespace("", _AZURE_XMLNS)
-        ET.register_namespace("mstts", _MSTTS_XMLNS)
 
-        speak = ET.Element(
-            "speak",
-            attrib={
-                "version": "1.0",
-                "xmlns": _AZURE_XMLNS,
-                "xmlns:mstts": _MSTTS_XMLNS,
-                "xml:lang": _SPEAK_LANG,
-            },
-        )
+        speak_attribs: dict[str, str] = {
+            "version": "1.0",
+            "xmlns": _AZURE_XMLNS,
+            "xml:lang": _SPEAK_LANG,
+        }
+        if supports_style_tags:
+            ET.register_namespace("mstts", _MSTTS_XMLNS)
+            speak_attribs["xmlns:mstts"] = _MSTTS_XMLNS
+
+        speak = ET.Element("speak", attrib=speak_attribs)
 
         for utt in utterances:
             voice = ET.SubElement(speak, "voice", attrib={"name": utt.voice_id})
 
-            # Add express-as only when a non-default style is requested
-            if utt.style and utt.style.lower() not in {"general", ""}:
+            # Add express-as only when a non-default style is requested AND
+            # the backend supports Azure-style tags.
+            if supports_style_tags and utt.style and utt.style.lower() not in {"general", ""}:
                 express = ET.SubElement(
                     voice,
                     "mstts:express-as",
@@ -205,8 +224,15 @@ class SSMLBuilder:
         pitch_delta_st: float = 0.0,
         volume_delta_db: float = 0.0,
         phrase_prosody: list[PhraseProsody] | None = None,
+        *,
+        supports_style_tags: bool = True,
     ) -> str:
-        """Convenience wrapper used by the Azure provider."""
+        """Convenience wrapper used by the render pipeline.
+
+        Args:
+            supports_style_tags: Forwarded to ``build_single``.  Pass
+                ``provider.capabilities.supports_style_tags`` here.
+        """
         utt = UtteranceSpec(
             text=text,
             voice_id=voice_id,
@@ -216,4 +242,4 @@ class SSMLBuilder:
             volume_delta_db=volume_delta_db,
             phrase_prosody=phrase_prosody or [],
         )
-        return self.build_single(utt)
+        return self.build_single(utt, supports_style_tags=supports_style_tags)
