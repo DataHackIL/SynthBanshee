@@ -216,8 +216,12 @@ temp/*
 assets/
 data/
 
-# Splendor — transient state (wiki/ and planning/ are tracked)
-state/
+# Splendor — durable: wiki/, planning/, splendor.yaml, state/manifests/
+# Transient operational state (not tracked)
+state/queue/
+state/runs/
+state/queries/
+state/locks/
 raw/
 derived/
 reports/

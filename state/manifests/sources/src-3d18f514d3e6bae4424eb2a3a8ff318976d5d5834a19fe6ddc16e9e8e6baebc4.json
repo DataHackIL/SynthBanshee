@@ -1,0 +1,52 @@
+{
+  "added_at": "2026-04-30T20:07:22+00:00",
+  "checksum": "3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4",
+  "derived_artifacts": [],
+  "discovered_by": null,
+  "generated_by_run_ids": [
+    "run-src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4-20260430T200753740010Z"
+  ],
+  "kind": "source",
+  "last_run_id": "run-src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4-20260430T200753740010Z",
+  "linked_pages": [
+    "wiki/sources/src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4.md"
+  ],
+  "materialized_at": null,
+  "origin_url": null,
+  "original_path": "synthbanshee/tts/ssml_builder.py",
+  "path": "synthbanshee/tts/ssml_builder.py",
+  "pipeline_version": "0.1.0a0",
+  "provenance_links": [
+    {
+      "note": null,
+      "page_id": "src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4",
+      "path_ref": "wiki/sources/src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4.md",
+      "role": "generated-page",
+      "run_id": null,
+      "source_id": null
+    },
+    {
+      "note": null,
+      "page_id": null,
+      "path_ref": null,
+      "role": "output",
+      "run_id": "run-src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4-20260430T200753740010Z",
+      "source_id": "src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4"
+    }
+  ],
+  "review_state": "unreviewed",
+  "reviewed_at": null,
+  "reviewed_by": null,
+  "schema_version": "1",
+  "source_class": null,
+  "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_id": "src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4",
+  "source_labels": [],
+  "source_ref": "synthbanshee/tts/ssml_builder.py",
+  "source_ref_kind": "workspace_path",
+  "source_type": "py",
+  "status": "ingested",
+  "storage_mode": "none",
+  "storage_path": null,
+  "title": "ssml builder"
+}
