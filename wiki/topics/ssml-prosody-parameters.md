@@ -24,19 +24,23 @@ This page tracks the SSML prosody configuration used for Azure TTS rendering, ho
 2. `SpeakerState` (`synthbanshee/tts/speaker_state.py`) maintains per-speaker state across turns (M7), allowing intensity drift and carry-over.
 3. `StyleEntry` in speaker config defines per-intensity SSML parameters.
 
-## Key Parameters per Intensity Level
+## Recommended Parameters per Intensity Level (from Research Synthesis)
 
-Need to audit `ssml_builder.py` to document exact values for:
+Based on cross-referencing three independent research reports and Hebrew-specific prosody studies (T-RES, Amir et al. 2003, Silber-Varod 2016):
 
-| Intensity | Rate | Pitch | Volume | express-as style |
-|-----------|------|-------|--------|-----------------|
-| I1 | ? | ? | ? | ? |
-| I2 | ? | ? | ? | ? |
-| I3 | ? | ? | ? | ? |
-| I4 | ? | ? | ? | ? |
-| I5 | ? | ? | ? | ? |
+| Intensity | Rate | Pitch (M) | Pitch (F) | Volume | F0 Range | express-as |
+|-----------|------|-----------|-----------|--------|----------|------------|
+| I1 (calm) | -6% to +2% | -3% to +2% | -3% to +2% | baseline | -10% to 0% | **NONE** |
+| I2 (neutral) | 0% to +4% | -2% to +2% | -2% to +3% | baseline | baseline | **NONE** |
+| I3 (irritation) | +2% to +8% | -1% to +3% | 0% to +5% | +2 to +4 dB | +10% to +25% | **NONE** |
+| I4 (anger) | +4% to +12% | -1% to +5% | +2% to +7% | +6 to +10 dB | +25% to +50% | **NONE** |
+| I5 (shouting) | +8% to +15% | 0% to +5% | +4% to +10% | +10 to +15 dB | +35% to +60% | **NONE** |
 
-**TODO:** Fill this table from actual code inspection.
+**Key:** `express-as` is set to NONE because Azure `mstts:express-as` styles are NOT supported for he-IL voices. Use `<prosody>` tags only.
+
+**Break timing:** 150ms after commas; 180-350ms between sentences; 400-700ms at major boundaries.
+
+**Hebrew speaking rate reference:** Neutral baseline ~4.4-5.2 syll/sec; anger ~4.95 syll/sec; professional newscaster ~5.9 syll/sec. Below 4.5 SPS sounds unnaturally slow.
 
 ## Known Issues from Listening Feedback
 
