@@ -15,7 +15,7 @@ age_range: "30-45"
 context: she_proves
 
 # --- Google Cloud TTS voice ---
-tts_voice_id: he-IL-Chirp3-HD-Alef   # Male Chirp 3 HD — verify with gcloud
+tts_voice_id: he-IL-Chirp3-HD-Achird
 tts_provider: google
 
 # --- Baseline prosody ---

@@ -12,10 +12,10 @@ Voice IDs to use in speaker YAMLs (verify against the current catalog):
         --filter="name~Chirp3"
 
 Known Chirp 3 HD he-IL voices (as of 2026-04):
-    he-IL-Chirp3-HD-Alef   — male
-    he-IL-Chirp3-HD-Bet    — female
+    he-IL-Chirp3-HD-Achird   — male
+    he-IL-Chirp3-HD-Achernar    — female
 
-Set ``tts_provider: google`` and ``tts_voice_id: he-IL-Chirp3-HD-Alef``
+Set ``tts_provider: google`` and ``tts_voice_id: he-IL-Chirp3-HD-Achird``
 (or Bet) in a speaker YAML to route synthesis through this provider.
 """
 

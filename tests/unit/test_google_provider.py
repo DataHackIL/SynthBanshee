@@ -106,7 +106,7 @@ class TestGoogleProvider:
         builder = SSMLBuilder()
         ssml = builder.build_from_speaker_config(
             text="שלום",
-            voice_id="he-IL-Chirp3-HD-Alef",
+            voice_id="he-IL-Chirp3-HD-Achird",
             style="General",
             supports_style_tags=False,
         )
@@ -122,7 +122,7 @@ class TestGoogleProvider:
         builder = SSMLBuilder()
         ssml = builder.build_from_speaker_config(
             text="שלום",
-            voice_id="he-IL-Chirp3-HD-Bet",
+            voice_id="he-IL-Chirp3-HD-Achernar",
             style="General",
             supports_style_tags=False,
         )
@@ -149,7 +149,7 @@ class TestGoogleProvider:
         builder = SSMLBuilder()
         ssml = builder.build_from_speaker_config(
             text="test",
-            voice_id="he-IL-Chirp3-HD-Alef",
+            voice_id="he-IL-Chirp3-HD-Achird",
             style="General",
             supports_style_tags=False,
         )
@@ -183,7 +183,7 @@ class TestSSMLBuilderGoogleMode:
     def test_no_mstts_namespace_for_google(self):
         utt = UtteranceSpec(
             text="hello",
-            voice_id="he-IL-Chirp3-HD-Alef",
+            voice_id="he-IL-Chirp3-HD-Achird",
             style="angry",
         )
         ssml = self.builder.build_single(utt, supports_style_tags=False)
@@ -191,7 +191,7 @@ class TestSSMLBuilderGoogleMode:
         assert "express-as" not in ssml
 
     def test_no_express_as_even_with_non_general_style(self):
-        utt = UtteranceSpec(text="hi", voice_id="he-IL-Chirp3-HD-Bet", style="angry")
+        utt = UtteranceSpec(text="hi", voice_id="he-IL-Chirp3-HD-Achernar", style="angry")
         ssml = self.builder.build_single(utt, supports_style_tags=False)
         assert "express-as" not in ssml
 
@@ -204,7 +204,7 @@ class TestSSMLBuilderGoogleMode:
     def test_prosody_still_present_in_google_mode(self):
         utt = UtteranceSpec(
             text="hi",
-            voice_id="he-IL-Chirp3-HD-Alef",
+            voice_id="he-IL-Chirp3-HD-Achird",
             style="General",
             rate_multiplier=1.2,
             pitch_delta_st=2.0,
@@ -215,13 +215,13 @@ class TestSSMLBuilderGoogleMode:
     def test_build_from_speaker_config_google(self):
         ssml = self.builder.build_from_speaker_config(
             text="test",
-            voice_id="he-IL-Chirp3-HD-Alef",
+            voice_id="he-IL-Chirp3-HD-Achird",
             style="angry",
             rate_multiplier=1.1,
             supports_style_tags=False,
         )
         assert "mstts" not in ssml
-        assert "he-IL-Chirp3-HD-Alef" in ssml
+        assert "he-IL-Chirp3-HD-Achird" in ssml
 
 
 # ---------------------------------------------------------------------------
@@ -351,12 +351,12 @@ class TestTTSRendererMultiProvider:
 
 class TestExtractVoiceName:
     def test_extracts_double_quoted(self):
-        ssml = '<speak><voice name="he-IL-Chirp3-HD-Alef">text</voice></speak>'
-        assert _extract_voice_name(ssml) == "he-IL-Chirp3-HD-Alef"
+        ssml = '<speak><voice name="he-IL-Chirp3-HD-Achird">text</voice></speak>'
+        assert _extract_voice_name(ssml) == "he-IL-Chirp3-HD-Achird"
 
     def test_extracts_single_quoted(self):
-        ssml = "<speak><voice name='he-IL-Chirp3-HD-Bet'>text</voice></speak>"
-        assert _extract_voice_name(ssml) == "he-IL-Chirp3-HD-Bet"
+        ssml = "<speak><voice name='he-IL-Chirp3-HD-Achernar'>text</voice></speak>"
+        assert _extract_voice_name(ssml) == "he-IL-Chirp3-HD-Achernar"
 
     def test_returns_empty_when_absent(self):
         assert _extract_voice_name("<speak>no voice</speak>") == ""
