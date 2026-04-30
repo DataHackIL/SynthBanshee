@@ -70,7 +70,6 @@ class DatasetStats:
     # M10a acoustic metric counters
     acoustic_warnings: dict[str, int] = field(default_factory=dict)
     clips_with_acoustic_warnings: int = 0
-    normalization_rule_frequency: dict[str, int] = field(default_factory=dict)
     ambiguous_token_clips: int = 0
 
 
@@ -123,20 +122,18 @@ def _check_acoustic_warnings(
     return warnings
 
 
-def _check_gender_ambiguity(jsonl_path: Path) -> tuple[bool, dict[str, int]]:
+def _check_gender_ambiguity(jsonl_path: Path) -> bool:
     """Check for unvocalized high-risk tokens in AGG speaker events.
 
-    Returns ``(has_ambiguity, rule_frequency)`` where ``rule_frequency``
-    counts ``normalization_rules_triggered`` occurrences across all events.
+    Returns ``True`` if any AGG event's ``notes`` field contains an
+    unvocalized Hebrew surface form from the disambiguation lexicon.
     """
     from synthbanshee.script.hebrew_disambiguator import unvocalized_surfaces
 
     surfaces = unvocalized_surfaces()
-    rule_freq: dict[str, int] = defaultdict(int)
-    has_ambiguity = False
 
     if not jsonl_path.exists():
-        return False, {}
+        return False
 
     for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -150,14 +147,11 @@ def _check_gender_ambiguity(jsonl_path: Path) -> tuple[bool, dict[str, int]]:
         if ev.speaker_role != "AGG" or ev.notes is None:
             continue
 
-        # Check if any unvocalized surface form appears in the notes field
-        # (notes carries the text_spoken content for generated clips)
         for surface in surfaces:
             if surface in ev.notes:
-                has_ambiguity = True
-                break
+                return True
 
-    return has_ambiguity, dict(rule_freq)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -252,14 +246,9 @@ def run_qa(
 
             # Gender ambiguity warning
             try:
-                has_ambiguity, rule_freq = _check_gender_ambiguity(jsonl_path)
-                if has_ambiguity:
+                if _check_gender_ambiguity(jsonl_path):
                     clip_warnings.append("WARN_GENDER_AMBIGUITY")
                     stats.ambiguous_token_clips += 1
-                for rule, count in rule_freq.items():
-                    stats.normalization_rule_frequency[rule] = (
-                        stats.normalization_rule_frequency.get(rule, 0) + count
-                    )
             except Exception:
                 logger.debug("Gender ambiguity check failed for %s", wav_path.stem)
 

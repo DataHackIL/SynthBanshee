@@ -443,42 +443,51 @@ class TestCheckAcousticWarnings:
 
 class TestCheckGenderAmbiguity:
     def test_no_ambiguity_when_no_jsonl(self, tmp_path):
-        has, freq = _check_gender_ambiguity(tmp_path / "nonexistent.jsonl")
-        assert has is False
-        assert freq == {}
+        assert _check_gender_ambiguity(tmp_path / "nonexistent.jsonl") is False
 
     def test_no_ambiguity_for_clean_events(self, tmp_path):
         """Events without unvocalized surface forms should not trigger."""
         jsonl = tmp_path / "clip_001.jsonl"
         ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="some clean text")
         _write_jsonl_events(jsonl, [ev])
-        has, _ = _check_gender_ambiguity(jsonl)
-        assert has is False
+        assert _check_gender_ambiguity(jsonl) is False
 
     def test_ambiguity_detected_in_agg_notes(self, tmp_path):
         """Unvocalized surface form in AGG notes should trigger."""
         jsonl = tmp_path / "clip_001.jsonl"
-        # "שלך" is a known unvocalized surface form
         ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="אני אומר שלך")
         _write_jsonl_events(jsonl, [ev])
-        has, _ = _check_gender_ambiguity(jsonl)
-        assert has is True
+        assert _check_gender_ambiguity(jsonl) is True
 
     def test_no_ambiguity_for_vic_role(self, tmp_path):
         """Unvocalized forms in VIC events should NOT trigger (AGG-only)."""
         jsonl = tmp_path / "clip_001.jsonl"
         ev = _make_event("clip_001", 0.1, 0.9, 1, "VIC", notes="שלך")
         _write_jsonl_events(jsonl, [ev])
-        has, _ = _check_gender_ambiguity(jsonl)
-        assert has is False
+        assert _check_gender_ambiguity(jsonl) is False
 
     def test_no_ambiguity_when_notes_is_none(self, tmp_path):
         """Events without notes should not trigger."""
         jsonl = tmp_path / "clip_001.jsonl"
         ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG")
         _write_jsonl_events(jsonl, [ev])
-        has, _ = _check_gender_ambiguity(jsonl)
-        assert has is False
+        assert _check_gender_ambiguity(jsonl) is False
+
+    def test_empty_lines_in_jsonl_skipped(self, tmp_path):
+        """Empty lines in JSONL should be silently skipped."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="clean text")
+        lines = ["", json.dumps(ev), "", ""]
+        jsonl.write_text("\n".join(lines), encoding="utf-8")
+        assert _check_gender_ambiguity(jsonl) is False
+
+    def test_malformed_jsonl_line_skipped(self, tmp_path):
+        """Malformed JSONL lines in gender check should be silently skipped."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="clean text")
+        lines = [json.dumps(ev), "not valid json"]
+        jsonl.write_text("\n".join(lines), encoding="utf-8")
+        assert _check_gender_ambiguity(jsonl) is False
 
 
 # ---------------------------------------------------------------------------
@@ -500,10 +509,62 @@ class TestRunQAAcousticWarnings:
         report = run_qa(tmp_path)
         assert hasattr(report.stats, "acoustic_warnings")
         assert hasattr(report.stats, "clips_with_acoustic_warnings")
-        assert hasattr(report.stats, "normalization_rule_frequency")
         assert hasattr(report.stats, "ambiguous_token_clips")
 
     def test_qa_report_acoustic_warnings_field(self, tmp_path):
         """QAReport has acoustic_warnings dict."""
         report = run_qa(tmp_path)
         assert isinstance(report.acoustic_warnings, dict)
+
+    def test_run_qa_with_jsonl_runs_acoustic_checks(self, tmp_path):
+        """Clips with JSONL should have acoustic checks run (no warnings for clean clip)."""
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
+        _write_jsonl_events(wav, [ev])
+        report = run_qa(tmp_path)
+        assert report.stats.total_clips == 1
+        # No warnings expected for a clean tone clip at I1
+        assert report.stats.clips_with_acoustic_warnings == 0
+
+    def test_run_qa_gender_ambiguity_counted(self, tmp_path):
+        """Gender ambiguity in AGG notes should be counted in run_qa stats."""
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG", notes="אני אומר שלך")
+        _write_jsonl_events(wav, [ev])
+        report = run_qa(tmp_path)
+        assert report.stats.ambiguous_token_clips == 1
+        assert report.stats.clips_with_acoustic_warnings == 1
+        assert "clip_001_00" in report.acoustic_warnings
+        assert "WARN_GENDER_AMBIGUITY" in report.acoustic_warnings["clip_001_00"]
+        assert report.stats.acoustic_warnings.get("WARN_GENDER_AMBIGUITY") == 1
+
+    def test_run_qa_acoustic_measurement_exception_handled(self, tmp_path):
+        """If measure_clip raises, the clip still passes QA (graceful fallback)."""
+        from unittest.mock import patch
+
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
+        _write_jsonl_events(wav, [ev])
+
+        with patch("synthbanshee.package.qa.measure_clip", side_effect=RuntimeError("boom")):
+            report = run_qa(tmp_path)
+
+        assert report.stats.total_clips == 1
+        assert report.stats.failed_clips == 0
+
+    def test_run_qa_gender_ambiguity_exception_handled(self, tmp_path):
+        """If _check_gender_ambiguity raises, the clip still passes QA."""
+        from unittest.mock import patch
+
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
+        _write_jsonl_events(wav, [ev])
+
+        with patch(
+            "synthbanshee.package.qa._check_gender_ambiguity",
+            side_effect=RuntimeError("boom"),
+        ):
+            report = run_qa(tmp_path)
+
+        assert report.stats.total_clips == 1
+        assert report.stats.failed_clips == 0

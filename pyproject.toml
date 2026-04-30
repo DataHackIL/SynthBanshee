@@ -44,6 +44,7 @@ dependencies = [
 
     # --- Dataset QA ---
     "librosa>=0.10",           # Audio analysis, SNR estimation, spectrogram QA
+    "pyloudnorm>=0.1",         # ITU-R BS.1770-4 loudness measurement (M10a)
 ]
 
 [project.optional-dependencies]
