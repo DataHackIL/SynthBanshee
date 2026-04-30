@@ -108,7 +108,7 @@ class TestMeasureSegment:
         assert rms_loud_half > rms_quiet_half + 20  # at least 20 dB difference
 
     def test_too_short_returns_sentinel(self):
-        """Segments shorter than 50 ms return (None, None, -96.0)."""
+        """Segments shorter than 50 ms return sentinel SegmentMeasurement."""
         samples = _sine(220.0, 0.02)  # 20 ms
         f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 0.02)
         assert f0 is None

@@ -34,6 +34,7 @@ jobs:
             pydantic pyyaml jinja2 soundfile numpy scipy \
             click rich jsonlines \
             pyroomacoustics \
+            librosa pyloudnorm \
             pytest pytest-asyncio pytest-cov
 
       - name: Install package

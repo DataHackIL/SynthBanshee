@@ -31,9 +31,8 @@ _QUALITY_FLAGS = frozenset(
         "synthetic_artifact",
         "emotion_downgrade",  # LLM emotional_state mapped via alias; not in taxonomy verbatim
         # M10a per-clip acoustic QA warnings
-        "WARN_VIC_F0_HIGH",  # VIC median F0 at I4–I5 > 250 Hz
-        "WARN_AGG_NO_ESCALATION",  # AGG RMS range (I5 − I1) < 6 dB
-        "WARN_GENDER_AMBIGUITY",  # unvocalized high-risk token in AGG text_spoken
+        "vic_f0_high",  # VIC median F0 at I4–I5 > 250 Hz
+        "agg_no_escalation",  # AGG RMS range (I5 − I1) < 6 dB
     }
 )
 

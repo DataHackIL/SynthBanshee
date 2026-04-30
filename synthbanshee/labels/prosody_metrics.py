@@ -17,9 +17,20 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 import soundfile as sf
+
+
+class SegmentMeasurement(NamedTuple):
+    """Acoustic measurements returned by :func:`_measure_segment`."""
+
+    f0_median_hz: float | None
+    f0_std_hz: float | None
+    rms_db: float
+    lufs_db: float | None
+
 
 # ---------------------------------------------------------------------------
 # Threshold constants
@@ -48,7 +59,7 @@ class TurnMetrics:
             too short, fully unvoiced, or librosa is unavailable.
         f0_std_hz: Standard deviation of voiced F0 frames, or ``None``.
         rms_db: RMS level in dBFS (always present).
-        lufs_db: Short-term LUFS (ITU-R BS.1770-4) or ``None`` if the segment
+        lufs_db: Integrated LUFS (ITU-R BS.1770-4) or ``None`` if the segment
             is too short or pyloudnorm is unavailable.
     """
 
@@ -96,8 +107,8 @@ def _measure_segment(
     sr: int,
     onset_s: float,
     offset_s: float,
-) -> tuple[float | None, float | None, float, float | None]:
-    """Return ``(f0_median_hz, f0_std_hz, rms_db, lufs_db)`` for one segment.
+) -> SegmentMeasurement:
+    """Return acoustic measurements for one audio segment.
 
     Args:
         samples: Mono int16 or float32 audio array.
@@ -106,15 +117,14 @@ def _measure_segment(
         offset_s: Segment end time in seconds.
 
     Returns:
-        Tuple of F0 median (Hz or None), F0 std (Hz or None), RMS (dBFS),
-        LUFS (dB or None).
+        :class:`SegmentMeasurement` with F0, RMS, and LUFS fields.
     """
     start = max(0, int(onset_s * sr))
     end = min(len(samples), int(offset_s * sr))
     seg = samples[start:end].astype(np.float64)
 
     if len(seg) < int(sr * 0.05):  # < 50 ms — too short to analyse
-        return None, None, -96.0, None
+        return SegmentMeasurement(None, None, -96.0, None)
 
     # RMS in dBFS
     rms = float(np.sqrt(np.mean(seg**2)))
@@ -150,10 +160,12 @@ def _measure_segment(
         )
         voiced_f0 = f0[voiced_flag & np.isfinite(f0)]
         if len(voiced_f0) == 0:
-            return None, None, rms_db, lufs_db
-        return float(np.median(voiced_f0)), float(np.std(voiced_f0)), rms_db, lufs_db
+            return SegmentMeasurement(None, None, rms_db, lufs_db)
+        return SegmentMeasurement(
+            float(np.median(voiced_f0)), float(np.std(voiced_f0)), rms_db, lufs_db
+        )
     except ImportError:
-        return None, None, rms_db, lufs_db
+        return SegmentMeasurement(None, None, rms_db, lufs_db)
 
 
 # ---------------------------------------------------------------------------
@@ -205,17 +217,17 @@ def measure_clip(clip_path: Path) -> list[TurnMetrics]:
 
     results: list[TurnMetrics] = []
     for ev in role_events:
-        f0_med, f0_std, rms_db, lufs_db = _measure_segment(samples, sr, ev.onset, ev.offset)
+        m = _measure_segment(samples, sr, ev.onset, ev.offset)
         assert ev.speaker_role is not None  # narrowed above
         results.append(
             TurnMetrics(
                 clip_id=ev.clip_id,
                 speaker_role=ev.speaker_role,
                 intensity=ev.intensity,
-                f0_median_hz=f0_med,
-                f0_std_hz=f0_std,
-                rms_db=rms_db,
-                lufs_db=lufs_db,
+                f0_median_hz=m.f0_median_hz,
+                f0_std_hz=m.f0_std_hz,
+                rms_db=m.rms_db,
+                lufs_db=m.lufs_db,
             )
         )
     return results

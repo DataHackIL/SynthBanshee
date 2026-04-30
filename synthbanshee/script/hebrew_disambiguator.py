@@ -173,15 +173,6 @@ _COMPILED: tuple[tuple[LexiconEntry, re.Pattern[str]], ...] = tuple(
 )
 
 
-def unvocalized_surfaces() -> frozenset[str]:
-    """Return the set of unvocalized surface forms from the lexicon.
-
-    Used by M10a per-clip QA to detect gender-ambiguous tokens that were
-    not resolved by the disambiguation pipeline.
-    """
-    return frozenset(entry.surface for entry in _LEXICON)
-
-
 # ---------------------------------------------------------------------------
 # Public types
 # ---------------------------------------------------------------------------

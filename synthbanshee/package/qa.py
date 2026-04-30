@@ -12,9 +12,8 @@ Checks performed per clip (Stage 5 — Validation):
   5. Strong labels JSONL present alongside the clip (warning — not a hard error)
 
 M10a per-clip acoustic checks (when JSONL is present):
-  - WARN_VIC_F0_HIGH: VIC median F0 at I4–I5 > 250 Hz
-  - WARN_AGG_NO_ESCALATION: AGG RMS range (I5 − I1) < 6 dB
-  - WARN_GENDER_AMBIGUITY: unvocalized high-risk token in AGG speaker events
+  - vic_f0_high: VIC median F0 at I4–I5 > 250 Hz
+  - agg_no_escalation: AGG RMS range (I5 − I1) < 6 dB
 
 Dataset-level checks (via report.passed):
   - Failure rate ≤ max_failure_rate (default 2 %)
@@ -29,13 +28,14 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pydantic
 
 from synthbanshee.labels.prosody_metrics import (
     TurnMetrics,
     measure_clip,
 )
-from synthbanshee.labels.schema import ClipMetadata, EventLabel
+from synthbanshee.labels.schema import ClipMetadata
 from synthbanshee.package.validator import validate_clip
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 # M10a constants
 # ---------------------------------------------------------------------------
 
+# QA warning thresholds — intentionally looser than the hard pass/fail
+# thresholds in prosody_metrics.py (AGG_ESCALATION_MIN_DB = 8 dB).  The
+# 6 dB threshold here is a *warning* that flags clips for manual review;
+# the 8 dB threshold is a hard gate for merging prosody-config PRs.
 _VIC_F0_HIGH_HZ: float = 250.0
 _AGG_ESCALATION_MIN_DB: float = 6.0
 
@@ -70,7 +74,6 @@ class DatasetStats:
     # M10a acoustic metric counters
     acoustic_warnings: dict[str, int] = field(default_factory=dict)
     clips_with_acoustic_warnings: int = 0
-    ambiguous_token_clips: int = 0
 
 
 @dataclass
@@ -100,58 +103,26 @@ def _check_acoustic_warnings(
     """
     warnings: list[str] = []
 
-    # WARN_VIC_F0_HIGH: VIC median F0 at I4–I5 > 250 Hz
+    # vic_f0_high: VIC median F0 at I4–I5 > 250 Hz
     vic_high_intensity = [
         t
         for t in turns
         if t.speaker_role == "VIC" and t.intensity in (4, 5) and t.f0_median_hz is not None
     ]
-    if any(t.f0_median_hz > _VIC_F0_HIGH_HZ for t in vic_high_intensity):  # type: ignore[operator]
-        warnings.append("WARN_VIC_F0_HIGH")
+    if any(
+        t.f0_median_hz > _VIC_F0_HIGH_HZ for t in vic_high_intensity if t.f0_median_hz is not None
+    ):
+        warnings.append("vic_f0_high")
 
-    # WARN_AGG_NO_ESCALATION: AGG RMS range (I5 − I1) < 6 dB
+    # agg_no_escalation: AGG RMS range (I5 − I1) < 6 dB
     agg_i1 = [t.rms_db for t in turns if t.speaker_role == "AGG" and t.intensity == 1]
     agg_i5 = [t.rms_db for t in turns if t.speaker_role == "AGG" and t.intensity == 5]
     if agg_i1 and agg_i5:
-        import numpy as np
-
         delta = float(np.mean(agg_i5)) - float(np.mean(agg_i1))
         if delta < _AGG_ESCALATION_MIN_DB:
-            warnings.append("WARN_AGG_NO_ESCALATION")
+            warnings.append("agg_no_escalation")
 
     return warnings
-
-
-def _check_gender_ambiguity(jsonl_path: Path) -> bool:
-    """Check for unvocalized high-risk tokens in AGG speaker events.
-
-    Returns ``True`` if any AGG event's ``notes`` field contains an
-    unvocalized Hebrew surface form from the disambiguation lexicon.
-    """
-    from synthbanshee.script.hebrew_disambiguator import unvocalized_surfaces
-
-    surfaces = unvocalized_surfaces()
-
-    if not jsonl_path.exists():
-        return False
-
-    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            ev = EventLabel.model_validate_json(line)
-        except Exception:
-            continue
-
-        if ev.speaker_role != "AGG" or ev.notes is None:
-            continue
-
-        for surface in surfaces:
-            if surface in ev.notes:
-                return True
-
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -236,21 +207,12 @@ def run_qa(
         if jsonl_path.exists():
             clip_warnings: list[str] = []
 
-            # Prosody-based warnings (F0, RMS)
             try:
                 turns = measure_clip(wav_path)
                 if turns:
                     clip_warnings.extend(_check_acoustic_warnings(turns))
             except Exception:
-                logger.debug("Acoustic measurement failed for %s", wav_path.stem)
-
-            # Gender ambiguity warning
-            try:
-                if _check_gender_ambiguity(jsonl_path):
-                    clip_warnings.append("WARN_GENDER_AMBIGUITY")
-                    stats.ambiguous_token_clips += 1
-            except Exception:
-                logger.debug("Gender ambiguity check failed for %s", wav_path.stem)
+                logger.warning("Acoustic measurement failed for %s", wav_path.stem)
 
             if clip_warnings:
                 stats.clips_with_acoustic_warnings += 1

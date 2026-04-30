@@ -13,7 +13,6 @@ from synthbanshee.labels.prosody_metrics import TurnMetrics
 from synthbanshee.package.qa import (
     DatasetStats,
     _check_acoustic_warnings,
-    _check_gender_ambiguity,
     run_qa,
 )
 
@@ -381,7 +380,7 @@ class TestCheckAcousticWarnings:
             TurnMetrics("c1", "VIC", 5, 260.0, 10.0, -20.0),
         ]
         warnings = _check_acoustic_warnings(turns)
-        assert "WARN_VIC_F0_HIGH" in warnings
+        assert "vic_f0_high" in warnings
 
     def test_warn_vic_f0_high_not_triggered_at_low_intensity(self):
         """VIC F0 warning only applies to I4–I5, not lower intensities."""
@@ -402,7 +401,7 @@ class TestCheckAcousticWarnings:
             TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -16.0),  # 4 dB delta
         ]
         warnings = _check_acoustic_warnings(turns)
-        assert "WARN_AGG_NO_ESCALATION" in warnings
+        assert "agg_no_escalation" in warnings
 
     def test_warn_agg_no_escalation_not_triggered_at_threshold(self):
         """AGG I5 − I1 = 6 dB exactly should NOT trigger."""
@@ -427,67 +426,13 @@ class TestCheckAcousticWarnings:
             TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -18.0),  # 2 dB delta
         ]
         warnings = _check_acoustic_warnings(turns)
-        assert "WARN_VIC_F0_HIGH" in warnings
-        assert "WARN_AGG_NO_ESCALATION" in warnings
+        assert "vic_f0_high" in warnings
+        assert "agg_no_escalation" in warnings
 
     def test_vic_f0_none_skipped(self):
         """VIC turns with None F0 should not trigger the warning."""
         turns = [TurnMetrics("c1", "VIC", 5, None, None, -20.0)]
         assert _check_acoustic_warnings(turns) == []
-
-
-# ---------------------------------------------------------------------------
-# M10a: _check_gender_ambiguity
-# ---------------------------------------------------------------------------
-
-
-class TestCheckGenderAmbiguity:
-    def test_no_ambiguity_when_no_jsonl(self, tmp_path):
-        assert _check_gender_ambiguity(tmp_path / "nonexistent.jsonl") is False
-
-    def test_no_ambiguity_for_clean_events(self, tmp_path):
-        """Events without unvocalized surface forms should not trigger."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="some clean text")
-        _write_jsonl_events(jsonl, [ev])
-        assert _check_gender_ambiguity(jsonl) is False
-
-    def test_ambiguity_detected_in_agg_notes(self, tmp_path):
-        """Unvocalized surface form in AGG notes should trigger."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="אני אומר שלך")
-        _write_jsonl_events(jsonl, [ev])
-        assert _check_gender_ambiguity(jsonl) is True
-
-    def test_no_ambiguity_for_vic_role(self, tmp_path):
-        """Unvocalized forms in VIC events should NOT trigger (AGG-only)."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "VIC", notes="שלך")
-        _write_jsonl_events(jsonl, [ev])
-        assert _check_gender_ambiguity(jsonl) is False
-
-    def test_no_ambiguity_when_notes_is_none(self, tmp_path):
-        """Events without notes should not trigger."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG")
-        _write_jsonl_events(jsonl, [ev])
-        assert _check_gender_ambiguity(jsonl) is False
-
-    def test_empty_lines_in_jsonl_skipped(self, tmp_path):
-        """Empty lines in JSONL should be silently skipped."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="clean text")
-        lines = ["", json.dumps(ev), "", ""]
-        jsonl.write_text("\n".join(lines), encoding="utf-8")
-        assert _check_gender_ambiguity(jsonl) is False
-
-    def test_malformed_jsonl_line_skipped(self, tmp_path):
-        """Malformed JSONL lines in gender check should be silently skipped."""
-        jsonl = tmp_path / "clip_001.jsonl"
-        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="clean text")
-        lines = [json.dumps(ev), "not valid json"]
-        jsonl.write_text("\n".join(lines), encoding="utf-8")
-        assert _check_gender_ambiguity(jsonl) is False
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +454,6 @@ class TestRunQAAcousticWarnings:
         report = run_qa(tmp_path)
         assert hasattr(report.stats, "acoustic_warnings")
         assert hasattr(report.stats, "clips_with_acoustic_warnings")
-        assert hasattr(report.stats, "ambiguous_token_clips")
 
     def test_qa_report_acoustic_warnings_field(self, tmp_path):
         """QAReport has acoustic_warnings dict."""
@@ -526,18 +470,6 @@ class TestRunQAAcousticWarnings:
         # No warnings expected for a clean tone clip at I1
         assert report.stats.clips_with_acoustic_warnings == 0
 
-    def test_run_qa_gender_ambiguity_counted(self, tmp_path):
-        """Gender ambiguity in AGG notes should be counted in run_qa stats."""
-        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
-        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG", notes="אני אומר שלך")
-        _write_jsonl_events(wav, [ev])
-        report = run_qa(tmp_path)
-        assert report.stats.ambiguous_token_clips == 1
-        assert report.stats.clips_with_acoustic_warnings == 1
-        assert "clip_001_00" in report.acoustic_warnings
-        assert "WARN_GENDER_AMBIGUITY" in report.acoustic_warnings["clip_001_00"]
-        assert report.stats.acoustic_warnings.get("WARN_GENDER_AMBIGUITY") == 1
-
     def test_run_qa_acoustic_measurement_exception_handled(self, tmp_path):
         """If measure_clip raises, the clip still passes QA (graceful fallback)."""
         from unittest.mock import patch
@@ -547,23 +479,6 @@ class TestRunQAAcousticWarnings:
         _write_jsonl_events(wav, [ev])
 
         with patch("synthbanshee.package.qa.measure_clip", side_effect=RuntimeError("boom")):
-            report = run_qa(tmp_path)
-
-        assert report.stats.total_clips == 1
-        assert report.stats.failed_clips == 0
-
-    def test_run_qa_gender_ambiguity_exception_handled(self, tmp_path):
-        """If _check_gender_ambiguity raises, the clip still passes QA."""
-        from unittest.mock import patch
-
-        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
-        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
-        _write_jsonl_events(wav, [ev])
-
-        with patch(
-            "synthbanshee.package.qa._check_gender_ambiguity",
-            side_effect=RuntimeError("boom"),
-        ):
             report = run_qa(tmp_path)
 
         assert report.stats.total_clips == 1
