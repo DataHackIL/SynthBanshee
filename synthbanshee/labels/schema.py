@@ -30,6 +30,9 @@ _QUALITY_FLAGS = frozenset(
         "iaa_disagreement",
         "synthetic_artifact",
         "emotion_downgrade",  # LLM emotional_state mapped via alias; not in taxonomy verbatim
+        # M10a per-clip acoustic QA warnings
+        "vic_f0_high",  # VIC median F0 at I4–I5 > 250 Hz
+        "agg_no_escalation",  # AGG RMS range (I5 − I1) < 6 dB
     }
 )
 

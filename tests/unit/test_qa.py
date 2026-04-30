@@ -9,7 +9,12 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from synthbanshee.package.qa import DatasetStats, run_qa
+from synthbanshee.labels.prosody_metrics import TurnMetrics
+from synthbanshee.package.qa import (
+    DatasetStats,
+    _check_acoustic_warnings,
+    run_qa,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -312,3 +317,186 @@ class TestRunQAMetadataReparseFails:
         report = run_qa(tmp_path)
 
         assert report.stats.clips_missing_strong_labels == 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers for M10a tests
+# ---------------------------------------------------------------------------
+
+
+def _write_jsonl_events(wav_path: Path, events: list[dict]) -> None:
+    """Write a JSONL file alongside the WAV with the given events."""
+    jsonl_path = wav_path.with_suffix(".jsonl")
+    lines = [json.dumps(e) for e in events]
+    jsonl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _make_event(
+    clip_id: str,
+    onset: float,
+    offset: float,
+    intensity: int,
+    speaker_role: str,
+    event_id: str = "ev_001",
+    notes: str | None = None,
+) -> dict:
+    """Return a minimal valid EventLabel dict."""
+    d = {
+        "event_id": event_id,
+        "clip_id": clip_id,
+        "onset": onset,
+        "offset": offset,
+        "tier1_category": "NONE",
+        "tier2_subtype": "NONE_AMBIENT",
+        "intensity": intensity,
+        "speaker_id": "AGG_001",
+        "speaker_role": speaker_role,
+        "emotional_state": "neutral",
+        "confidence": 1.0,
+        "label_source": "auto",
+        "iaa_reviewed": False,
+    }
+    if notes is not None:
+        d["notes"] = notes
+    return d
+
+
+# ---------------------------------------------------------------------------
+# M10a: _check_acoustic_warnings
+# ---------------------------------------------------------------------------
+
+
+class TestCheckAcousticWarnings:
+    def test_no_warnings_for_normal_clip(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 4, 200.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -15.0),
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_vic_f0_high_triggered(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 5, 260.0, 10.0, -20.0),
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "vic_f0_high" in warnings
+
+    def test_warn_vic_f0_high_not_triggered_at_low_intensity(self):
+        """VIC F0 warning only applies to I4–I5, not lower intensities."""
+        turns = [
+            TurnMetrics("c1", "VIC", 2, 300.0, 10.0, -20.0),
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_vic_f0_high_not_triggered_at_250(self):
+        """Exactly 250 Hz should NOT trigger (threshold is >250)."""
+        turns = [TurnMetrics("c1", "VIC", 4, 250.0, 10.0, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_agg_no_escalation_triggered(self):
+        """AGG I5 − I1 < 6 dB should trigger warning."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -16.0),  # 4 dB delta
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "agg_no_escalation" in warnings
+
+    def test_warn_agg_no_escalation_not_triggered_at_threshold(self):
+        """AGG I5 − I1 = 6 dB exactly should NOT trigger."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -26.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -20.0),  # 6 dB delta
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_agg_no_escalation_not_triggered_without_both_intensities(self):
+        """AGG warning requires both I1 and I5 turns."""
+        turns = [TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_empty_turns_no_warnings(self):
+        assert _check_acoustic_warnings([]) == []
+
+    def test_multiple_warnings_can_fire(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 5, 260.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -18.0),  # 2 dB delta
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "vic_f0_high" in warnings
+        assert "agg_no_escalation" in warnings
+
+    def test_vic_f0_none_skipped(self):
+        """VIC turns with None F0 should not trigger the warning."""
+        turns = [TurnMetrics("c1", "VIC", 5, None, None, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+
+# ---------------------------------------------------------------------------
+# M10a: run_qa integration — acoustic warnings
+# ---------------------------------------------------------------------------
+
+
+class TestRunQAAcousticWarnings:
+    def test_acoustic_warnings_empty_without_jsonl(self, tmp_path):
+        """No JSONL → no acoustic warnings raised."""
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        report = run_qa(tmp_path)
+        assert report.stats.clips_with_acoustic_warnings == 0
+        assert report.acoustic_warnings == {}
+
+    def test_new_stats_fields_present(self, tmp_path):
+        """DatasetStats includes M10a fields."""
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        report = run_qa(tmp_path)
+        assert hasattr(report.stats, "acoustic_warnings")
+        assert hasattr(report.stats, "clips_with_acoustic_warnings")
+
+    def test_qa_report_acoustic_warnings_field(self, tmp_path):
+        """QAReport has acoustic_warnings dict."""
+        report = run_qa(tmp_path)
+        assert isinstance(report.acoustic_warnings, dict)
+
+    def test_run_qa_with_jsonl_runs_acoustic_checks(self, tmp_path):
+        """Clips with JSONL should have acoustic checks run (no warnings for clean clip)."""
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
+        _write_jsonl_events(wav, [ev])
+        report = run_qa(tmp_path)
+        assert report.stats.total_clips == 1
+        # No warnings expected for a clean tone clip at I1
+        assert report.stats.clips_with_acoustic_warnings == 0
+
+    def test_run_qa_warning_accumulated_in_stats(self, tmp_path):
+        """When measure_clip returns a turn that triggers a warning, stats are updated."""
+        from unittest.mock import patch
+
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 5, "VIC")
+        _write_jsonl_events(wav, [ev])
+
+        high_f0_turn = TurnMetrics("clip_001_00", "VIC", 5, 260.0, 10.0, -20.0)
+        with patch("synthbanshee.package.qa.measure_clip", return_value=[high_f0_turn]):
+            report = run_qa(tmp_path)
+
+        assert report.stats.clips_with_acoustic_warnings == 1
+        assert "clip_001_00" in report.acoustic_warnings
+        assert "vic_f0_high" in report.acoustic_warnings["clip_001_00"]
+        assert report.stats.acoustic_warnings.get("vic_f0_high") == 1
+
+    def test_run_qa_acoustic_measurement_exception_handled(self, tmp_path):
+        """If measure_clip raises, the clip still passes QA (graceful fallback)."""
+        from unittest.mock import patch
+
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 1, "AGG")
+        _write_jsonl_events(wav, [ev])
+
+        with patch("synthbanshee.package.qa.measure_clip", side_effect=RuntimeError("boom")):
+            report = run_qa(tmp_path)
+
+        assert report.stats.total_clips == 1
+        assert report.stats.failed_clips == 0

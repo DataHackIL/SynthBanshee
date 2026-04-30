@@ -87,14 +87,14 @@ def _event(
 class TestMeasureSegment:
     def test_rms_silent_segment(self):
         samples = _silence(1.0)
-        _, _, rms_db = _measure_segment(samples, SR, 0.0, 1.0)
+        _, _, rms_db, _ = _measure_segment(samples, SR, 0.0, 1.0)
         assert rms_db < -80.0
 
     def test_rms_tone_louder_than_silence(self):
         tone = _sine(220.0, 1.0)
         silent = _silence(1.0)
-        _, _, rms_tone = _measure_segment(tone, SR, 0.0, 1.0)
-        _, _, rms_silent = _measure_segment(silent, SR, 0.0, 1.0)
+        _, _, rms_tone, _ = _measure_segment(tone, SR, 0.0, 1.0)
+        _, _, rms_silent, _ = _measure_segment(silent, SR, 0.0, 1.0)
         assert rms_tone > rms_silent
 
     def test_segment_offset_respected(self):
@@ -103,14 +103,14 @@ class TestMeasureSegment:
         loud = _sine(440.0, 0.5)
         quiet = _silence(0.5)
         samples = np.concatenate([loud, quiet])
-        _, _, rms_loud_half = _measure_segment(samples, SR, 0.0, 0.5)
-        _, _, rms_quiet_half = _measure_segment(samples, SR, 0.5, 1.0)
+        _, _, rms_loud_half, _ = _measure_segment(samples, SR, 0.0, 0.5)
+        _, _, rms_quiet_half, _ = _measure_segment(samples, SR, 0.5, 1.0)
         assert rms_loud_half > rms_quiet_half + 20  # at least 20 dB difference
 
     def test_too_short_returns_sentinel(self):
-        """Segments shorter than 50 ms return (None, None, -96.0)."""
+        """Segments shorter than 50 ms return sentinel SegmentMeasurement."""
         samples = _sine(220.0, 0.02)  # 20 ms
-        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 0.02)
+        f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 0.02)
         assert f0 is None
         assert f0_std is None
         assert rms_db == pytest.approx(-96.0)
@@ -119,7 +119,7 @@ class TestMeasureSegment:
         """Onset/offset beyond array length must not raise."""
         samples = _sine(220.0, 0.5)
         # offset beyond array
-        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 10.0)
+        f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 10.0)
         assert rms_db < 0  # just no crash; some rms value returned
 
     def test_f0_none_when_librosa_unavailable(self, monkeypatch):
@@ -135,7 +135,7 @@ class TestMeasureSegment:
 
         monkeypatch.setattr(builtins, "__import__", _block_librosa)
         samples = _sine(220.0, 0.5)
-        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 0.5)
+        f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 0.5)
         assert f0 is None
         assert f0_std is None
         assert rms_db < 0  # rms still computed
@@ -384,8 +384,8 @@ class TestMeasureSegmentCoverage:
         """int16 and float32 of the same signal should give the same RMS dBFS."""
         samples_i16 = _sine(220.0, 0.5)
         samples_f32 = samples_i16.astype(np.float32) / 32768.0
-        _, _, rms_i16 = _measure_segment(samples_i16, SR, 0.0, 0.5)
-        _, _, rms_f32 = _measure_segment(samples_f32, SR, 0.0, 0.5)
+        _, _, rms_i16, _ = _measure_segment(samples_i16, SR, 0.0, 0.5)
+        _, _, rms_f32, _ = _measure_segment(samples_f32, SR, 0.0, 0.5)
         assert rms_i16 == pytest.approx(rms_f32, abs=0.5)
 
     def _make_librosa_mock(self, f0_values: np.ndarray, voiced_flag: np.ndarray) -> MagicMock:
@@ -404,7 +404,7 @@ class TestMeasureSegmentCoverage:
 
         monkeypatch.setitem(sys.modules, "librosa", mock_lib)
         samples = _sine(220.0, 1.0)
-        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 1.0)
+        f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 1.0)
         assert f0 == pytest.approx(220.0)
         assert f0_std is not None
         assert rms_db < 0
@@ -418,7 +418,7 @@ class TestMeasureSegmentCoverage:
 
         monkeypatch.setitem(sys.modules, "librosa", mock_lib)
         samples = _sine(220.0, 1.0)
-        f0, f0_std, rms_db = _measure_segment(samples, SR, 0.0, 1.0)
+        f0, f0_std, rms_db, _ = _measure_segment(samples, SR, 0.0, 1.0)
         assert f0 is None
         assert f0_std is None
         assert rms_db < 0
@@ -555,3 +555,87 @@ class TestMeasureProsodyCLI:
         # VIC data absent → VIC checks emit "no data" → passed=False → exit 1
         assert result.exit_code == 1
         assert "VIC" in result.output
+
+
+# ---------------------------------------------------------------------------
+# M10a: LUFS measurement
+# ---------------------------------------------------------------------------
+
+
+class TestLUFSMeasurement:
+    def test_lufs_returned_for_tone(self):
+        """A loud sine tone should produce a finite LUFS value."""
+        samples = _sine(440.0, 1.0)
+        _, _, _, lufs_db = _measure_segment(samples, SR, 0.0, 1.0)
+        assert lufs_db is not None
+        assert lufs_db < 0  # any real signal has negative LUFS
+
+    def test_lufs_none_for_too_short_segment(self):
+        """Segments shorter than 50 ms return None for LUFS."""
+        samples = _sine(220.0, 0.02)  # 20 ms
+        _, _, _, lufs_db = _measure_segment(samples, SR, 0.0, 0.02)
+        assert lufs_db is None
+
+    def test_lufs_louder_signal_higher_value(self):
+        """A louder signal should have a higher (less negative) LUFS."""
+        loud = (_sine(440.0, 1.0).astype(np.float32) * 1.0).astype(np.int16)
+        quiet = (_sine(440.0, 1.0).astype(np.float32) * 0.1).astype(np.int16)
+        _, _, _, lufs_loud = _measure_segment(loud, SR, 0.0, 1.0)
+        _, _, _, lufs_quiet = _measure_segment(quiet, SR, 0.0, 1.0)
+        assert lufs_loud is not None
+        assert lufs_quiet is not None
+        assert lufs_loud > lufs_quiet
+
+    def test_lufs_in_turn_metrics(self, tmp_path):
+        """measure_clip should populate lufs_db on TurnMetrics."""
+        wav = tmp_path / "clip_001.wav"
+        _write_wav(wav, _sine(220.0, 1.0))
+        _write_jsonl(
+            tmp_path / "clip_001.jsonl",
+            [_event("clip_001", 0.1, 0.9, 2, "AGG")],
+        )
+        result = measure_clip(wav)
+        assert len(result) == 1
+        assert result[0].lufs_db is not None
+        assert result[0].lufs_db < 0
+
+    def test_lufs_in_aggregate_stats(self):
+        """aggregate_metrics should compute lufs_db_mean."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0, lufs_db=-28.0),
+            TurnMetrics("c1", "AGG", 1, 135.0, 12.0, -24.0, lufs_db=-26.0),
+        ]
+        stats = aggregate_metrics(turns)
+        assert stats[0].lufs_db_mean == pytest.approx(-27.0)
+
+    def test_lufs_none_excluded_from_aggregate(self):
+        """Turns with None LUFS should not break aggregation."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0, lufs_db=None),
+            TurnMetrics("c1", "AGG", 1, 135.0, 12.0, -24.0, lufs_db=-26.0),
+        ]
+        stats = aggregate_metrics(turns)
+        assert stats[0].lufs_db_mean == pytest.approx(-26.0)
+
+    def test_lufs_all_none_gives_none_mean(self):
+        """When all LUFS are None, lufs_db_mean should be None."""
+        turns = [TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0, lufs_db=None)]
+        stats = aggregate_metrics(turns)
+        assert stats[0].lufs_db_mean is None
+
+    def test_lufs_none_when_pyloudnorm_unavailable(self, monkeypatch):
+        """If pyloudnorm raises ImportError, LUFS is None but RMS is still returned."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pyloudnorm(name, *args, **kwargs):
+            if name == "pyloudnorm":
+                raise ImportError("pyloudnorm not available")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _block_pyloudnorm)
+        samples = _sine(440.0, 1.0)
+        _, _, rms_db, lufs_db = _measure_segment(samples, SR, 0.0, 1.0)
+        assert lufs_db is None
+        assert rms_db < 0
