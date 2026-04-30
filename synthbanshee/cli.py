@@ -1252,7 +1252,15 @@ def validate(clip: Path) -> None:
     show_default=True,
     help="Maximum acceptable failure rate (fraction, default 2%).",
 )
-def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> None:
+@click.option(
+    "--run-summary",
+    is_flag=True,
+    default=False,
+    help="Compute and display M10b run-level aggregation metrics.",
+)
+def qa_report(
+    data_dir: Path, output: Path | None, max_failure_rate: float, run_summary: bool
+) -> None:
     """Run the automated QA suite on a dataset directory.
 
     Validates every WAV/TXT/JSON triplet, computes dataset statistics, and
@@ -1261,7 +1269,7 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
     from synthbanshee.package.qa import run_qa
 
     console.print(f"[cyan]Running QA on:[/cyan] {data_dir}")
-    report = run_qa(data_dir, max_failure_rate=max_failure_rate)
+    report = run_qa(data_dir, max_failure_rate=max_failure_rate, run_summary=run_summary)
     stats = report.stats
 
     table = Table(title="Dataset Statistics")
@@ -1284,6 +1292,16 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
         else "0"
     )
     table.add_row("Missing strong-labels JSONL (Stage 4b)", missing_jsonl_label)
+    if stats.clips_with_acoustic_warnings > 0:
+        table.add_row(
+            "Clips with acoustic warnings (M10a)",
+            f"[yellow]{stats.clips_with_acoustic_warnings}[/yellow]",
+        )
+    if stats.clips_with_structural_warnings > 0:
+        table.add_row(
+            "Clips with structural warnings (M10b)",
+            f"[yellow]{stats.clips_with_structural_warnings}[/yellow]",
+        )
     console.print(table)
 
     if stats.clips_by_typology:
@@ -1309,6 +1327,82 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
         if len(report.failed_clip_ids) > 20:
             console.print(f"  ... and {len(report.failed_clip_ids) - 20} more")
 
+    # --- M10b: run-level summary table ---
+    if report.run_summary is not None:
+        rs = report.run_summary
+        t_run = Table(title="Run-Level Summary (M10b)")
+        t_run.add_column("Metric")
+        t_run.add_column("Value", justify="right")
+
+        # Voice diversity
+        for gender in ("male", "female"):
+            count = rs.voices_by_gender.get(gender, 0)
+            label = f"[yellow]{count}[/yellow]" if count < 3 else str(count)
+            t_run.add_row(f"Voice variants ({gender})", label)
+
+        # Backend diversity
+        be_label = (
+            f"[yellow]{rs.backend_count}[/yellow]"
+            if rs.backend_count <= 1
+            else str(rs.backend_count)
+        )
+        t_run.add_row("TTS backends", be_label)
+        for engine, count in sorted(rs.clips_by_tts_engine.items()):
+            t_run.add_row(f"  {engine}", str(count))
+
+        # Overlap and emotion-downgrade ratios
+        ovr_label = (
+            f"[yellow]{rs.overlap_ratio:.1%}[/yellow]"
+            if rs.overlap_ratio == 0.0
+            else f"{rs.overlap_ratio:.1%}"
+        )
+        t_run.add_row("Overlap ratio (I4+ clips)", ovr_label)
+
+        ed_label = (
+            f"[yellow]{rs.emotion_downgrade_ratio:.1%}[/yellow]"
+            if rs.emotion_downgrade_ratio > 0.05
+            else f"{rs.emotion_downgrade_ratio:.1%}"
+        )
+        t_run.add_row("Emotion downgrade ratio", ed_label)
+        t_run.add_row("Outlier clips", str(len(rs.outlier_clip_ids)))
+        console.print(t_run)
+
+        # Acoustic distributions
+        if rs.role_intensity_stats:
+            t_ri = Table(title="Acoustic Distributions by Role / Intensity")
+            t_ri.add_column("Role")
+            t_ri.add_column("I", justify="right")
+            t_ri.add_column("N", justify="right")
+            t_ri.add_column("F0 med (Hz)", justify="right")
+            t_ri.add_column("F0 std (Hz)", justify="right")
+            t_ri.add_column("RMS (dBFS)", justify="right")
+            t_ri.add_column("LUFS (dB)", justify="right")
+            for s in rs.role_intensity_stats:
+                t_ri.add_row(
+                    s.role,
+                    str(s.intensity),
+                    str(s.n_turns),
+                    f"{s.f0_median_hz:.1f}" if s.f0_median_hz is not None else "—",
+                    f"{s.f0_std_hz_mean:.1f}" if s.f0_std_hz_mean is not None else "—",
+                    f"{s.rms_db_mean:.1f}",
+                    f"{s.lufs_db_mean:.1f}" if s.lufs_db_mean is not None else "—",
+                )
+            console.print(t_ri)
+
+        # Run warnings
+        if rs.run_warnings:
+            console.print("[bold yellow]Run-level warnings:[/bold yellow]")
+            for w in rs.run_warnings:
+                console.print(f"  [yellow]⚠ {w}[/yellow]")
+
+        # Outlier clip IDs
+        if rs.outlier_clip_ids:
+            console.print("[yellow]Outlier clip IDs:[/yellow]")
+            for clip_id in rs.outlier_clip_ids[:20]:
+                console.print(f"  [yellow]• {clip_id}[/yellow]")
+            if len(rs.outlier_clip_ids) > 20:
+                console.print(f"  ... and {len(rs.outlier_clip_ids) - 20} more")
+
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
         report_dict = {
@@ -1331,7 +1425,32 @@ def qa_report(data_dir: Path, output: Path | None, max_failure_rate: float) -> N
             },
             "failed_clip_ids": report.failed_clip_ids,
             "quality_flagged": report.quality_flagged,
+            "acoustic_warnings": report.acoustic_warnings,
+            "structural_warnings": report.structural_warnings,
         }
+        if report.run_summary is not None:
+            rs = report.run_summary
+            report_dict["run_summary"] = {
+                "role_intensity_stats": [
+                    {
+                        "role": s.role,
+                        "intensity": s.intensity,
+                        "n_turns": s.n_turns,
+                        "f0_median_hz": s.f0_median_hz,
+                        "f0_std_hz_mean": s.f0_std_hz_mean,
+                        "rms_db_mean": s.rms_db_mean,
+                        "lufs_db_mean": s.lufs_db_mean,
+                    }
+                    for s in rs.role_intensity_stats
+                ],
+                "voices_by_gender": rs.voices_by_gender,
+                "backend_count": rs.backend_count,
+                "clips_by_tts_engine": rs.clips_by_tts_engine,
+                "overlap_ratio": rs.overlap_ratio,
+                "emotion_downgrade_ratio": rs.emotion_downgrade_ratio,
+                "outlier_clip_ids": rs.outlier_clip_ids,
+                "run_warnings": rs.run_warnings,
+            }
         output.write_text(json.dumps(report_dict, indent=2), encoding="utf-8")
         console.print(f"[bold green]Report written:[/bold green] {output}")
 
