@@ -201,6 +201,23 @@ class TestGoogleProvider:
         with pytest.raises(RuntimeError, match="quota exceeded"):
             provider.synthesize(ssml)
 
+    def test_get_client_without_factory_returns_real_client(self):
+        """When no client_factory, _get_client() calls TextToSpeechClient().
+
+        Covers google_provider.py line 96.
+        """
+        from unittest.mock import patch
+
+        mock_client_instance = MagicMock()
+        with patch(
+            "google.cloud.texttospeech.TextToSpeechClient",
+            return_value=mock_client_instance,
+        ) as mock_cls:
+            provider = GoogleProvider()  # no factory
+            client = provider._get_client()
+        assert client is mock_client_instance
+        mock_cls.assert_called_once()
+
     def test_missing_google_package_raises_import_error(self, monkeypatch):
         """GoogleProvider raises ImportError when the SDK is absent and no factory."""
         import sys
@@ -453,6 +470,24 @@ class TestTTSRendererMultiProvider:
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         wav, _, _ = renderer.render_utterance("שלום", speaker, intensity=1)
         assert isinstance(wav, bytes)
+
+    def test_default_renderer_creates_azure_provider(self, tmp_path):
+        """TTSRenderer() with no args lazy-imports and creates AzureProvider.
+
+        Covers renderer.py lines 67, 69.
+        """
+        from unittest.mock import patch
+
+        mock_azure = MagicMock()
+        mock_azure.capabilities = MagicMock()
+        mock_azure.capabilities.supports_style_tags = True
+
+        with patch(
+            "synthbanshee.tts.azure_provider.AzureProvider", return_value=mock_azure
+        ) as mock_cls:
+            renderer = TTSRenderer(cache_dir=tmp_path / "cache")
+            mock_cls.assert_called_once()
+        assert renderer._legacy_mode is True
 
     def test_legacy_mode_fallback_for_mismatched_provider(self, tmp_path):
         """Legacy mode uses the single registered provider even for mismatched tts_provider.
