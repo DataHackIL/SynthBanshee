@@ -17,7 +17,10 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from synthbanshee.labels.schema import EventLabel
 
 import numpy as np
 import soundfile as sf
@@ -182,6 +185,72 @@ def _measure_segment(
 # ---------------------------------------------------------------------------
 
 
+def measure_events(
+    samples: np.ndarray,
+    sr: int,
+    role_events: list[EventLabel],
+) -> list[TurnMetrics]:
+    """Return per-turn prosody metrics for pre-parsed events.
+
+    This is the lower-level entry point used when the caller has already
+    parsed the JSONL and loaded the WAV (e.g. ``run_qa`` in ``qa.py``
+    which needs the parsed events for M10b overlap/emotion checks).
+
+    Args:
+        samples: Mono audio array (int16 or float32).
+        sr: Sample rate in Hz.
+        role_events: List of ``EventLabel`` objects that have a non-None
+            ``speaker_role``.
+
+    Returns:
+        List of :class:`TurnMetrics`, one per event.
+    """
+    results: list[TurnMetrics] = []
+    for ev in role_events:
+        m = _measure_segment(samples, sr, ev.onset, ev.offset)
+        assert ev.speaker_role is not None
+        results.append(
+            TurnMetrics(
+                clip_id=ev.clip_id,
+                speaker_role=ev.speaker_role,
+                intensity=ev.intensity,
+                f0_median_hz=m.f0_median_hz,
+                f0_std_hz=m.f0_std_hz,
+                rms_db=m.rms_db,
+                lufs_db=m.lufs_db,
+            )
+        )
+    return results
+
+
+def parse_jsonl_events(jsonl_path: Path) -> list[EventLabel]:
+    """Parse a JSONL strong-label file into a list of EventLabel objects.
+
+    Malformed lines are skipped with a warning.  Blank lines are ignored.
+
+    Args:
+        jsonl_path: Path to the ``.jsonl`` file.
+
+    Returns:
+        List of :class:`EventLabel` objects (may be empty).
+    """
+    from synthbanshee.labels.schema import EventLabel
+
+    events: list[EventLabel] = []
+    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            events.append(EventLabel.model_validate_json(line))
+        except Exception as exc:  # pydantic.ValidationError or JSON parse error
+            warnings.warn(
+                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
+                stacklevel=2,
+            )
+    return events
+
+
 def measure_clip(clip_path: Path) -> list[TurnMetrics]:
     """Return per-turn prosody metrics for one generated clip.
 
@@ -197,25 +266,11 @@ def measure_clip(clip_path: Path) -> list[TurnMetrics]:
         List of :class:`TurnMetrics`, one per qualifying event.  Empty if
         the JSONL is missing or contains no speaker-role events.
     """
-    from synthbanshee.labels.schema import EventLabel
-
     jsonl_path = clip_path.with_suffix(".jsonl")
     if not jsonl_path.exists():
         return []
 
-    events: list[EventLabel] = []
-    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            events.append(EventLabel.model_validate_json(line))
-        except Exception as exc:  # pydantic.ValidationError or JSON parse error
-            warnings.warn(
-                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
-                stacklevel=2,
-            )
-
+    events = parse_jsonl_events(jsonl_path)
     role_events = [e for e in events if e.speaker_role is not None]
     if not role_events:
         return []
@@ -224,22 +279,7 @@ def measure_clip(clip_path: Path) -> list[TurnMetrics]:
     if samples.ndim > 1:
         samples = samples[:, 0]
 
-    results: list[TurnMetrics] = []
-    for ev in role_events:
-        m = _measure_segment(samples, sr, ev.onset, ev.offset)
-        assert ev.speaker_role is not None  # narrowed above
-        results.append(
-            TurnMetrics(
-                clip_id=ev.clip_id,
-                speaker_role=ev.speaker_role,
-                intensity=ev.intensity,
-                f0_median_hz=m.f0_median_hz,
-                f0_std_hz=m.f0_std_hz,
-                rms_db=m.rms_db,
-                lufs_db=m.lufs_db,
-            )
-        )
-    return results
+    return measure_events(samples, sr, role_events)
 
 
 def aggregate_metrics(turns: list[TurnMetrics]) -> list[RoleIntensityStats]:
