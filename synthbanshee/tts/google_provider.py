@@ -154,7 +154,7 @@ class GoogleProvider:
             raise RuntimeError(f"Google TTS synthesis failed: {exc}") from exc
 
         audio = response.audio_content
-        if not isinstance(audio, bytes | bytearray):
+        if not isinstance(audio, (bytes, bytearray)):
             raise RuntimeError(f"Unexpected audio_content type: {type(audio)}")
         return _pcm_to_wav(bytes(audio))
 

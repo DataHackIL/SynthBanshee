@@ -60,6 +60,8 @@ class TTSProvider(Protocol):
 
         Raises:
             RuntimeError: If synthesis fails or credentials are absent.
+            ImportError: If the provider's optional SDK dependency is not
+                installed.
         """
         ...
 
