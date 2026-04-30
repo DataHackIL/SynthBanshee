@@ -8,7 +8,13 @@ import wave
 import numpy as np
 import pytest
 
-from synthbanshee.tts.mixer import _TARGET_SR, MixMode, SceneMixer, _apply_rms_gain
+from synthbanshee.tts.mixer import (
+    _TARGET_SR,
+    MixMode,
+    SceneMixer,
+    _apply_edge_fades,
+    _apply_rms_gain,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -462,3 +468,44 @@ class TestOverlapMixing:
         assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=1e-4)
         # New turn starts right where the previous one ended.
         assert result.rendered_onsets_s[1] == pytest.approx(dur, abs=0.02)
+
+
+# ---------------------------------------------------------------------------
+# M14: Edge fade (crossfade) tests
+# ---------------------------------------------------------------------------
+
+
+class TestApplyEdgeFades:
+    """Tests for _apply_edge_fades (M14 — turn boundary click elimination)."""
+
+    def test_fade_in_starts_at_zero(self):
+        """First sample after fade-in must be zero."""
+        mono = np.ones(1000, dtype=np.float32)
+        result = _apply_edge_fades(mono, n=160)
+        assert result[0] == pytest.approx(0.0, abs=1e-6)
+
+    def test_fade_out_ends_at_zero(self):
+        """Last sample after fade-out must be zero."""
+        mono = np.ones(1000, dtype=np.float32)
+        result = _apply_edge_fades(mono, n=160)
+        assert result[-1] == pytest.approx(0.0, abs=1e-6)
+
+    def test_middle_unchanged(self):
+        """Samples outside the fade regions must be unchanged."""
+        mono = np.ones(1000, dtype=np.float32) * 0.5
+        result = _apply_edge_fades(mono, n=100)
+        # Middle region (samples 100 to 899) should be untouched
+        np.testing.assert_array_almost_equal(result[100:900], mono[100:900])
+
+    def test_empty_array_returns_empty(self):
+        mono = np.zeros(0, dtype=np.float32)
+        result = _apply_edge_fades(mono)
+        assert len(result) == 0
+
+    def test_short_segment_no_crash(self):
+        """A segment shorter than 2*n should get proportionally shorter fades."""
+        mono = np.ones(50, dtype=np.float32)
+        result = _apply_edge_fades(mono, n=160)
+        assert len(result) == 50
+        assert result[0] == pytest.approx(0.0, abs=1e-6)
+        assert result[-1] == pytest.approx(0.0, abs=1e-6)

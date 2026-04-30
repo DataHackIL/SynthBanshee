@@ -23,7 +23,9 @@ class SpeechSDKProtocol(Protocol):
 
 _AZURE_CAPABILITIES = ProviderCapabilities(
     supports_ssml=True,
-    supports_style_tags=True,
+    supports_style_tags=False,  # M14: disabled for he-IL voices — express-as styles
+    # are not supported for Hebrew and cause voice identity shifts.
+    # Use <prosody> tags for emotional control instead.
     supports_phoneme_tags=True,
     supports_api_emotion_sliders=False,
     max_volume_delta_db=None,

@@ -1,4 +1,4 @@
-"""Preprocessing pipeline: resample → downmix → low-pass → denoise → normalize → pad → validate.
+"""Preprocessing pipeline: resample → downmix → high-pass → denoise → normalize → pad → validate.
 
 Spec reference: docs/spec.md §3.1
 
@@ -7,6 +7,14 @@ and must never be overwritten by this module.
 
 Uses scipy + soundfile exclusively (no torchaudio dependency at import time)
 to avoid torch version incompatibilities.
+
+M14 changes (2026-05-01):
+- Removed 7500 Hz lowpass filter (was destroying sibilants and breathiness cues
+  at 16 kHz sample rate — Nyquist is 8 kHz, so the LPF removed real signal content).
+- Added 80 Hz highpass filter for DC/rumble removal.
+- Changed wiener_denoise default to False (Wiener denoising on clean TTS output
+  causes muffled sound; only enable for clips with real added noise).
+See wiki/topics/research-synthesis.md for full rationale and citations.
 """
 
 from __future__ import annotations
@@ -25,8 +33,8 @@ from synthbanshee.config.preprocessing_config import PreprocessingConfig
 _TARGET_SR = 16_000
 _TARGET_CHANNELS = 1
 _PEAK_DBFS = -1.0  # −1.0 dBFS
-_LP_CUTOFF_HZ = 7_500  # low-pass cutoff
-_LP_ORDER = 4  # Butterworth order
+_HP_CUTOFF_HZ = 80  # high-pass cutoff for DC/rumble removal
+_HP_ORDER = 2  # Butterworth order (gentle slope)
 _SILENCE_PAD_S = 0.5  # minimum silence padding (seconds)
 _MIN_DURATION_S = 3.0  # clips below this are invalid (spec §3)
 _MAX_DURATION_S = 300.0  # clips above this must be segmented (spec §3)
@@ -83,10 +91,15 @@ def _resample(samples: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
     return resampled.astype(np.float32)
 
 
-def _butterworth_lowpass(samples: np.ndarray, sr: int, cutoff: int, order: int) -> np.ndarray:
-    """Apply a Butterworth low-pass filter (sos form for numerical stability)."""
+def _butterworth_highpass(samples: np.ndarray, sr: int, cutoff: int, order: int) -> np.ndarray:
+    """Apply a Butterworth high-pass filter (sos form for numerical stability).
+
+    Removes DC offset and sub-bass rumble that small phone microphones
+    cannot capture.  At 80 Hz / order 2 this has negligible effect on
+    speech content (fundamental frequency for adult males starts ~100 Hz).
+    """
     nyq = sr / 2.0
-    sos = butter(order, cutoff / nyq, btype="low", output="sos")
+    sos = butter(order, cutoff / nyq, btype="high", output="sos")
     return sosfilt(sos, samples).astype(np.float32)
 
 
@@ -166,9 +179,9 @@ def preprocess(
         data = data[:, 0]
     samples: np.ndarray = data  # (N,) float32
 
-    # --- 3. Low-pass filter at 7500 Hz ---------------------------------------
-    samples = _butterworth_lowpass(samples, sr, _LP_CUTOFF_HZ, _LP_ORDER)
-    steps.append(f"lowpass_{_LP_CUTOFF_HZ}Hz_order{_LP_ORDER}")
+    # --- 3. High-pass filter at 80 Hz (DC/rumble removal) --------------------
+    samples = _butterworth_highpass(samples, sr, _HP_CUTOFF_HZ, _HP_ORDER)
+    steps.append(f"highpass_{_HP_CUTOFF_HZ}Hz_order{_HP_ORDER}")
 
     # --- 4. Wiener denoising (configurable — skip for clean TTS Tier A) ------
     if cfg.wiener_denoise:
