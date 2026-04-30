@@ -103,10 +103,17 @@ Consolidated tracker for audio quality problems observed during human listening 
 - **Note:** Tier A is intentionally clean (no augmentation). Room acoustics are Tier B (pyroomacoustics). But the muffled quality from preprocessing makes even clean clips sound artificial.
 - **Status:** Expected for Tier A; Tier B should address this.
 
-## Research Questions
+## Research Answers (from 3 Independent Reports — 2026-04-30)
 
-1. What are the actual SSML `<prosody>` parameters being sent for each intensity level? Need a dump.
-2. What does the `SpeakerState` pitch carry-over curve look like across a 12-turn clip?
-3. Would removing the 7500 Hz lowpass (or raising to spec max of 8 kHz) fix muffled quality without violating the 16 kHz sample rate constraint?
-4. Can we crossfade turn boundaries in the mixer to eliminate clicks?
-5. Is the Wiener denoiser doing more harm than good on clean TTS output?
+Three independent research reports (Gemini, GPT-5.2 thinking, GPT-5.5 Pro) were commissioned and cross-referenced. Key answers:
+
+1. **SSML parameters:** Consensus values established — see [SSML Prosody Parameters](ssml-prosody-parameters.md) and [Research Synthesis](research-synthesis.md) for full tables.
+2. **Pitch carry-over:** Reset pitch state per turn with `<prosody pitch="default">`. Implement F0 drift guardrail: max 2.0 semitones unexplained drift across clip.
+3. **7500 Hz lowpass:** **CONFIRMED — remove entirely.** All 3 reports agree. At 16 kHz (Nyquist 8 kHz), any LPF below 8 kHz removes real signal content. Replace with 80 Hz HPF for rumble removal.
+4. **Crossfade clicks:** **CONFIRMED — add 10ms (160 samples) crossfade** at every turn boundary. All reports identify DC-offset jumps as the cause.
+5. **Wiener denoiser:** **CONFIRMED — remove on clean TTS.** Unanimously identified as primary cause of muddy sound. Only apply to clips with real added noise.
+6. **express-as styles:** **NOT supported for Hebrew voices.** Causes identity shifts. Set `use_express_as: false`. Use `<prosody>` tags only.
+7. **Male anger prosody:** **F0 range NARROWS with real anger** (Amir et al. 2003). Don't raise pitch globally; use range + intensity + rate instead.
+8. **Hebrew speaking rate:** Baseline ~4.4-5.2 syll/sec. Below 4.5 SPS sounds unnaturally slow. Current I1 rate is too conservative.
+
+Full synthesis: [Research Synthesis](research-synthesis.md)

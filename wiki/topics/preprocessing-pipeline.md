@@ -42,11 +42,22 @@ Human feedback consistently reports "muffled" audio across all clips. This is th
 - Applying Wiener denoising to clean TTS audio will smooth out high-frequency transients and reduce perceptual sharpness.
 - The `divide by zero` and `invalid value` RuntimeWarnings seen during preprocessing suggest the filter is operating on near-silent segments where noise estimation breaks down.
 
-### Recommendations
+### Recommendations (Validated by 3 Independent Research Reports)
 
-1. **Remove or raise the lowpass filter.** If the spec mandates filtering, raise cutoff to at least 7800–7900 Hz. But since the signal is already at 16 kHz (Nyquist 8 kHz), any lowpass below 8 kHz is removing real signal content.
-2. **Make Wiener denoising conditional.** Only apply to Tier B/C clips that have added noise. Skip for Tier A clean TTS output.
-3. **A/B test:** Generate the same clip with and without preprocessing to quantify the quality impact.
+All three reports (Gemini, GPT-5.2 thinking, GPT-5.5 Pro) unanimously agree:
+
+1. **Remove Wiener denoising entirely on clean TTS output.** It is the primary cause of muddy/muffled sound. Only apply to Tier B/C clips with real added noise.
+2. **Remove the 7.5 kHz lowpass filter entirely.** Replace with:
+   - **HPF at 80-120 Hz** (2nd order) for DC/rumble removal
+   - **No LPF** or gentle high-shelf -1 to -3 dB above 6.5 kHz (NOT a brick-wall filter)
+3. **Add phone-device EQ instead** (for realism, not "cleanup"):
+   - Low-mid cut: -1 to -4 dB around 250-400 Hz
+   - Presence boost: +2 to +4 dB around 2.5-3.5 kHz
+   - Gentle high shelf: -1 to -3 dB above 6.5 kHz
+4. **Add 10ms crossfade (160 samples at 16 kHz)** at all turn boundaries to eliminate click artifacts.
+5. **A/B test:** Generate the same clip with and without preprocessing to quantify the quality impact.
+
+See [Research Synthesis](research-synthesis.md) for full parameter tables and priority ordering.
 
 ## Click/Pop Artifacts
 
