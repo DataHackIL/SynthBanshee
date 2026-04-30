@@ -93,7 +93,6 @@ asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["synthbanshee"]
-branch = true
 relative_files = true
 
 [tool.coverage.paths]

@@ -17,8 +17,8 @@ from pathlib import Path
 
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.script.types import DialogueTurn, MixedScene
-from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.mix_mode import MixMode
+from synthbanshee.tts.provider import TTSProvider
 from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody
@@ -34,20 +34,60 @@ class TTSRenderer:
 
     Caches WAV bytes keyed on the full SSML string so that calls with
     different voice, text, style, or prosody always produce distinct entries.
+
+    Supports multiple backends.  The backend for each utterance is chosen
+    based on ``SpeakerConfig.tts_provider``.  Dispatch is always strict:
+    a ``KeyError`` is raised if the speaker's backend is not registered.
+
+    Args:
+        provider: Convenience shorthand that registers a single provider
+            under the ``"azure"`` key.  Mutually exclusive with
+            ``providers``.
+        providers: Mapping of provider name (``"azure"``, ``"google"``) to
+            provider instance.  When present, the renderer dispatches based
+            on ``speaker.tts_provider``.
+        cache_dir: Directory for the WAV render cache.
     """
 
     def __init__(
         self,
-        provider: AzureProvider | None = None,
+        provider: TTSProvider | None = None,
         cache_dir: Path | str | None = None,
+        *,
+        providers: dict[str, TTSProvider] | None = None,
     ) -> None:
-        self._provider = provider or AzureProvider()
+        if providers is not None and provider is not None:
+            raise ValueError("Specify either 'provider' or 'providers', not both.")
+        if providers is not None:
+            self._providers: dict[str, TTSProvider] = providers
+        else:
+            if provider is None:
+                from synthbanshee.tts.azure_provider import AzureProvider
+
+                provider = AzureProvider()
+            self._providers = {"azure": provider}
         self._cache_dir = Path(
             cache_dir
             if cache_dir is not None
             else os.environ.get("SYNTHBANSHEE_CACHE_DIR") or "assets/speech"
         )
         self._ssml_builder = SSMLBuilder()
+
+    def _get_provider(self, speaker: SpeakerConfig) -> TTSProvider:
+        """Return the provider for *speaker*.
+
+        Dispatch is always strict: a ``KeyError`` is raised if the
+        speaker's ``tts_provider`` is not registered.  Since
+        ``SpeakerConfig.tts_provider`` defaults to ``"azure"``, the
+        single-provider convenience (``provider=``) works transparently
+        for Azure speakers.
+        """
+        key = speaker.tts_provider
+        if key in self._providers:
+            return self._providers[key]
+        raise KeyError(
+            f"No provider registered for tts_provider={key!r}. Registered: {list(self._providers)}"
+        )
 
     # ------------------------------------------------------------------
     # Cache helpers
@@ -129,6 +169,7 @@ class TTSRenderer:
             pitch += rng.uniform(-0.5, 0.5)
             volume += rng.uniform(-1.0, 1.0)
 
+        provider = self._get_provider(speaker)
         ssml = self._ssml_builder.build_from_speaker_config(
             text=text,
             voice_id=speaker.tts_voice_id,
@@ -137,6 +178,7 @@ class TTSRenderer:
             pitch_delta_st=pitch,
             volume_delta_db=volume,
             phrase_prosody=phrase_prosody,
+            supports_style_tags=provider.capabilities.supports_style_tags,
         )
 
         cache_key = self._cache_key(ssml)
@@ -144,7 +186,7 @@ class TTSRenderer:
         if cached is not None:
             return cached, cache_key, True
 
-        wav_bytes = self._provider.synthesize(ssml)
+        wav_bytes = provider.synthesize(ssml)
         self._save_to_cache(cache_key, wav_bytes)
         return wav_bytes, cache_key, False
 

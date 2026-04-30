@@ -40,7 +40,7 @@ jobs:
         run: uv pip install --no-deps -e .
 
       - name: Run tests
-        run: .venv/bin/pytest tests/ -v --tb=short --cov synthbanshee --cov-branch --cov-report=
+        run: .venv/bin/pytest tests/ -v --tb=short --cov synthbanshee --cov-report=
 
       - name: Upload raw coverage artifact
         if: always()
