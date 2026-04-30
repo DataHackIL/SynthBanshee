@@ -2462,22 +2462,35 @@ class TestDistributeSpeakers:
         result2 = _distribute_speakers(scenes, rng_seed=99)
         assert result1 == result2
 
-    def test_different_seed_may_differ(self, tmp_path, monkeypatch):
-        """Different seeds produce different orderings (with high probability)."""
+    def test_different_seed_produces_different_first_pick(self, tmp_path, monkeypatch):
+        """Different seeds produce different first-pick candidates (deterministic)."""
         spk_dir = tmp_path / "configs" / "speakers"
         for i in range(1, 6):
             _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
 
         scene_dir = tmp_path / "scenes"
         scenes = [
-            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
-            for i in range(10)
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
         ]
+
+        # Verify the first-pick candidate differs between seed 1 and seed 2
+        # by computing what random.Random(seed).shuffle produces on the sorted pool.
+        import random
+
+        pool = sorted(f"AGG_M_30-45_{i:03d}" for i in range(1, 6))
+        shuffled_1 = pool[:]
+        random.Random(1).shuffle(shuffled_1)
+        shuffled_2 = pool[:]
+        random.Random(3).shuffle(shuffled_2)
+        assert shuffled_1[0] != shuffled_2[0], "test precondition: seeds must differ"
 
         monkeypatch.chdir(tmp_path)
         result1 = _distribute_speakers(scenes, rng_seed=1)
-        result2 = _distribute_speakers(scenes, rng_seed=2)
-        assert result1 != result2
+        result2 = _distribute_speakers(scenes, rng_seed=3)
+
+        pick1 = result1[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick2 = result2[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        assert pick1 != pick2
 
     def test_no_override_when_single_speaker(self, tmp_path, monkeypatch):
         """With only one speaker in pool, all overrides are empty dicts."""
@@ -2593,3 +2606,74 @@ class TestDistributeSpeakers:
             replacement = ov.get("AGG_M_30-45_001")
             if replacement is not None:
                 assert replacement != "AGG_M_30-45_003", "val speaker assigned to train scene"
+
+    def test_malformed_speaker_yaml_skipped(self, tmp_path, monkeypatch):
+        """A speaker YAML that fails to parse is silently skipped."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002")
+        # Write a malformed YAML that will fail SpeakerConfig validation
+        (spk_dir / "speaker_AGG_M_30-45_099.yaml").write_text(
+            "not_a_speaker_id: garbage\n", encoding="utf-8"
+        )
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        # Should not raise — malformed YAML is skipped
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert len(overrides) == 1
+
+    def test_no_speaker_dirs_returns_empty_overrides(self, tmp_path, monkeypatch):
+        """When neither speaker directory exists, all overrides are empty."""
+        # Don't create configs/speakers/ or configs/examples/ at all
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert overrides == {scenes[0]: {}}
+
+    def test_malformed_scene_yaml_gets_empty_override(self, tmp_path, monkeypatch):
+        """A scene YAML that fails to parse gets an empty override dict."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002")
+
+        scene_dir = tmp_path / "scenes"
+        bad_scene = scene_dir / "bad_scene.yaml"
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        bad_scene.write_text("invalid: yaml: content\n  broken", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers([bad_scene], rng_seed=42)
+        assert overrides[bad_scene] == {}
+
+    def test_empty_candidates_pool_skipped(self, tmp_path, monkeypatch):
+        """Speaker whose (context, role, split) has no pool is skipped."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        # Only create a val speaker — no train speakers in pool
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", split="val")
+
+        scene_dir = tmp_path / "scenes"
+        # Scene references AGG_M_30-45_001 which is val; its pool key is
+        # ("she_proves", "AGG", "val") with one candidate — no override needed.
+        # But also add a second speaker reference that won't be in any pool.
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                "sc_000",
+                [("AGG_M_30-45_001", "AGG"), ("VIC_F_25-40_099", "VIC")],
+            ),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        # VIC_F_25-40_099 is unknown → skipped; AGG_M_30-45_001 is sole
+        # candidate in its pool → no override
+        assert overrides[scenes[0]] == {}
