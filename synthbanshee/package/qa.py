@@ -12,7 +12,7 @@ Checks performed per clip (Stage 5 — Validation):
   5. Strong labels JSONL present alongside the clip (warning — not a hard error)
 
 M10a per-clip acoustic checks (when JSONL is present):
-  - vic_f0_high: VIC median F0 at I4–I5 > 250 Hz
+  - vic_f0_high: any VIC turn at I4–I5 with F0 > 250 Hz
   - agg_no_escalation: AGG RMS range (I5 − I1) < 6 dB
 
 Dataset-level checks (via report.passed):
@@ -103,7 +103,7 @@ def _check_acoustic_warnings(
     """
     warnings: list[str] = []
 
-    # vic_f0_high: VIC median F0 at I4–I5 > 250 Hz
+    # vic_f0_high: any VIC turn at I4–I5 with F0 > 250 Hz
     vic_high_intensity = [
         t
         for t in turns
@@ -212,7 +212,7 @@ def run_qa(
                 if turns:
                     clip_warnings.extend(_check_acoustic_warnings(turns))
             except Exception:
-                logger.warning("Acoustic measurement failed for %s", wav_path.stem)
+                logger.warning("Acoustic measurement failed for %s", wav_path.stem, exc_info=True)
 
             if clip_warnings:
                 stats.clips_with_acoustic_warnings += 1

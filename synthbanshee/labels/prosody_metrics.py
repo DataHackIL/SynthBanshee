@@ -17,7 +17,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import soundfile as sf
@@ -101,6 +101,17 @@ class RoleIntensityStats:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+_lufs_meters: dict[int, Any] = {}
+
+
+def _get_lufs_meter(sr: int) -> Any:
+    """Return a cached ``pyloudnorm.Meter`` for the given sample rate."""
+    import pyloudnorm
+
+    if sr not in _lufs_meters:
+        _lufs_meters[sr] = pyloudnorm.Meter(sr)
+    return _lufs_meters[sr]
+
 
 def _measure_segment(
     samples: np.ndarray,
@@ -136,10 +147,8 @@ def _measure_segment(
     # LUFS via pyloudnorm — graceful fallback if unavailable
     lufs_db: float | None = None
     try:
-        import pyloudnorm
-
         seg_float = seg.astype(np.float64) / 32768.0 if samples.dtype == np.int16 else seg
-        meter = pyloudnorm.Meter(sr)
+        meter = _get_lufs_meter(sr)
         lufs_db = float(meter.integrated_loudness(seg_float))
         if not np.isfinite(lufs_db):
             lufs_db = None

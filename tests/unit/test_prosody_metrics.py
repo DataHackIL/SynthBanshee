@@ -622,3 +622,20 @@ class TestLUFSMeasurement:
         turns = [TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0, lufs_db=None)]
         stats = aggregate_metrics(turns)
         assert stats[0].lufs_db_mean is None
+
+    def test_lufs_none_when_pyloudnorm_unavailable(self, monkeypatch):
+        """If pyloudnorm raises ImportError, LUFS is None but RMS is still returned."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _block_pyloudnorm(name, *args, **kwargs):
+            if name == "pyloudnorm":
+                raise ImportError("pyloudnorm not available")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _block_pyloudnorm)
+        samples = _sine(440.0, 1.0)
+        _, _, rms_db, lufs_db = _measure_segment(samples, SR, 0.0, 1.0)
+        assert lufs_db is None
+        assert rms_db < 0

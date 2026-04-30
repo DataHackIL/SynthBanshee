@@ -470,6 +470,23 @@ class TestRunQAAcousticWarnings:
         # No warnings expected for a clean tone clip at I1
         assert report.stats.clips_with_acoustic_warnings == 0
 
+    def test_run_qa_warning_accumulated_in_stats(self, tmp_path):
+        """When measure_clip returns a turn that triggers a warning, stats are updated."""
+        from unittest.mock import patch
+
+        wav = _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        ev = _make_event("clip_001_00", 0.5, 3.0, 5, "VIC")
+        _write_jsonl_events(wav, [ev])
+
+        high_f0_turn = TurnMetrics("clip_001_00", "VIC", 5, 260.0, 10.0, -20.0)
+        with patch("synthbanshee.package.qa.measure_clip", return_value=[high_f0_turn]):
+            report = run_qa(tmp_path)
+
+        assert report.stats.clips_with_acoustic_warnings == 1
+        assert "clip_001_00" in report.acoustic_warnings
+        assert "vic_f0_high" in report.acoustic_warnings["clip_001_00"]
+        assert report.stats.acoustic_warnings.get("vic_f0_high") == 1
+
     def test_run_qa_acoustic_measurement_exception_handled(self, tmp_path):
         """If measure_clip raises, the clip still passes QA (graceful fallback)."""
         from unittest.mock import patch
