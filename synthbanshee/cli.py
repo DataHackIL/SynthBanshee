@@ -100,19 +100,35 @@ _EMOTION_ALIASES: dict[str, str] = {
     "worried": "distress",
     "anxious": "distress",
     "desperate": "desperation",
+    "pleading": "desperation",
+    "begging": "desperation",
     "helpless": "submission",
     "resigned": "submission",
     "sad": "grief",
     "sorrowful": "grief",
+    "angry": "anger",
     "frustrated": "anger",
     "aggressive": "anger",
     "rage": "anger",
     "furious": "anger",
     "threatening": "contempt",
     "shocked": "panic",
+    "fearful": "fear",
+    "afraid": "fear",
+    "scared": "fear",
     "terrified": "fear",
+    "panicked": "panic",
+    "panicking": "panic",
+    "distressed": "distress",
     "uncertain": "confusion",
+    "confused": "confusion",
     "lost": "confusion",
+    "defiant": "defiance",
+    "ashamed": "shame",
+    "shameful": "shame",
+    "submissive": "submission",
+    "contemptuous": "contempt",
+    "grieving": "grief",
     "happy": "neutral",
     "content": "neutral",
 }
@@ -266,7 +282,20 @@ def _run_generate_pipeline(
     # Stage 2 — TTS Rendering
     # 4. Render multi-speaker scene
     vlog(f"[bold]Stage 2[/bold] — TTS rendering ({len(turns)} turns)")
-    renderer = TTSRenderer(cache_dir=cache_dir)
+    # Register available TTS providers
+    from synthbanshee.tts.azure_provider import AzureProvider
+    from synthbanshee.tts.provider import TTSProvider
+
+    _tts_providers: dict[str, TTSProvider] = {}
+
+    _tts_providers["azure"] = AzureProvider()
+    try:
+        from synthbanshee.tts.google_provider import GoogleProvider
+
+        _tts_providers["google"] = GoogleProvider()
+    except Exception:
+        pass  # Google TTS optional; scenes using it will fail with a clear error
+    renderer = TTSRenderer(providers=_tts_providers, cache_dir=cache_dir)
     try:
         mixed = renderer.render_scene(
             turns=turns,

@@ -215,3 +215,14 @@ temp/*
 # Data and asset cache live in avdp-synth-corpus, not here
 assets/
 data/
+
+# Splendor — durable: wiki/, planning/, splendor.yaml, state/manifests/
+# Transient operational state (not tracked)
+state/queue/
+state/runs/
+state/queries/
+state/locks/
+raw/
+derived/
+reports/
+uv.lock
