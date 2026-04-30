@@ -201,22 +201,34 @@ class TestGoogleProvider:
         with pytest.raises(RuntimeError, match="quota exceeded"):
             provider.synthesize(ssml)
 
-    def test_get_client_without_factory_returns_real_client(self):
+    def test_get_client_without_factory_returns_real_client(self, monkeypatch):
         """When no client_factory, _get_client() calls TextToSpeechClient().
 
-        Covers google_provider.py line 96.
+        Covers google_provider.py line 96.  Works in CI where
+        google-cloud-texttospeech is not installed by injecting a mock
+        module into sys.modules.
         """
-        from unittest.mock import patch
+        import sys
+        import types
 
+        mock_tts = types.ModuleType("google.cloud.texttospeech")
         mock_client_instance = MagicMock()
-        with patch(
-            "google.cloud.texttospeech.TextToSpeechClient",
-            return_value=mock_client_instance,
-        ) as mock_cls:
-            provider = GoogleProvider()  # no factory
-            client = provider._get_client()
+        mock_tts.TextToSpeechClient = MagicMock(return_value=mock_client_instance)  # type: ignore[attr-defined]
+
+        # Ensure the parent packages exist so `from google.cloud import texttospeech` works.
+        google_pkg = types.ModuleType("google")
+        google_pkg.__path__ = []  # type: ignore[attr-defined]
+        google_cloud_pkg = types.ModuleType("google.cloud")
+        google_cloud_pkg.__path__ = []  # type: ignore[attr-defined]
+
+        monkeypatch.setitem(sys.modules, "google", google_pkg)
+        monkeypatch.setitem(sys.modules, "google.cloud", google_cloud_pkg)
+        monkeypatch.setitem(sys.modules, "google.cloud.texttospeech", mock_tts)
+
+        provider = GoogleProvider()  # no factory
+        client = provider._get_client()
         assert client is mock_client_instance
-        mock_cls.assert_called_once()
+        mock_tts.TextToSpeechClient.assert_called_once()
 
     def test_missing_google_package_raises_import_error(self, monkeypatch):
         """GoogleProvider raises ImportError when the SDK is absent and no factory."""
