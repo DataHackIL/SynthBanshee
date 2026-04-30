@@ -9,7 +9,13 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from synthbanshee.package.qa import DatasetStats, run_qa
+from synthbanshee.labels.prosody_metrics import TurnMetrics
+from synthbanshee.package.qa import (
+    DatasetStats,
+    _check_acoustic_warnings,
+    _check_gender_ambiguity,
+    run_qa,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -312,3 +318,192 @@ class TestRunQAMetadataReparseFails:
         report = run_qa(tmp_path)
 
         assert report.stats.clips_missing_strong_labels == 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers for M10a tests
+# ---------------------------------------------------------------------------
+
+
+def _write_jsonl_events(wav_path: Path, events: list[dict]) -> None:
+    """Write a JSONL file alongside the WAV with the given events."""
+    jsonl_path = wav_path.with_suffix(".jsonl")
+    lines = [json.dumps(e) for e in events]
+    jsonl_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _make_event(
+    clip_id: str,
+    onset: float,
+    offset: float,
+    intensity: int,
+    speaker_role: str,
+    event_id: str = "ev_001",
+    notes: str | None = None,
+) -> dict:
+    """Return a minimal valid EventLabel dict."""
+    d = {
+        "event_id": event_id,
+        "clip_id": clip_id,
+        "onset": onset,
+        "offset": offset,
+        "tier1_category": "NONE",
+        "tier2_subtype": "NONE_AMBIENT",
+        "intensity": intensity,
+        "speaker_id": "AGG_001",
+        "speaker_role": speaker_role,
+        "emotional_state": "neutral",
+        "confidence": 1.0,
+        "label_source": "auto",
+        "iaa_reviewed": False,
+    }
+    if notes is not None:
+        d["notes"] = notes
+    return d
+
+
+# ---------------------------------------------------------------------------
+# M10a: _check_acoustic_warnings
+# ---------------------------------------------------------------------------
+
+
+class TestCheckAcousticWarnings:
+    def test_no_warnings_for_normal_clip(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 4, 200.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -25.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -15.0),
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_vic_f0_high_triggered(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 5, 260.0, 10.0, -20.0),
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "WARN_VIC_F0_HIGH" in warnings
+
+    def test_warn_vic_f0_high_not_triggered_at_low_intensity(self):
+        """VIC F0 warning only applies to I4–I5, not lower intensities."""
+        turns = [
+            TurnMetrics("c1", "VIC", 2, 300.0, 10.0, -20.0),
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_vic_f0_high_not_triggered_at_250(self):
+        """Exactly 250 Hz should NOT trigger (threshold is >250)."""
+        turns = [TurnMetrics("c1", "VIC", 4, 250.0, 10.0, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_agg_no_escalation_triggered(self):
+        """AGG I5 − I1 < 6 dB should trigger warning."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -16.0),  # 4 dB delta
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "WARN_AGG_NO_ESCALATION" in warnings
+
+    def test_warn_agg_no_escalation_not_triggered_at_threshold(self):
+        """AGG I5 − I1 = 6 dB exactly should NOT trigger."""
+        turns = [
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -26.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -20.0),  # 6 dB delta
+        ]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_warn_agg_no_escalation_not_triggered_without_both_intensities(self):
+        """AGG warning requires both I1 and I5 turns."""
+        turns = [TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+    def test_empty_turns_no_warnings(self):
+        assert _check_acoustic_warnings([]) == []
+
+    def test_multiple_warnings_can_fire(self):
+        turns = [
+            TurnMetrics("c1", "VIC", 5, 260.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 1, 130.0, 10.0, -20.0),
+            TurnMetrics("c1", "AGG", 5, 140.0, 15.0, -18.0),  # 2 dB delta
+        ]
+        warnings = _check_acoustic_warnings(turns)
+        assert "WARN_VIC_F0_HIGH" in warnings
+        assert "WARN_AGG_NO_ESCALATION" in warnings
+
+    def test_vic_f0_none_skipped(self):
+        """VIC turns with None F0 should not trigger the warning."""
+        turns = [TurnMetrics("c1", "VIC", 5, None, None, -20.0)]
+        assert _check_acoustic_warnings(turns) == []
+
+
+# ---------------------------------------------------------------------------
+# M10a: _check_gender_ambiguity
+# ---------------------------------------------------------------------------
+
+
+class TestCheckGenderAmbiguity:
+    def test_no_ambiguity_when_no_jsonl(self, tmp_path):
+        has, freq = _check_gender_ambiguity(tmp_path / "nonexistent.jsonl")
+        assert has is False
+        assert freq == {}
+
+    def test_no_ambiguity_for_clean_events(self, tmp_path):
+        """Events without unvocalized surface forms should not trigger."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="some clean text")
+        _write_jsonl_events(jsonl, [ev])
+        has, _ = _check_gender_ambiguity(jsonl)
+        assert has is False
+
+    def test_ambiguity_detected_in_agg_notes(self, tmp_path):
+        """Unvocalized surface form in AGG notes should trigger."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        # "שלך" is a known unvocalized surface form
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG", notes="אני אומר שלך")
+        _write_jsonl_events(jsonl, [ev])
+        has, _ = _check_gender_ambiguity(jsonl)
+        assert has is True
+
+    def test_no_ambiguity_for_vic_role(self, tmp_path):
+        """Unvocalized forms in VIC events should NOT trigger (AGG-only)."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "VIC", notes="שלך")
+        _write_jsonl_events(jsonl, [ev])
+        has, _ = _check_gender_ambiguity(jsonl)
+        assert has is False
+
+    def test_no_ambiguity_when_notes_is_none(self, tmp_path):
+        """Events without notes should not trigger."""
+        jsonl = tmp_path / "clip_001.jsonl"
+        ev = _make_event("clip_001", 0.1, 0.9, 1, "AGG")
+        _write_jsonl_events(jsonl, [ev])
+        has, _ = _check_gender_ambiguity(jsonl)
+        assert has is False
+
+
+# ---------------------------------------------------------------------------
+# M10a: run_qa integration — acoustic warnings
+# ---------------------------------------------------------------------------
+
+
+class TestRunQAAcousticWarnings:
+    def test_acoustic_warnings_empty_without_jsonl(self, tmp_path):
+        """No JSONL → no acoustic warnings raised."""
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        report = run_qa(tmp_path)
+        assert report.stats.clips_with_acoustic_warnings == 0
+        assert report.acoustic_warnings == {}
+
+    def test_new_stats_fields_present(self, tmp_path):
+        """DatasetStats includes M10a fields."""
+        _write_valid_clip(tmp_path / "spk", "clip_001_00")
+        report = run_qa(tmp_path)
+        assert hasattr(report.stats, "acoustic_warnings")
+        assert hasattr(report.stats, "clips_with_acoustic_warnings")
+        assert hasattr(report.stats, "normalization_rule_frequency")
+        assert hasattr(report.stats, "ambiguous_token_clips")
+
+    def test_qa_report_acoustic_warnings_field(self, tmp_path):
+        """QAReport has acoustic_warnings dict."""
+        report = run_qa(tmp_path)
+        assert isinstance(report.acoustic_warnings, dict)

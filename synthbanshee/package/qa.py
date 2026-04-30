@@ -1,4 +1,4 @@
-"""Automated QA suite for the AVDP dataset (milestone 1.5).
+"""Automated QA suite for the AVDP dataset (milestone 1.5 + M10a).
 
 Runs validate_clip() on every WAV in a data directory and accumulates
 aggregate statistics. Produces a QAReport that AI teams can inspect before
@@ -11,6 +11,11 @@ Checks performed per clip (Stage 5 — Validation):
   4. Filename stem is ASCII-only lowercase
   5. Strong labels JSONL present alongside the clip (warning — not a hard error)
 
+M10a per-clip acoustic checks (when JSONL is present):
+  - WARN_VIC_F0_HIGH: VIC median F0 at I4–I5 > 250 Hz
+  - WARN_AGG_NO_ESCALATION: AGG RMS range (I5 − I1) < 6 dB
+  - WARN_GENDER_AMBIGUITY: unvocalized high-risk token in AGG speaker events
+
 Dataset-level checks (via report.passed):
   - Failure rate ≤ max_failure_rate (default 2 %)
   - clips_missing_strong_labels is reported for observability but does not
@@ -19,14 +24,33 @@ Dataset-level checks (via report.passed):
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pydantic
 
-from synthbanshee.labels.schema import ClipMetadata
+from synthbanshee.labels.prosody_metrics import (
+    TurnMetrics,
+    measure_clip,
+)
+from synthbanshee.labels.schema import ClipMetadata, EventLabel
 from synthbanshee.package.validator import validate_clip
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# M10a constants
+# ---------------------------------------------------------------------------
+
+_VIC_F0_HIGH_HZ: float = 250.0
+_AGG_ESCALATION_MIN_DB: float = 6.0
+
+
+# ---------------------------------------------------------------------------
+# Data types
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -43,6 +67,11 @@ class DatasetStats:
     failed_clips: int = 0
     quality_flagged_clips: int = 0
     clips_missing_strong_labels: int = 0  # Stage 4b JSONL absent (warning only)
+    # M10a acoustic metric counters
+    acoustic_warnings: dict[str, int] = field(default_factory=dict)
+    clips_with_acoustic_warnings: int = 0
+    normalization_rule_frequency: dict[str, int] = field(default_factory=dict)
+    ambiguous_token_clips: int = 0
 
 
 @dataclass
@@ -53,8 +82,87 @@ class QAReport:
     stats: DatasetStats = field(default_factory=DatasetStats)
     failed_clip_ids: list[str] = field(default_factory=list)
     quality_flagged: dict[str, list[str]] = field(default_factory=dict)
+    acoustic_warnings: dict[str, list[str]] = field(default_factory=dict)
     passed: bool = False
     failure_rate: float = 0.0
+
+
+# ---------------------------------------------------------------------------
+# M10a per-clip acoustic checks
+# ---------------------------------------------------------------------------
+
+
+def _check_acoustic_warnings(
+    turns: list[TurnMetrics],
+) -> list[str]:
+    """Evaluate M10a acoustic thresholds for one clip.
+
+    Returns a list of triggered warning flag strings.
+    """
+    warnings: list[str] = []
+
+    # WARN_VIC_F0_HIGH: VIC median F0 at I4–I5 > 250 Hz
+    vic_high_intensity = [
+        t
+        for t in turns
+        if t.speaker_role == "VIC" and t.intensity in (4, 5) and t.f0_median_hz is not None
+    ]
+    if any(t.f0_median_hz > _VIC_F0_HIGH_HZ for t in vic_high_intensity):  # type: ignore[operator]
+        warnings.append("WARN_VIC_F0_HIGH")
+
+    # WARN_AGG_NO_ESCALATION: AGG RMS range (I5 − I1) < 6 dB
+    agg_i1 = [t.rms_db for t in turns if t.speaker_role == "AGG" and t.intensity == 1]
+    agg_i5 = [t.rms_db for t in turns if t.speaker_role == "AGG" and t.intensity == 5]
+    if agg_i1 and agg_i5:
+        import numpy as np
+
+        delta = float(np.mean(agg_i5)) - float(np.mean(agg_i1))
+        if delta < _AGG_ESCALATION_MIN_DB:
+            warnings.append("WARN_AGG_NO_ESCALATION")
+
+    return warnings
+
+
+def _check_gender_ambiguity(jsonl_path: Path) -> tuple[bool, dict[str, int]]:
+    """Check for unvocalized high-risk tokens in AGG speaker events.
+
+    Returns ``(has_ambiguity, rule_frequency)`` where ``rule_frequency``
+    counts ``normalization_rules_triggered`` occurrences across all events.
+    """
+    from synthbanshee.script.hebrew_disambiguator import unvocalized_surfaces
+
+    surfaces = unvocalized_surfaces()
+    rule_freq: dict[str, int] = defaultdict(int)
+    has_ambiguity = False
+
+    if not jsonl_path.exists():
+        return False, {}
+
+    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            ev = EventLabel.model_validate_json(line)
+        except Exception:
+            continue
+
+        if ev.speaker_role != "AGG" or ev.notes is None:
+            continue
+
+        # Check if any unvocalized surface form appears in the notes field
+        # (notes carries the text_spoken content for generated clips)
+        for surface in surfaces:
+            if surface in ev.notes:
+                has_ambiguity = True
+                break
+
+    return has_ambiguity, dict(rule_freq)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 def run_qa(
@@ -86,6 +194,7 @@ def run_qa(
     _by_tier: dict[str, int] = defaultdict(int)
     _intensity: dict[int, int] = defaultdict(int)
     _speakers: set[str] = set()
+    _acoustic_warnings: dict[str, int] = defaultdict(int)
 
     wav_paths = [p for p in sorted(data_dir.rglob("*.wav")) if "_dirty" not in p.stem]
 
@@ -128,11 +237,44 @@ def run_qa(
         if any("Strong labels JSONL missing" in w for w in validation.warnings):
             stats.clips_missing_strong_labels += 1
 
+        # --- M10a: per-clip acoustic metrics ---
+        jsonl_path = wav_path.with_suffix(".jsonl")
+        if jsonl_path.exists():
+            clip_warnings: list[str] = []
+
+            # Prosody-based warnings (F0, RMS)
+            try:
+                turns = measure_clip(wav_path)
+                if turns:
+                    clip_warnings.extend(_check_acoustic_warnings(turns))
+            except Exception:
+                logger.debug("Acoustic measurement failed for %s", wav_path.stem)
+
+            # Gender ambiguity warning
+            try:
+                has_ambiguity, rule_freq = _check_gender_ambiguity(jsonl_path)
+                if has_ambiguity:
+                    clip_warnings.append("WARN_GENDER_AMBIGUITY")
+                    stats.ambiguous_token_clips += 1
+                for rule, count in rule_freq.items():
+                    stats.normalization_rule_frequency[rule] = (
+                        stats.normalization_rule_frequency.get(rule, 0) + count
+                    )
+            except Exception:
+                logger.debug("Gender ambiguity check failed for %s", wav_path.stem)
+
+            if clip_warnings:
+                stats.clips_with_acoustic_warnings += 1
+                report.acoustic_warnings[metadata.clip_id] = clip_warnings
+                for w in clip_warnings:
+                    _acoustic_warnings[w] += 1
+
     stats.clips_by_typology = dict(_by_typology)
     stats.clips_by_split = dict(_by_split)
     stats.clips_by_tier = dict(_by_tier)
     stats.intensity_distribution = dict(_intensity)
     stats.speaker_count = len(_speakers)
+    stats.acoustic_warnings = dict(_acoustic_warnings)
 
     total_attempted = stats.total_clips + stats.failed_clips
     report.failure_rate = stats.failed_clips / total_attempted if total_attempted else 0.0
