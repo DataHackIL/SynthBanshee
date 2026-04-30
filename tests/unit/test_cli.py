@@ -2345,6 +2345,7 @@ def _write_speaker_yaml(
     context: str = "she_proves",
     tts_voice_id: str = "he-IL-AvriNeural",
     voice_family: str | None = None,
+    split: str = "train",
 ) -> Path:
     """Write a minimal speaker YAML file and return its path."""
     directory.mkdir(parents=True, exist_ok=True)
@@ -2360,11 +2361,23 @@ def _write_speaker_yaml(
             tts_voice_id: {tts_voice_id}
             tts_provider: azure
             voice_family: {vf}
+            language: he
             prosody_baseline:
               rate: 1.0
               pitch_hz: 100
               volume_db: 0
-            split: train
+            style_map:
+              1:
+                style: "General"
+                rate_multiplier: 1.0
+                pitch_delta_st: 0
+                volume_delta_db: 0
+                rms_target_dbfs: -28
+            disfluency:
+              filled_pause_prob: 0.04
+              false_start_prob: 0.02
+              truncation_prob: 0.01
+            split: {split}
         """),
         encoding="utf-8",
     )
@@ -2387,6 +2400,7 @@ def _write_scene_yaml(
         textwrap.dedent(f"""\
             scene_id: {scene_id.upper()}
             project: {project}
+            language: he
             violence_typology: {typology}
             tier: A
             random_seed: 42
@@ -2517,3 +2531,65 @@ class TestDistributeSpeakers:
         vic_ids = {x for x in all_replaced_ids if x.startswith("VIC")}
         assert len(agg_ids) >= 1
         assert len(vic_ids) >= 1
+
+    def test_unknown_speaker_skipped_silently(self, tmp_path, monkeypatch):
+        """Scene referencing a speaker not in any YAML gets no override."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                "sc_000",
+                # UNKNOWN_M_30-45_099 doesn't exist in speaker YAMLs
+                [("AGG_M_30-45_099", "AGG")],
+            ),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert overrides[scenes[0]] == {}
+
+    def test_context_both_included_in_project_pools(self, tmp_path, monkeypatch):
+        """Speakers with context='both' are candidates in both projects."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="she_proves")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="both")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # The "both" speaker should appear as a replacement in some scenes
+        assigned = set()
+        for ov in overrides.values():
+            assigned.add(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+        assert "AGG_M_30-45_002" in assigned
+
+    def test_split_disjointness_respected(self, tmp_path, monkeypatch):
+        """Only speakers with matching split are used as replacements."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", split="train")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", split="train")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_003", split="val")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(6)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # AGG_M_30-45_003 (val) must never replace AGG_M_30-45_001 (train)
+        for ov in overrides.values():
+            replacement = ov.get("AGG_M_30-45_001")
+            if replacement is not None:
+                assert replacement != "AGG_M_30-45_003", "val speaker assigned to train scene"

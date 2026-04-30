@@ -103,8 +103,10 @@ def generate_manifest(
                 tier=metadata.tier,
                 duration_seconds=metadata.duration_seconds,
                 speaker_ids="|".join(s.speaker_id for s in metadata.speakers),
+                # Backwards compat: old clip JSON lacks voice_family (defaults
+                # to ""); fall back to tts_voice_id via truthiness of "".
                 voice_families="|".join(
-                    s.voice_family or s.tts_voice_id for s in metadata.speakers
+                    s.voice_family if s.voice_family else s.tts_voice_id for s in metadata.speakers
                 ),
                 has_violence=metadata.weak_label.has_violence,
                 max_intensity=metadata.weak_label.max_intensity,

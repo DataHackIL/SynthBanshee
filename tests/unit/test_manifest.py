@@ -213,7 +213,12 @@ class TestGenerateManifest:
         assert rows[0].speaker_ids == "AGG_M_30-45_001"
 
     def test_voice_families_column_populated(self, tmp_path):
-        """voice_families column falls back to tts_voice_id when voice_family absent."""
+        """voice_families column falls back to tts_voice_id when voice_family absent.
+
+        Backwards compat: old clip JSON lacks voice_family, so SpeakerInfo
+        defaults to "".  The manifest code does ``"" if "" else tts_voice_id``
+        → falls back to tts_voice_id.  This test verifies that path.
+        """
         _write_valid_clip(tmp_path / "spk_000", "clip_000_00")
         out = tmp_path / "manifest.csv"
         rows = generate_manifest(tmp_path, out)
