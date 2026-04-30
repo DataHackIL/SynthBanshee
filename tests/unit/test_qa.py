@@ -18,6 +18,7 @@ from synthbanshee.package.qa import (
     _compute_run_warnings,
     _detect_outliers,
     _has_overlap,
+    _parse_jsonl_events,
     run_qa,
 )
 
@@ -509,6 +510,41 @@ class TestRunQAAcousticWarnings:
 
         assert report.stats.total_clips == 1
         assert report.stats.failed_clips == 0
+
+
+# ---------------------------------------------------------------------------
+# M10b: _parse_jsonl_events
+# ---------------------------------------------------------------------------
+
+
+class TestParseJsonlEvents:
+    def test_parses_valid_events(self, tmp_path):
+        jsonl = tmp_path / "clip.jsonl"
+        ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
+        jsonl.write_text(json.dumps(ev) + "\n", encoding="utf-8")
+        events = _parse_jsonl_events(jsonl)
+        assert len(events) == 1
+        assert events[0].clip_id == "c1"
+
+    def test_skips_malformed_lines(self, tmp_path):
+        jsonl = tmp_path / "clip.jsonl"
+        ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
+        jsonl.write_text("not valid json\n" + json.dumps(ev) + "\n", encoding="utf-8")
+        events = _parse_jsonl_events(jsonl)
+        assert len(events) == 1
+
+    def test_skips_blank_lines(self, tmp_path):
+        jsonl = tmp_path / "clip.jsonl"
+        ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
+        jsonl.write_text("\n\n" + json.dumps(ev) + "\n\n", encoding="utf-8")
+        events = _parse_jsonl_events(jsonl)
+        assert len(events) == 1
+
+    def test_empty_file(self, tmp_path):
+        jsonl = tmp_path / "clip.jsonl"
+        jsonl.write_text("", encoding="utf-8")
+        events = _parse_jsonl_events(jsonl)
+        assert events == []
 
 
 # ---------------------------------------------------------------------------
@@ -1148,6 +1184,7 @@ class TestQAReportCLIRunSummary:
         assert "voices_by_gender" in rs
         assert "backend_count" in rs
         assert "overlap_ratio" in rs
+        assert "clips_with_i4_plus" in rs
         assert "run_warnings" in rs
 
     def test_cli_without_run_summary_no_section(self, tmp_path):

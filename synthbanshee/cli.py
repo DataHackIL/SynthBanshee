@@ -1353,7 +1353,7 @@ def qa_report(
         # Overlap and emotion-downgrade ratios
         ovr_label = (
             f"[yellow]{rs.overlap_ratio:.1%}[/yellow]"
-            if rs.overlap_ratio == 0.0
+            if rs.overlap_ratio == 0.0 and rs.clips_with_i4_plus > 0
             else f"{rs.overlap_ratio:.1%}"
         )
         t_run.add_row("Overlap ratio (I4+ clips)", ovr_label)
@@ -1447,6 +1447,7 @@ def qa_report(
                 "backend_count": rs.backend_count,
                 "clips_by_tts_engine": rs.clips_by_tts_engine,
                 "overlap_ratio": rs.overlap_ratio,
+                "clips_with_i4_plus": rs.clips_with_i4_plus,
                 "emotion_downgrade_ratio": rs.emotion_downgrade_ratio,
                 "outlier_clip_ids": rs.outlier_clip_ids,
                 "run_warnings": rs.run_warnings,

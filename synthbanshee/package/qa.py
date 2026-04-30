@@ -217,6 +217,10 @@ def _check_emotion_downgrade(events: list[EventLabel]) -> bool:
     "neutral"`` exceeds the count of events with intensity ≤ 2.  This
     indicates the LLM is defaulting to neutral for turns that should
     carry emotional weight.
+
+    Expects ``role_events`` (events with a non-None ``speaker_role``);
+    ambient events (``emotional_state=None``) are safe to include but
+    will not count as neutral.
     """
     neutral_count = sum(1 for e in events if e.emotional_state == "neutral")
     low_intensity_count = sum(1 for e in events if e.intensity <= 2)
@@ -457,17 +461,23 @@ def run_qa(
             if role_events:
                 try:
                     has_i4_plus = any(e.intensity >= 4 for e in role_events)
+                    has_overlap = _has_overlap(role_events) if has_i4_plus else False
+                    has_emotion_dg = _check_emotion_downgrade(role_events)
 
-                    if has_i4_plus:
-                        _clips_with_i4_plus += 1
-                        if _has_overlap(role_events):
-                            _clips_with_overlap += 1
-                        else:
-                            structural_clip_warnings.append("warn_no_overlap")
-
-                    if _check_emotion_downgrade(role_events):
-                        _clips_with_emotion_downgrade += 1
+                    # Per-clip structural warnings (always fire)
+                    if has_i4_plus and not has_overlap:
+                        structural_clip_warnings.append("warn_no_overlap")
+                    if has_emotion_dg:
                         structural_clip_warnings.append("warn_emotion_downgrade")
+
+                    # Run-level counters (only needed for RunSummary)
+                    if run_summary:
+                        if has_i4_plus:
+                            _clips_with_i4_plus += 1
+                            if has_overlap:
+                                _clips_with_overlap += 1
+                        if has_emotion_dg:
+                            _clips_with_emotion_downgrade += 1
                 except Exception:
                     logger.warning(
                         "M10b event analysis failed for %s", wav_path.stem, exc_info=True
