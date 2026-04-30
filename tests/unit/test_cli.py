@@ -2655,25 +2655,59 @@ class TestDistributeSpeakers:
         assert overrides[bad_scene] == {}
 
     def test_empty_candidates_pool_skipped(self, tmp_path, monkeypatch):
-        """Speaker whose (context, role, split) has no pool is skipped."""
+        """When pool lookup yields no candidates, speaker is skipped."""
         spk_dir = tmp_path / "configs" / "speakers"
-        # Only create a val speaker — no train speakers in pool
-        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", split="val")
+        # Create a she_proves speaker only — no elephant speakers exist.
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="she_proves")
+        # Create a "both" speaker that will be discovered and expanded into
+        # both project pools. But use a different split so the she_proves pool
+        # for split=train has only AGG_M_30-45_001.
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="she_proves", split="val")
 
         scene_dir = tmp_path / "scenes"
-        # Scene references AGG_M_30-45_001 which is val; its pool key is
-        # ("she_proves", "AGG", "val") with one candidate — no override needed.
-        # But also add a second speaker reference that won't be in any pool.
+        # Scene is elephant project but references the she_proves speaker.
+        # The speaker's context is she_proves, so lookup key will be
+        # ("she_proves", "AGG", "train") — pool has 1 candidate (itself) → no override.
+        # Add a second unknown speaker to also cover the unknown-speaker skip.
         scenes = [
             _write_scene_yaml(
                 scene_dir,
                 "sc_000",
                 [("AGG_M_30-45_001", "AGG"), ("VIC_F_25-40_099", "VIC")],
+                project="elephant_in_the_room",
             ),
         ]
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        # VIC_F_25-40_099 is unknown → skipped; AGG_M_30-45_001 is sole
-        # candidate in its pool → no override
         assert overrides[scenes[0]] == {}
+
+    def test_context_both_original_speaker_rotates(self, tmp_path, monkeypatch):
+        """A scene referencing a context='both' speaker still gets rotation."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        # Original speaker has context="both"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="both")
+        # Replacement speaker has concrete context
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="she_proves")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG")],
+                project="she_proves",
+            )
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # The "both" speaker should rotate with the she_proves speaker
+        assigned = set()
+        for ov in overrides.values():
+            assigned.add(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+        assert "AGG_M_30-45_002" in assigned, (
+            "context='both' original speaker should participate in project pool rotation"
+        )

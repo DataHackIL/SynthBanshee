@@ -810,9 +810,14 @@ def _distribute_speakers(
                     original_id,
                 )
                 continue
-            key = (original_spk.context, original_spk.role, original_spk.split)
+            # context="both" speakers were expanded into concrete project
+            # pools; use the scene's project for lookup so they participate.
+            ctx = scene.project if original_spk.context == "both" else original_spk.context
+            key = (ctx, original_spk.role, original_spk.split)
             candidates = pool.get(key, [])
-            if not candidates:
+            if (
+                not candidates
+            ):  # pragma: no cover — defensive; every discovered speaker has a pool entry
                 continue
             idx = counters[key] % len(candidates)
             replacement_id = candidates[idx]
