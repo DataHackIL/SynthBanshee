@@ -43,6 +43,7 @@ class SpeakerConfig(BaseModel):
     context: Literal["she_proves", "elephant_in_the_room", "both"]
     tts_voice_id: str
     tts_provider: Literal["azure", "google"] = "azure"
+    voice_family: str | None = None
     prosody_baseline: ProsodyBaseline = Field(default_factory=ProsodyBaseline)
     # Keys are intensity levels 1–5 as ints (parsed from YAML int keys)
     style_map: dict[int, StyleEntry] = Field(default_factory=dict)
@@ -71,6 +72,13 @@ class SpeakerConfig(BaseModel):
         if isinstance(v, dict):
             return {int(k): val for k, val in v.items()}
         return v
+
+    @model_validator(mode="after")
+    def default_voice_family(self) -> SpeakerConfig:
+        """Default voice_family to tts_voice_id when not explicitly set."""
+        if self.voice_family is None:
+            self.voice_family = self.tts_voice_id
+        return self
 
     @model_validator(mode="after")
     def style_map_intensity_range(self) -> SpeakerConfig:

@@ -9,6 +9,7 @@ context: she_proves
 
 tts_voice_id: he-IL-HilaNeural
 tts_provider: azure
+voice_family: he-IL-HilaNeural
 
 prosody_baseline:
   rate: 0.95                        # Slightly slower — hesitant, guarded

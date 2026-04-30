@@ -170,6 +170,7 @@ def _run_generate_pipeline(
     dirty_dir: Path,
     script_cache_dir: Path,
     verbose: bool = False,
+    speaker_overrides: dict[str, str] | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
@@ -203,10 +204,16 @@ def _run_generate_pipeline(
     except Exception as exc:
         return None, [f"Config parse error: {exc}"]
 
+    # Apply speaker overrides (M9b: voice variant distribution).
+    if speaker_overrides:
+        for spk_ref in scene.speakers:
+            if spk_ref.speaker_id in speaker_overrides:
+                spk_ref.speaker_id = speaker_overrides[spk_ref.speaker_id]
+
     # 2. Load ALL speaker configs into a dict keyed by speaker_id
     speakers: dict[str, SpeakerConfig] = {}
     for spk_ref in scene.speakers:
-        spk_path = Path("configs/speakers") / f"{spk_ref.speaker_id}.yaml"
+        spk_path = Path("configs/speakers") / f"speaker_{spk_ref.speaker_id}.yaml"
         if not spk_path.exists():
             spk_path = Path("configs/examples") / f"speaker_{spk_ref.speaker_id}.yaml"
         if not spk_path.exists():
@@ -494,6 +501,8 @@ def _run_generate_pipeline(
             gender=spk.gender,
             age_range=spk.age_range,
             tts_voice_id=spk.tts_voice_id,
+            # model_validator guarantees voice_family is never None after init
+            voice_family=spk.voice_family or spk.tts_voice_id,
         )
         for spk in speakers.values()
     ]
@@ -711,6 +720,116 @@ def _select_configs_by_typology(
     return selected
 
 
+def _distribute_speakers(
+    scenes: list[Path],
+    rng_seed: int,
+) -> dict[Path, dict[str, str]]:
+    """Build per-scene speaker override maps for voice variant rotation.
+
+    Discovers all speaker YAMLs (``speaker_*.yaml``) in
+    ``configs/speakers/`` and ``configs/examples/``, groups them by
+    ``(context, role, split)``, and round-robins across scenes so that
+    voice variants are cycled deterministically (seeded by *rng_seed*).
+
+    Speakers with ``context: "both"`` are included in pools for both
+    ``she_proves`` and ``elephant_in_the_room`` contexts.  Only speakers
+    sharing the same ``split`` as the original are considered as
+    replacements, preserving speaker-disjoint splits.
+
+    The round-robin is modular: with *N* candidates and *M* scenes,
+    each candidate is assigned ``floor(M/N)`` or ``ceil(M/N)`` scenes.
+
+    Returns ``{scene_path: {original_speaker_id: replacement_speaker_id}}``.
+    Scenes whose speakers already match the assigned variant get an empty
+    override dict (no-op).
+    """
+    import logging
+    import random
+
+    from synthbanshee.config.scene_config import SceneConfig
+    from synthbanshee.config.speaker_config import SpeakerConfig
+
+    logger = logging.getLogger(__name__)
+
+    # 1. Discover all available speakers.
+    all_speakers: dict[str, SpeakerConfig] = {}
+    for search_dir in [Path("configs/speakers"), Path("configs/examples")]:
+        if not search_dir.exists():
+            logger.debug("Speaker directory not found: %s", search_dir)
+            continue
+        for yaml_path in sorted(search_dir.glob("speaker_*.yaml")):
+            try:
+                spk = SpeakerConfig.from_yaml(yaml_path)
+            except Exception:
+                continue
+            if spk.speaker_id not in all_speakers:
+                all_speakers[spk.speaker_id] = spk
+
+    if not all_speakers:
+        logger.warning(
+            "No speaker configs found in configs/speakers/ or configs/examples/; "
+            "speaker distribution disabled."
+        )
+        return {p: {} for p in scenes}
+
+    # 2. Group speakers by (context, role, split).
+    #    Speakers with context="both" are added to both project pools.
+    _PROJECT_CONTEXTS = ("she_proves", "elephant_in_the_room")
+    pool: dict[tuple[str, str, str], list[str]] = {}
+    for spk in all_speakers.values():
+        contexts = _PROJECT_CONTEXTS if spk.context == "both" else (spk.context,)
+        for ctx in contexts:
+            key = (ctx, spk.role, spk.split)
+            pool.setdefault(key, []).append(spk.speaker_id)
+    # Sort each pool for determinism, then shuffle with seed.
+    rng = random.Random(rng_seed)
+    for pool_key in pool:
+        pool[pool_key] = sorted(pool[pool_key])
+        rng.shuffle(pool[pool_key])
+
+    # 3. Round-robin counters per pool key.
+    counters: dict[tuple[str, str, str], int] = {k: 0 for k in pool}
+
+    # 4. Assign overrides per scene.
+    overrides: dict[Path, dict[str, str]] = {}
+    for scene_path in scenes:
+        try:
+            scene = SceneConfig.from_yaml(scene_path)
+        except Exception:
+            overrides[scene_path] = {}
+            continue
+
+        scene_overrides: dict[str, str] = {}
+        for spk_ref in scene.speakers:
+            original_id = spk_ref.speaker_id
+            original_spk = all_speakers.get(original_id)
+            if original_spk is None:
+                logger.debug(
+                    "Scene %s references unknown speaker %s; skipping rotation.",
+                    scene_path.name,
+                    original_id,
+                )
+                continue
+            # context="both" speakers were expanded into concrete project
+            # pools; use the scene's project for lookup so they participate.
+            ctx = scene.project if original_spk.context == "both" else original_spk.context
+            key = (ctx, original_spk.role, original_spk.split)
+            candidates = pool.get(key, [])
+            if (
+                not candidates
+            ):  # pragma: no cover — defensive; every discovered speaker has a pool entry
+                continue
+            idx = counters[key] % len(candidates)
+            replacement_id = candidates[idx]
+            counters[key] += 1
+            if replacement_id != original_id:
+                scene_overrides[original_id] = replacement_id
+
+        overrides[scene_path] = scene_overrides
+
+    return overrides
+
+
 def _render_one(
     scene_yaml: Path,
     out_dir: Path,
@@ -720,6 +839,7 @@ def _render_one(
     max_retries: int,
     stop_event: threading.Event,
     verbose: bool = False,
+    speaker_overrides: dict[str, str] | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -738,7 +858,13 @@ def _render_one(
         if stop_event.is_set():
             return None, ["cancelled"]
         wav_path, messages = _run_generate_pipeline(
-            scene_yaml, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=verbose
+            scene_yaml,
+            out_dir,
+            cache_dir,
+            dirty_dir,
+            script_cache_dir,
+            verbose=verbose,
+            speaker_overrides=speaker_overrides,
         )
         if wav_path is not None:
             return wav_path, messages
@@ -819,6 +945,12 @@ def _render_one(
     default=False,
     help="Print per-turn TTS and script generation details.",
 )
+@click.option(
+    "--distribute-speakers/--no-distribute-speakers",
+    default=True,
+    show_default=True,
+    help="Enable/disable automatic voice variant rotation across scenes.",
+)
 def generate_batch(
     run_config: Path,
     output_dir: Path | None,
@@ -830,6 +962,7 @@ def generate_batch(
     workers: int,
     max_clips: int | None,
     verbose: bool,
+    distribute_speakers: bool,
 ) -> None:
     """Run a full batch generation from a run configuration YAML.
 
@@ -891,6 +1024,18 @@ def generate_batch(
     if workers > 1:
         console.print(f"[cyan]Parallel rendering:[/cyan] {workers} workers")
 
+    # --- M9b: speaker variant distribution ---
+    if distribute_speakers:
+        speaker_override_map = _distribute_speakers(selected, run_cfg.random_seed)
+        overrides_applied = sum(1 for v in speaker_override_map.values() if v)
+        if overrides_applied:
+            console.print(
+                f"[cyan]Voice distribution:[/cyan] {overrides_applied}/{len(selected)} "
+                f"clips will use alternate speaker variants"
+            )
+    else:
+        speaker_override_map = {p: {} for p in selected}
+
     # --- Render loop ---
     succeeded: list[Path] = []
     failed: list[tuple[Path, list[str]]] = []
@@ -919,6 +1064,7 @@ def generate_batch(
                     run_cfg.max_retries,
                     _no_stop,
                     verbose=verbose,
+                    speaker_overrides=speaker_override_map.get(scene_yaml),
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -950,6 +1096,7 @@ def generate_batch(
                         run_cfg.max_retries,
                         stop_event,
                         verbose,
+                        speaker_override_map.get(scene_yaml),
                     ): scene_yaml
                     for scene_yaml in selected
                 }

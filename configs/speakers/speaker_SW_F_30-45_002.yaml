@@ -1,0 +1,58 @@
+# Speaker persona — Female social worker, age 30–45, instance 002
+# Google Cloud TTS Chirp 3 HD variant for Elephant in the Room.
+# Provides backend diversity for the Elephant project's female victim role.
+
+speaker_id: SW_F_30-45_002
+role: VIC
+gender: female
+age_range: "30-45"
+context: elephant_in_the_room
+
+tts_voice_id: he-IL-Chirp3-HD-Achernar
+tts_provider: google
+voice_family: he-IL-Chirp3-HD-Achernar
+
+prosody_baseline:
+  rate: 1.0
+  pitch_hz: 195
+  volume_db: 0
+
+# Google does not support <mstts:express-as>; style field is metadata only.
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: -4
+    volume_delta_db: 0
+    rms_target_dbfs: -26
+  2:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: -3
+    volume_delta_db: +1
+    rms_target_dbfs: -27
+  3:
+    style: "General"
+    rate_multiplier: 0.95
+    pitch_delta_st: -3
+    volume_delta_db: +2
+    rms_target_dbfs: -28
+  4:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: -2
+    volume_delta_db: +4
+    rms_target_dbfs: -29
+  5:
+    style: "General"
+    rate_multiplier: 1.20
+    pitch_delta_st: -1
+    volume_delta_db: +5
+    rms_target_dbfs: -30
+
+disfluency:
+  filled_pause_prob: 0.03
+  false_start_prob: 0.03
+  truncation_prob: 0.04
+
+split: train

@@ -10,6 +10,7 @@ context: elephant_in_the_room
 
 tts_voice_id: he-IL-AvriNeural
 tts_provider: azure
+voice_family: he-IL-AvriNeural
 
 prosody_baseline:
   rate: 1.0

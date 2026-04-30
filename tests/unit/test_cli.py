@@ -17,6 +17,7 @@ from click.testing import CliRunner
 from synthbanshee.cli import (
     _derive_event_type,
     _discover_scene_configs,
+    _distribute_speakers,
     _print_batch_summary,
     _print_selection_summary,
     _run_generate_pipeline,
@@ -1087,7 +1088,13 @@ class TestGenerateBatchAdvanced:
         call_count = [0]
 
         def _fail_then_succeed(
-            config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=False
+            config,
+            out_dir,
+            cache_dir,
+            dirty_dir,
+            script_cache_dir,
+            verbose=False,
+            speaker_overrides=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -2321,3 +2328,386 @@ class TestPackageDatasetCommand:
             )
             assert result.exit_code != 0, f"Expected failure for version {bad_version!r}"
             assert not (out_dir / f"avdp_synth_{bad_version}.tar.gz").exists()
+
+
+# ---------------------------------------------------------------------------
+# _distribute_speakers tests (M9b)
+# ---------------------------------------------------------------------------
+
+
+def _write_speaker_yaml(
+    directory: Path,
+    speaker_id: str,
+    *,
+    role: str = "AGG",
+    gender: str = "male",
+    age_range: str = "30-45",
+    context: str = "she_proves",
+    tts_voice_id: str = "he-IL-AvriNeural",
+    voice_family: str | None = None,
+    split: str = "train",
+) -> Path:
+    """Write a minimal speaker YAML file and return its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"speaker_{speaker_id}.yaml"
+    vf = voice_family or tts_voice_id
+    path.write_text(
+        textwrap.dedent(f"""\
+            speaker_id: {speaker_id}
+            role: {role}
+            gender: {gender}
+            age_range: "{age_range}"
+            context: {context}
+            tts_voice_id: {tts_voice_id}
+            tts_provider: azure
+            voice_family: {vf}
+            language: he
+            prosody_baseline:
+              rate: 1.0
+              pitch_hz: 100
+              volume_db: 0
+            style_map:
+              1:
+                style: "General"
+                rate_multiplier: 1.0
+                pitch_delta_st: 0
+                volume_delta_db: 0
+                rms_target_dbfs: -28
+            disfluency:
+              filled_pause_prob: 0.04
+              false_start_prob: 0.02
+              truncation_prob: 0.01
+            split: {split}
+        """),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_scene_yaml(
+    directory: Path,
+    scene_id: str,
+    speakers: list[tuple[str, str]],
+    *,
+    project: str = "she_proves",
+    typology: str = "IT",
+) -> Path:
+    """Write a minimal scene YAML referencing the given speakers."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{scene_id}.yaml"
+    spk_lines = "\n".join(f"  - speaker_id: {sid}\n    role: {role}" for sid, role in speakers)
+    path.write_text(
+        textwrap.dedent(f"""\
+            scene_id: {scene_id.upper()}
+            project: {project}
+            language: he
+            violence_typology: {typology}
+            tier: A
+            random_seed: 42
+            script_template: domestic_violence_base.j2
+            intensity_arc: [1, 2, 3]
+            target_duration_minutes: 3.0
+            speakers:
+        """)
+        + spk_lines
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class TestDistributeSpeakers:
+    def test_round_robin_across_scenes(self, tmp_path, monkeypatch):
+        """Three speakers in pool → scenes cycle through all three."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 4):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG")],
+            )
+            for i in range(6)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        assert len(overrides) == 6
+        assigned = []
+        for scene_path in scenes:
+            ov = overrides[scene_path]
+            assigned.append(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+
+        # All three speakers must appear (round-robin)
+        assert len(set(assigned)) == 3
+
+    def test_deterministic_with_same_seed(self, tmp_path, monkeypatch):
+        """Same seed produces identical assignments."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 4):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        result1 = _distribute_speakers(scenes, rng_seed=99)
+        result2 = _distribute_speakers(scenes, rng_seed=99)
+        assert result1 == result2
+
+    def test_different_seed_produces_different_first_pick(self, tmp_path, monkeypatch):
+        """Different seeds produce different first-pick candidates (deterministic)."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 6):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
+        ]
+
+        # Verify the first-pick candidate differs between seed 1 and seed 2
+        # by computing what random.Random(seed).shuffle produces on the sorted pool.
+        import random
+
+        pool = sorted(f"AGG_M_30-45_{i:03d}" for i in range(1, 6))
+        shuffled_1 = pool[:]
+        random.Random(1).shuffle(shuffled_1)
+        shuffled_2 = pool[:]
+        random.Random(3).shuffle(shuffled_2)
+        assert shuffled_1[0] != shuffled_2[0], "test precondition: seeds must differ"
+
+        monkeypatch.chdir(tmp_path)
+        result1 = _distribute_speakers(scenes, rng_seed=1)
+        result2 = _distribute_speakers(scenes, rng_seed=3)
+
+        pick1 = result1[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick2 = result2[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        assert pick1 != pick2
+
+    def test_no_override_when_single_speaker(self, tmp_path, monkeypatch):
+        """With only one speaker in pool, all overrides are empty dicts."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(3)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        for ov in overrides.values():
+            assert ov == {}
+
+    def test_independent_pools_per_context_role(self, tmp_path, monkeypatch):
+        """AGG and VIC speakers rotate independently."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 3):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}", role="AGG")
+            _write_speaker_yaml(
+                spk_dir,
+                f"VIC_F_25-40_{i:03d}",
+                role="VIC",
+                gender="female",
+                age_range="25-40",
+            )
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG"), ("VIC_F_25-40_001", "VIC")],
+            )
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # Both roles should appear in overrides somewhere
+        all_replaced_ids = set()
+        for ov in overrides.values():
+            all_replaced_ids.update(ov.keys())
+            all_replaced_ids.update(ov.values())
+
+        agg_ids = {x for x in all_replaced_ids if x.startswith("AGG")}
+        vic_ids = {x for x in all_replaced_ids if x.startswith("VIC")}
+        assert len(agg_ids) >= 1
+        assert len(vic_ids) >= 1
+
+    def test_unknown_speaker_skipped_silently(self, tmp_path, monkeypatch):
+        """Scene referencing a speaker not in any YAML gets no override."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                "sc_000",
+                # UNKNOWN_M_30-45_099 doesn't exist in speaker YAMLs
+                [("AGG_M_30-45_099", "AGG")],
+            ),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert overrides[scenes[0]] == {}
+
+    def test_context_both_included_in_project_pools(self, tmp_path, monkeypatch):
+        """Speakers with context='both' are candidates in both projects."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="she_proves")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="both")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # The "both" speaker should appear as a replacement in some scenes
+        assigned = set()
+        for ov in overrides.values():
+            assigned.add(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+        assert "AGG_M_30-45_002" in assigned
+
+    def test_split_disjointness_respected(self, tmp_path, monkeypatch):
+        """Only speakers with matching split are used as replacements."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", split="train")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", split="train")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_003", split="val")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(6)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # AGG_M_30-45_003 (val) must never replace AGG_M_30-45_001 (train)
+        for ov in overrides.values():
+            replacement = ov.get("AGG_M_30-45_001")
+            if replacement is not None:
+                assert replacement != "AGG_M_30-45_003", "val speaker assigned to train scene"
+
+    def test_malformed_speaker_yaml_skipped(self, tmp_path, monkeypatch):
+        """A speaker YAML that fails to parse is silently skipped."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002")
+        # Write a malformed YAML that will fail SpeakerConfig validation
+        (spk_dir / "speaker_AGG_M_30-45_099.yaml").write_text(
+            "not_a_speaker_id: garbage\n", encoding="utf-8"
+        )
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        # Should not raise — malformed YAML is skipped
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert len(overrides) == 1
+
+    def test_no_speaker_dirs_returns_empty_overrides(self, tmp_path, monkeypatch):
+        """When neither speaker directory exists, all overrides are empty."""
+        # Don't create configs/speakers/ or configs/examples/ at all
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, "sc_000", [("AGG_M_30-45_001", "AGG")]),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert overrides == {scenes[0]: {}}
+
+    def test_malformed_scene_yaml_gets_empty_override(self, tmp_path, monkeypatch):
+        """A scene YAML that fails to parse gets an empty override dict."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002")
+
+        scene_dir = tmp_path / "scenes"
+        bad_scene = scene_dir / "bad_scene.yaml"
+        scene_dir.mkdir(parents=True, exist_ok=True)
+        bad_scene.write_text("invalid: yaml: content\n  broken", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers([bad_scene], rng_seed=42)
+        assert overrides[bad_scene] == {}
+
+    def test_empty_candidates_pool_skipped(self, tmp_path, monkeypatch):
+        """When pool lookup yields no candidates, speaker is skipped."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        # Create a she_proves speaker only — no elephant speakers exist.
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="she_proves")
+        # Create a "both" speaker that will be discovered and expanded into
+        # both project pools. But use a different split so the she_proves pool
+        # for split=train has only AGG_M_30-45_001.
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="she_proves", split="val")
+
+        scene_dir = tmp_path / "scenes"
+        # Scene is elephant project but references the she_proves speaker.
+        # The speaker's context is she_proves, so lookup key will be
+        # ("she_proves", "AGG", "train") — pool has 1 candidate (itself) → no override.
+        # Add a second unknown speaker to also cover the unknown-speaker skip.
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                "sc_000",
+                [("AGG_M_30-45_001", "AGG"), ("VIC_F_25-40_099", "VIC")],
+                project="elephant_in_the_room",
+            ),
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        assert overrides[scenes[0]] == {}
+
+    def test_context_both_original_speaker_rotates(self, tmp_path, monkeypatch):
+        """A scene referencing a context='both' speaker still gets rotation."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        # Original speaker has context="both"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001", context="both")
+        # Replacement speaker has concrete context
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002", context="she_proves")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG")],
+                project="she_proves",
+            )
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # The "both" speaker should rotate with the she_proves speaker
+        assigned = set()
+        for ov in overrides.values():
+            assigned.add(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+        assert "AGG_M_30-45_002" in assigned, (
+            "context='both' original speaker should participate in project pool rotation"
+        )

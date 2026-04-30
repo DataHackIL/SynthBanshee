@@ -13,6 +13,7 @@ context: she_proves
 
 tts_voice_id: he-IL-HilaNeural     # Closest available; apply pitch shift to approximate child
 tts_provider: azure
+voice_family: he-IL-HilaNeural
 
 prosody_baseline:
   rate: 1.10                        # Children speak faster

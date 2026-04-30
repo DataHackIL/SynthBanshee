@@ -58,6 +58,9 @@ class SpeakerInfo(BaseModel):
     gender: Literal["male", "female"]
     age_range: str
     tts_voice_id: str
+    # Backwards compat: old clip JSON lacks this field; defaults to "" so
+    # the manifest fallback (voice_family or tts_voice_id) works correctly.
+    voice_family: str = ""
 
     @field_validator("role")
     @classmethod
