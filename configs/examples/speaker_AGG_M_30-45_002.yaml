@@ -17,6 +17,7 @@ context: she_proves
 # --- Google Cloud TTS voice ---
 tts_voice_id: he-IL-Chirp3-HD-Achird
 tts_provider: google
+voice_family: he-IL-Chirp3-HD-Achird
 
 # --- Baseline prosody ---
 # Google TTS maps <prosody rate/pitch/volume> identically to Azure for

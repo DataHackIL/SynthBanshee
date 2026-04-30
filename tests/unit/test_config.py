@@ -210,12 +210,40 @@ class TestSpeakerConfig:
                 style_map={6: {"style": "angry"}},  # 6 is out of range
             )
 
+    def test_voice_family_defaults_to_tts_voice_id(self):
+        cfg = SpeakerConfig(
+            speaker_id="AGG_M_30-45_099",
+            role="AGG",
+            gender="male",
+            age_range="30-45",
+            context="she_proves",
+            tts_voice_id="he-IL-AvriNeural",
+        )
+        assert cfg.voice_family == "he-IL-AvriNeural"
+
+    def test_voice_family_explicit(self):
+        cfg = SpeakerConfig(
+            speaker_id="AGG_M_30-45_099",
+            role="AGG",
+            gender="male",
+            age_range="30-45",
+            context="she_proves",
+            tts_voice_id="he-IL-AvriNeural",
+            voice_family="custom-family",
+        )
+        assert cfg.voice_family == "custom-family"
+
+    def test_voice_family_loaded_from_yaml(self):
+        cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        assert cfg.voice_family == "he-IL-AvriNeural"
+
     def test_round_trip_serialization(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         data = cfg.model_dump()
         cfg2 = SpeakerConfig.model_validate(data)
         assert cfg2.speaker_id == cfg.speaker_id
         assert cfg2.style_map == cfg.style_map
+        assert cfg2.voice_family == cfg.voice_family
 
 
 # ---------------------------------------------------------------------------

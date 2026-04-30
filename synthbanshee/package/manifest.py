@@ -22,6 +22,7 @@ _MANIFEST_COLUMNS = [
     "tier",
     "duration_seconds",
     "speaker_ids",
+    "voice_families",
     "has_violence",
     "max_intensity",
     "quality_flags",
@@ -41,6 +42,7 @@ class ManifestRow:
     tier: str
     duration_seconds: float
     speaker_ids: str  # pipe-separated: "AGG_M_30-45_001|VIC_F_25-40_002"
+    voice_families: str  # pipe-separated: "he-IL-AvriNeural|he-IL-HilaNeural"
     has_violence: bool
     max_intensity: int
     quality_flags: str  # comma-separated, empty string if none
@@ -101,6 +103,9 @@ def generate_manifest(
                 tier=metadata.tier,
                 duration_seconds=metadata.duration_seconds,
                 speaker_ids="|".join(s.speaker_id for s in metadata.speakers),
+                voice_families="|".join(
+                    s.voice_family or s.tts_voice_id for s in metadata.speakers
+                ),
                 has_violence=metadata.weak_label.has_violence,
                 max_intensity=metadata.weak_label.max_intensity,
                 quality_flags=",".join(metadata.quality_flags),
@@ -123,6 +128,7 @@ def generate_manifest(
                     "tier": row.tier,
                     "duration_seconds": row.duration_seconds,
                     "speaker_ids": row.speaker_ids,
+                    "voice_families": row.voice_families,
                     "has_violence": row.has_violence,
                     "max_intensity": row.max_intensity,
                     "quality_flags": row.quality_flags,

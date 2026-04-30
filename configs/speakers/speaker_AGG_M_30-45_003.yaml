@@ -1,0 +1,60 @@
+# Speaker persona — Male aggressor, age 30–45, instance 003
+# Azure SSML-perturbed variant of AvriNeural — shifted prosody baseline
+# produces a perceptually distinct voice identity (deeper, slower).
+#
+# voice_family remains he-IL-AvriNeural (same underlying TTS model);
+# the identity differentiation comes from prosody baseline offsets.
+
+speaker_id: AGG_M_30-45_003
+role: AGG
+gender: male
+age_range: "30-45"
+context: she_proves
+
+tts_voice_id: he-IL-AvriNeural
+tts_provider: azure
+voice_family: he-IL-AvriNeural
+
+prosody_baseline:
+  rate: 0.95                        # Slower, more deliberate (vs 001's 1.05)
+  pitch_hz: 95                      # Deeper voice (vs 001's 115 Hz)
+  volume_db: +1
+
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0
+    volume_delta_db: 0
+    rms_target_dbfs: -28
+  2:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: 0
+    volume_delta_db: +2
+    rms_target_dbfs: -25
+  3:
+    style: "angry"
+    rate_multiplier: 1.12
+    pitch_delta_st: 0
+    volume_delta_db: +5
+    rms_target_dbfs: -22
+  4:
+    style: "angry"
+    rate_multiplier: 1.18
+    pitch_delta_st: +1
+    volume_delta_db: +9
+    rms_target_dbfs: -19
+  5:
+    style: "angry"
+    rate_multiplier: 1.22
+    pitch_delta_st: +1
+    volume_delta_db: +13
+    rms_target_dbfs: -15
+
+disfluency:
+  filled_pause_prob: 0.06
+  false_start_prob: 0.03
+  truncation_prob: 0.02
+
+split: train

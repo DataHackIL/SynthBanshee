@@ -1,0 +1,58 @@
+# Speaker persona — Male beneficiary (aggressor), age 40–55, instance 004
+# Google Cloud TTS Chirp 3 HD variant for Elephant in the Room.
+# Provides backend diversity for the Elephant project's male aggressor role.
+
+speaker_id: BEN_M_40-55_004
+role: AGG
+gender: male
+age_range: "40-55"
+context: elephant_in_the_room
+
+tts_voice_id: he-IL-Chirp3-HD-Achird
+tts_provider: google
+voice_family: he-IL-Chirp3-HD-Achird
+
+prosody_baseline:
+  rate: 1.0
+  pitch_hz: 100
+  volume_db: 0
+
+# Google does not support <mstts:express-as>; style field is metadata only.
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0
+    volume_delta_db: 0
+    rms_target_dbfs: -28
+  2:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: 0
+    volume_delta_db: +2
+    rms_target_dbfs: -25
+  3:
+    style: "General"
+    rate_multiplier: 1.15
+    pitch_delta_st: 0
+    volume_delta_db: +5
+    rms_target_dbfs: -22
+  4:
+    style: "General"
+    rate_multiplier: 1.22
+    pitch_delta_st: +1
+    volume_delta_db: +9
+    rms_target_dbfs: -19
+  5:
+    style: "General"
+    rate_multiplier: 1.30
+    pitch_delta_st: +1
+    volume_delta_db: +13
+    rms_target_dbfs: -15
+
+disfluency:
+  filled_pause_prob: 0.05
+  false_start_prob: 0.04
+  truncation_prob: 0.02
+
+split: train

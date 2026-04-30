@@ -15,6 +15,7 @@ context: she_proves                 # she_proves | elephant_in_the_room | both
 # Primary voice. Must be a supported he-IL neural voice.
 tts_voice_id: he-IL-AvriNeural
 tts_provider: azure                 # azure | google
+voice_family: he-IL-AvriNeural
 
 # --- Baseline prosody ---
 # These are the neutral/baseline parameters. Scene configs apply

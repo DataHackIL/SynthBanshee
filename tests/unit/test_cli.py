@@ -17,6 +17,7 @@ from click.testing import CliRunner
 from synthbanshee.cli import (
     _derive_event_type,
     _discover_scene_configs,
+    _distribute_speakers,
     _print_batch_summary,
     _print_selection_summary,
     _run_generate_pipeline,
@@ -1087,7 +1088,13 @@ class TestGenerateBatchAdvanced:
         call_count = [0]
 
         def _fail_then_succeed(
-            config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=False
+            config,
+            out_dir,
+            cache_dir,
+            dirty_dir,
+            script_cache_dir,
+            verbose=False,
+            speaker_overrides=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -2321,3 +2328,192 @@ class TestPackageDatasetCommand:
             )
             assert result.exit_code != 0, f"Expected failure for version {bad_version!r}"
             assert not (out_dir / f"avdp_synth_{bad_version}.tar.gz").exists()
+
+
+# ---------------------------------------------------------------------------
+# _distribute_speakers tests (M9b)
+# ---------------------------------------------------------------------------
+
+
+def _write_speaker_yaml(
+    directory: Path,
+    speaker_id: str,
+    *,
+    role: str = "AGG",
+    gender: str = "male",
+    age_range: str = "30-45",
+    context: str = "she_proves",
+    tts_voice_id: str = "he-IL-AvriNeural",
+    voice_family: str | None = None,
+) -> Path:
+    """Write a minimal speaker YAML file and return its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"speaker_{speaker_id}.yaml"
+    vf = voice_family or tts_voice_id
+    path.write_text(
+        textwrap.dedent(f"""\
+            speaker_id: {speaker_id}
+            role: {role}
+            gender: {gender}
+            age_range: "{age_range}"
+            context: {context}
+            tts_voice_id: {tts_voice_id}
+            tts_provider: azure
+            voice_family: {vf}
+            prosody_baseline:
+              rate: 1.0
+              pitch_hz: 100
+              volume_db: 0
+            split: train
+        """),
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_scene_yaml(
+    directory: Path,
+    scene_id: str,
+    speakers: list[tuple[str, str]],
+    *,
+    project: str = "she_proves",
+    typology: str = "IT",
+) -> Path:
+    """Write a minimal scene YAML referencing the given speakers."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{scene_id}.yaml"
+    spk_lines = "\n".join(f"  - speaker_id: {sid}\n    role: {role}" for sid, role in speakers)
+    path.write_text(
+        textwrap.dedent(f"""\
+            scene_id: {scene_id.upper()}
+            project: {project}
+            violence_typology: {typology}
+            tier: A
+            random_seed: 42
+            script_template: domestic_violence_base.j2
+            intensity_arc: [1, 2, 3]
+            target_duration_minutes: 3.0
+            speakers:
+        """)
+        + spk_lines
+        + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+class TestDistributeSpeakers:
+    def test_round_robin_across_scenes(self, tmp_path, monkeypatch):
+        """Three speakers in pool → scenes cycle through all three."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 4):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG")],
+            )
+            for i in range(6)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        assert len(overrides) == 6
+        assigned = []
+        for scene_path in scenes:
+            ov = overrides[scene_path]
+            assigned.append(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
+
+        # All three speakers must appear (round-robin)
+        assert len(set(assigned)) == 3
+
+    def test_deterministic_with_same_seed(self, tmp_path, monkeypatch):
+        """Same seed produces identical assignments."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 4):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        result1 = _distribute_speakers(scenes, rng_seed=99)
+        result2 = _distribute_speakers(scenes, rng_seed=99)
+        assert result1 == result2
+
+    def test_different_seed_may_differ(self, tmp_path, monkeypatch):
+        """Different seeds produce different orderings (with high probability)."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 6):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(10)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        result1 = _distribute_speakers(scenes, rng_seed=1)
+        result2 = _distribute_speakers(scenes, rng_seed=2)
+        assert result1 != result2
+
+    def test_no_override_when_single_speaker(self, tmp_path, monkeypatch):
+        """With only one speaker in pool, all overrides are empty dicts."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(scene_dir, f"sc_{i:03d}", [("AGG_M_30-45_001", "AGG")])
+            for i in range(3)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+        for ov in overrides.values():
+            assert ov == {}
+
+    def test_independent_pools_per_context_role(self, tmp_path, monkeypatch):
+        """AGG and VIC speakers rotate independently."""
+        spk_dir = tmp_path / "configs" / "speakers"
+        for i in range(1, 3):
+            _write_speaker_yaml(spk_dir, f"AGG_M_30-45_{i:03d}", role="AGG")
+            _write_speaker_yaml(
+                spk_dir,
+                f"VIC_F_25-40_{i:03d}",
+                role="VIC",
+                gender="female",
+                age_range="25-40",
+            )
+
+        scene_dir = tmp_path / "scenes"
+        scenes = [
+            _write_scene_yaml(
+                scene_dir,
+                f"sc_{i:03d}",
+                [("AGG_M_30-45_001", "AGG"), ("VIC_F_25-40_001", "VIC")],
+            )
+            for i in range(4)
+        ]
+
+        monkeypatch.chdir(tmp_path)
+        overrides = _distribute_speakers(scenes, rng_seed=42)
+
+        # Both roles should appear in overrides somewhere
+        all_replaced_ids = set()
+        for ov in overrides.values():
+            all_replaced_ids.update(ov.keys())
+            all_replaced_ids.update(ov.values())
+
+        agg_ids = {x for x in all_replaced_ids if x.startswith("AGG")}
+        vic_ids = {x for x in all_replaced_ids if x.startswith("VIC")}
+        assert len(agg_ids) >= 1
+        assert len(vic_ids) >= 1

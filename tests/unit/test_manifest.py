@@ -98,6 +98,7 @@ class TestManifestRow:
             tier="A",
             duration_seconds=3.5,
             speaker_ids="AGG_M_30-45_001",
+            voice_families="he-IL-AvriNeural",
             has_violence=True,
             max_intensity=3,
             quality_flags="",
@@ -210,6 +211,28 @@ class TestGenerateManifest:
         rows = generate_manifest(tmp_path, out)
 
         assert rows[0].speaker_ids == "AGG_M_30-45_001"
+
+    def test_voice_families_column_populated(self, tmp_path):
+        """voice_families column falls back to tts_voice_id when voice_family absent."""
+        _write_valid_clip(tmp_path / "spk_000", "clip_000_00")
+        out = tmp_path / "manifest.csv"
+        rows = generate_manifest(tmp_path, out)
+
+        assert rows[0].voice_families == "he-IL-AvriNeural"
+
+    def test_voice_families_uses_explicit_field(self, tmp_path):
+        """voice_families uses voice_family when present in metadata."""
+        clip_dir = tmp_path / "spk_000"
+        wav_path = _write_valid_clip(clip_dir, "clip_vf_00")
+        json_path = wav_path.with_suffix(".json")
+        meta = json.loads(json_path.read_text(encoding="utf-8"))
+        meta["speakers"][0]["voice_family"] = "custom-voice-family"
+        json_path.write_text(json.dumps(meta), encoding="utf-8")
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out)
+
+        assert rows[0].voice_families == "custom-voice-family"
 
     def test_quality_flags_comma_separated(self, tmp_path):
         _write_valid_clip(

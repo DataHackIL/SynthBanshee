@@ -1,0 +1,61 @@
+# Speaker persona — Male beneficiary (aggressor), age 40–55, instance 005
+# Azure SSML-perturbed variant of AvriNeural for Elephant in the Room.
+# Differentiated from BEN_M_40-55_003 by deeper pitch and faster rate.
+#
+# voice_family remains he-IL-AvriNeural (same underlying TTS model);
+# the identity differentiation comes from prosody baseline offsets.
+
+speaker_id: BEN_M_40-55_005
+role: AGG
+gender: male
+age_range: "40-55"
+context: elephant_in_the_room
+
+tts_voice_id: he-IL-AvriNeural
+tts_provider: azure
+voice_family: he-IL-AvriNeural
+
+prosody_baseline:
+  rate: 1.10                         # Faster than 003's 1.0
+  pitch_hz: 95                       # Deeper than 003's 105 Hz
+  volume_db: 0
+
+# Azure <mstts:express-as> + prosody adjustments per intensity level.
+style_map:
+  1:
+    style: "General"
+    rate_multiplier: 1.0
+    pitch_delta_st: 0
+    volume_delta_db: 0
+    rms_target_dbfs: -28
+  2:
+    style: "General"
+    rate_multiplier: 1.05
+    pitch_delta_st: 0
+    volume_delta_db: +2
+    rms_target_dbfs: -25
+  3:
+    style: "angry"
+    rate_multiplier: 1.18
+    pitch_delta_st: 0
+    volume_delta_db: +5
+    rms_target_dbfs: -22
+  4:
+    style: "angry"
+    rate_multiplier: 1.25
+    pitch_delta_st: +1
+    volume_delta_db: +9
+    rms_target_dbfs: -19
+  5:
+    style: "angry"
+    rate_multiplier: 1.35
+    pitch_delta_st: +1
+    volume_delta_db: +13
+    rms_target_dbfs: -15
+
+disfluency:
+  filled_pause_prob: 0.03
+  false_start_prob: 0.03
+  truncation_prob: 0.02
+
+split: train

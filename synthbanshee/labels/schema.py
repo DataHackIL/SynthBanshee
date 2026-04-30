@@ -58,6 +58,7 @@ class SpeakerInfo(BaseModel):
     gender: Literal["male", "female"]
     age_range: str
     tts_voice_id: str
+    voice_family: str = ""
 
     @field_validator("role")
     @classmethod
