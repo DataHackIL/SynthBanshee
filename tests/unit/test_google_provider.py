@@ -18,9 +18,6 @@ import pytest
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.tts.google_provider import (
     GoogleProvider,
-    _build_audio_config,
-    _build_input,
-    _build_voice_params,
     _extract_voice_name,
     _pcm_to_wav,
 )
@@ -230,6 +227,21 @@ class TestGoogleProvider:
         assert client is mock_client_instance
         mock_tts.TextToSpeechClient.assert_called_once()
 
+    def test_client_is_cached_across_calls(self):
+        """_get_client() returns the same instance on repeated calls."""
+        call_count = 0
+
+        def counting_factory():
+            nonlocal call_count
+            call_count += 1
+            return MagicMock()
+
+        provider = GoogleProvider(client_factory=counting_factory)
+        c1 = provider._get_client()
+        c2 = provider._get_client()
+        assert c1 is c2
+        assert call_count == 1
+
     def test_missing_google_package_raises_import_error(self, monkeypatch):
         """GoogleProvider raises ImportError when the SDK is absent and no factory."""
         import sys
@@ -262,55 +274,6 @@ class TestGoogleProvider:
         ssml = '<speak><voice name="he-IL-Chirp3-HD-Achird">x</voice></speak>'
         with pytest.raises(RuntimeError, match="Unexpected audio_content type"):
             provider.synthesize(ssml)
-
-
-# ---------------------------------------------------------------------------
-# Private helpers with mock tts_module
-# ---------------------------------------------------------------------------
-
-
-class TestBuildHelpers:
-    """Cover the tts_module-is-not-None branches (lines 154, 173, 183)."""
-
-    def _fake_tts_module(self):
-        mod = MagicMock()
-        mod.SynthesisInput = MagicMock(return_value="mock_input")
-        mod.VoiceSelectionParams = MagicMock(return_value="mock_voice")
-        mod.AudioConfig = MagicMock(return_value="mock_config")
-        mod.AudioEncoding.LINEAR16 = "LINEAR16"
-        return mod
-
-    def test_build_input_with_module(self):
-        mod = self._fake_tts_module()
-        result = _build_input("<speak/>", mod)
-        assert result == "mock_input"
-        mod.SynthesisInput.assert_called_once_with(ssml="<speak/>")
-
-    def test_build_input_without_module(self):
-        result = _build_input("<speak/>", None)
-        assert result == {"ssml": "<speak/>"}
-
-    def test_build_voice_params_with_module(self):
-        mod = self._fake_tts_module()
-        result = _build_voice_params("he-IL-Chirp3-HD-Achird", mod)
-        assert result == "mock_voice"
-        mod.VoiceSelectionParams.assert_called_once_with(
-            language_code="he-IL", name="he-IL-Chirp3-HD-Achird"
-        )
-
-    def test_build_voice_params_without_module(self):
-        result = _build_voice_params("he-IL-Chirp3-HD-Achird", None)
-        assert result == {"language_code": "he-IL", "name": "he-IL-Chirp3-HD-Achird"}
-
-    def test_build_audio_config_with_module(self):
-        mod = self._fake_tts_module()
-        result = _build_audio_config(24000, mod)
-        assert result == "mock_config"
-        mod.AudioConfig.assert_called_once_with(audio_encoding="LINEAR16", sample_rate_hertz=24000)
-
-    def test_build_audio_config_without_module(self):
-        result = _build_audio_config(24000, None)
-        assert result == {"audio_encoding": "LINEAR16", "sample_rate_hertz": 24000}
 
 
 # ---------------------------------------------------------------------------
@@ -499,22 +462,22 @@ class TestTTSRendererMultiProvider:
         ) as mock_cls:
             renderer = TTSRenderer(cache_dir=tmp_path / "cache")
             mock_cls.assert_called_once()
-        assert renderer._legacy_mode is True
+        assert "azure" in renderer._providers
 
-    def test_legacy_mode_fallback_for_mismatched_provider(self, tmp_path):
-        """Legacy mode uses the single registered provider even for mismatched tts_provider.
+    def test_single_provider_rejects_mismatched_speaker(self, tmp_path):
+        """Single-provider mode raises KeyError for unregistered tts_provider.
 
-        Covers renderer.py line 90 (_legacy_mode fallback path).
+        When using ``provider=`` (registered as "azure"), a Google speaker
+        must fail — no silent fallback.
         """
         from synthbanshee.tts.azure_provider import AzureProvider
 
         azure = AzureProvider(sdk_factory=_mock_azure_factory)
         renderer = TTSRenderer(provider=azure, cache_dir=tmp_path / "cache")
-        # Google speaker in legacy mode — should fall back to the azure provider.
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_002.yaml")
         assert speaker.tts_provider == "google"
-        wav, _, _ = renderer.render_utterance("שלום", speaker, intensity=1)
-        assert isinstance(wav, bytes)
+        with pytest.raises(KeyError, match="google"):
+            renderer.render_utterance("שלום", speaker, intensity=1)
 
 
 # ---------------------------------------------------------------------------

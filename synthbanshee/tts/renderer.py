@@ -36,14 +36,13 @@ class TTSRenderer:
     different voice, text, style, or prosody always produce distinct entries.
 
     Supports multiple backends.  The backend for each utterance is chosen
-    from ``providers`` based on ``SpeakerConfig.tts_provider``.  When only
-    one provider is supplied (legacy usage), it is used for all speakers
-    regardless of their ``tts_provider`` field.
+    based on ``SpeakerConfig.tts_provider``.  Dispatch is always strict:
+    a ``KeyError`` is raised if the speaker's backend is not registered.
 
     Args:
-        provider: Single provider for backward compatibility.  Mutually
-            exclusive with ``providers``.  Accepts any ``TTSProvider``
-            (including ``AzureProvider`` and ``GoogleProvider``).
+        provider: Convenience shorthand that registers a single provider
+            under the ``"azure"`` key.  Mutually exclusive with
+            ``providers``.
         providers: Mapping of provider name (``"azure"``, ``"google"``) to
             provider instance.  When present, the renderer dispatches based
             on ``speaker.tts_provider``.
@@ -61,14 +60,12 @@ class TTSRenderer:
             raise ValueError("Specify either 'provider' or 'providers', not both.")
         if providers is not None:
             self._providers: dict[str, TTSProvider] = providers
-            self._legacy_mode = False
         else:
             if provider is None:
                 from synthbanshee.tts.azure_provider import AzureProvider
 
                 provider = AzureProvider()
             self._providers = {"azure": provider}
-            self._legacy_mode = True
         self._cache_dir = Path(
             cache_dir
             if cache_dir is not None
@@ -79,19 +76,15 @@ class TTSRenderer:
     def _get_provider(self, speaker: SpeakerConfig) -> TTSProvider:
         """Return the provider for *speaker*.
 
-        In legacy single-provider mode (``provider=`` kwarg at construction),
-        the registered provider is always used regardless of the speaker's
-        ``tts_provider`` field — backward-compatible behaviour.
-
-        In explicit multi-provider mode (``providers=`` kwarg), dispatch is
-        strict: a ``KeyError`` is raised if the speaker's backend is not
-        registered.
+        Dispatch is always strict: a ``KeyError`` is raised if the
+        speaker's ``tts_provider`` is not registered.  Since
+        ``SpeakerConfig.tts_provider`` defaults to ``"azure"``, the
+        single-provider convenience (``provider=``) works transparently
+        for Azure speakers.
         """
         key = speaker.tts_provider
         if key in self._providers:
             return self._providers[key]
-        if self._legacy_mode:
-            return next(iter(self._providers.values()))
         raise KeyError(
             f"No provider registered for tts_provider={key!r}. Registered: {list(self._providers)}"
         )
