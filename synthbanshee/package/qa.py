@@ -41,7 +41,6 @@ Dataset-level checks (via report.passed):
 from __future__ import annotations
 
 import logging
-import warnings as _warnings_mod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +54,7 @@ from synthbanshee.labels.prosody_metrics import (
     TurnMetrics,
     aggregate_metrics,
     measure_events,
+    parse_jsonl_events,
 )
 from synthbanshee.labels.schema import ClipMetadata, EventLabel
 from synthbanshee.package.validator import validate_clip
@@ -225,26 +225,6 @@ def _check_emotion_downgrade(events: list[EventLabel]) -> bool:
     neutral_count = sum(1 for e in events if e.emotional_state == "neutral")
     low_intensity_count = sum(1 for e in events if e.intensity <= 2)
     return neutral_count > low_intensity_count
-
-
-def _parse_jsonl_events(jsonl_path: Path) -> list[EventLabel]:
-    """Parse a JSONL file into a list of EventLabel objects.
-
-    Malformed lines are skipped with a warning.
-    """
-    events: list[EventLabel] = []
-    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            events.append(EventLabel.model_validate_json(line))
-        except Exception as exc:
-            _warnings_mod.warn(
-                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
-                stacklevel=2,
-            )
-    return events
 
 
 def _detect_outliers(
@@ -434,7 +414,7 @@ def run_qa(
             structural_clip_warnings: list[str] = []
 
             try:
-                events = _parse_jsonl_events(jsonl_path)
+                events = parse_jsonl_events(jsonl_path)
                 role_events = [e for e in events if e.speaker_role is not None]
             except Exception:
                 logger.warning("JSONL parse failed for %s", wav_path.stem, exc_info=True)

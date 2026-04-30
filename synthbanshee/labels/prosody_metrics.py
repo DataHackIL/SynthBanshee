@@ -223,6 +223,34 @@ def measure_events(
     return results
 
 
+def parse_jsonl_events(jsonl_path: Path) -> list[EventLabel]:
+    """Parse a JSONL strong-label file into a list of EventLabel objects.
+
+    Malformed lines are skipped with a warning.  Blank lines are ignored.
+
+    Args:
+        jsonl_path: Path to the ``.jsonl`` file.
+
+    Returns:
+        List of :class:`EventLabel` objects (may be empty).
+    """
+    from synthbanshee.labels.schema import EventLabel
+
+    events: list[EventLabel] = []
+    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            events.append(EventLabel.model_validate_json(line))
+        except Exception as exc:  # pydantic.ValidationError or JSON parse error
+            warnings.warn(
+                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
+                stacklevel=2,
+            )
+    return events
+
+
 def measure_clip(clip_path: Path) -> list[TurnMetrics]:
     """Return per-turn prosody metrics for one generated clip.
 
@@ -238,25 +266,11 @@ def measure_clip(clip_path: Path) -> list[TurnMetrics]:
         List of :class:`TurnMetrics`, one per qualifying event.  Empty if
         the JSONL is missing or contains no speaker-role events.
     """
-    from synthbanshee.labels.schema import EventLabel
-
     jsonl_path = clip_path.with_suffix(".jsonl")
     if not jsonl_path.exists():
         return []
 
-    events: list[EventLabel] = []
-    for raw_line in jsonl_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            events.append(EventLabel.model_validate_json(line))
-        except Exception as exc:  # pydantic.ValidationError or JSON parse error
-            warnings.warn(
-                f"Skipping malformed label line in {jsonl_path.name}: {exc}",
-                stacklevel=2,
-            )
-
+    events = parse_jsonl_events(jsonl_path)
     role_events = [e for e in events if e.speaker_role is not None]
     if not role_events:
         return []

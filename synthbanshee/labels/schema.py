@@ -33,8 +33,8 @@ _QUALITY_FLAGS = frozenset(
         # M10a per-clip acoustic QA warnings
         "vic_f0_high",  # VIC median F0 at I4–I5 > 250 Hz
         "agg_no_escalation",  # AGG RMS range (I5 − I1) < 6 dB
-        # M10b per-clip run-level QA warnings
-        "warn_no_overlap",  # overlap ratio = 0 in clip with I4+ turns
+        # M10b per-clip structural QA warnings
+        "warn_no_overlap",  # no temporal overlap between events in a clip with I4+ turns
         "warn_emotion_downgrade",  # neutral emotional_state count > low-intensity turn count
     }
 )

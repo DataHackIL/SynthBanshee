@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from synthbanshee.labels.prosody_metrics import TurnMetrics
+from synthbanshee.labels.prosody_metrics import TurnMetrics, parse_jsonl_events
 from synthbanshee.package.qa import (
     DatasetStats,
     RunSummary,
@@ -18,7 +18,6 @@ from synthbanshee.package.qa import (
     _compute_run_warnings,
     _detect_outliers,
     _has_overlap,
-    _parse_jsonl_events,
     run_qa,
 )
 
@@ -513,7 +512,7 @@ class TestRunQAAcousticWarnings:
 
 
 # ---------------------------------------------------------------------------
-# M10b: _parse_jsonl_events
+# M10b: parse_jsonl_events
 # ---------------------------------------------------------------------------
 
 
@@ -522,7 +521,7 @@ class TestParseJsonlEvents:
         jsonl = tmp_path / "clip.jsonl"
         ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
         jsonl.write_text(json.dumps(ev) + "\n", encoding="utf-8")
-        events = _parse_jsonl_events(jsonl)
+        events = parse_jsonl_events(jsonl)
         assert len(events) == 1
         assert events[0].clip_id == "c1"
 
@@ -530,20 +529,20 @@ class TestParseJsonlEvents:
         jsonl = tmp_path / "clip.jsonl"
         ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
         jsonl.write_text("not valid json\n" + json.dumps(ev) + "\n", encoding="utf-8")
-        events = _parse_jsonl_events(jsonl)
+        events = parse_jsonl_events(jsonl)
         assert len(events) == 1
 
     def test_skips_blank_lines(self, tmp_path):
         jsonl = tmp_path / "clip.jsonl"
         ev = _make_event("c1", 0.5, 1.0, 1, "AGG")
         jsonl.write_text("\n\n" + json.dumps(ev) + "\n\n", encoding="utf-8")
-        events = _parse_jsonl_events(jsonl)
+        events = parse_jsonl_events(jsonl)
         assert len(events) == 1
 
     def test_empty_file(self, tmp_path):
         jsonl = tmp_path / "clip.jsonl"
         jsonl.write_text("", encoding="utf-8")
-        events = _parse_jsonl_events(jsonl)
+        events = parse_jsonl_events(jsonl)
         assert events == []
 
 

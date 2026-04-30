@@ -1266,7 +1266,11 @@ def qa_report(
     Validates every WAV/TXT/JSON triplet, computes dataset statistics, and
     reports pass/fail based on the clip failure rate.
     """
-    from synthbanshee.package.qa import run_qa
+    from synthbanshee.package.qa import (
+        _HIGH_EMOTION_DOWNGRADE_RATE,
+        _MIN_VOICE_DIVERSITY,
+        run_qa,
+    )
 
     console.print(f"[cyan]Running QA on:[/cyan] {data_dir}")
     report = run_qa(data_dir, max_failure_rate=max_failure_rate, run_summary=run_summary)
@@ -1337,7 +1341,7 @@ def qa_report(
         # Voice diversity
         for gender in ("male", "female"):
             count = rs.voices_by_gender.get(gender, 0)
-            label = f"[yellow]{count}[/yellow]" if count < 3 else str(count)
+            label = f"[yellow]{count}[/yellow]" if count < _MIN_VOICE_DIVERSITY else str(count)
             t_run.add_row(f"Voice variants ({gender})", label)
 
         # Backend diversity
@@ -1360,7 +1364,7 @@ def qa_report(
 
         ed_label = (
             f"[yellow]{rs.emotion_downgrade_ratio:.1%}[/yellow]"
-            if rs.emotion_downgrade_ratio > 0.05
+            if rs.emotion_downgrade_ratio > _HIGH_EMOTION_DOWNGRADE_RATE
             else f"{rs.emotion_downgrade_ratio:.1%}"
         )
         t_run.add_row("Emotion downgrade ratio", ed_label)
