@@ -1,27 +1,31 @@
 """Google Cloud TTS provider — Chirp 3 HD he-IL voices.
 
 Uses the ``google-cloud-texttospeech`` client library (optional extra
-``[google-tts]``).  Credentials are resolved by the Google Application
-Default Credentials chain:
+``[google-tts]``).  Credentials are discovered via Google Application
+Default Credentials (ADC):
 
-    GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+    - ``GOOGLE_APPLICATION_CREDENTIALS`` pointing to a service-account JSON
+    - ``gcloud auth application-default login`` (local development)
+    - GCE metadata server / Workload Identity (CI / cloud environments)
+
+See https://cloud.google.com/docs/authentication/application-default-credentials
 
 Voice IDs to use in speaker YAMLs (verify against the current catalog):
 
-    gcloud text-to-speech voices list --language-code=he-IL \
-        --filter="name~Chirp3"
+    python scripts/check_google_voices.py
 
 Known Chirp 3 HD he-IL voices (as of 2026-04):
     he-IL-Chirp3-HD-Achird   — male
-    he-IL-Chirp3-HD-Achernar    — female
+    he-IL-Chirp3-HD-Achernar — female
 
 Set ``tts_provider: google`` and ``tts_voice_id: he-IL-Chirp3-HD-Achird``
-(or Bet) in a speaker YAML to route synthesis through this provider.
+(or Achernar) in a speaker YAML to route synthesis through this provider.
 """
 
 from __future__ import annotations
 
-import os
+import io
+import wave
 
 from synthbanshee.tts.provider import ProviderCapabilities
 
@@ -38,6 +42,17 @@ _GOOGLE_CAPABILITIES = ProviderCapabilities(
 _OUTPUT_SAMPLE_RATE_HZ = 24_000
 
 
+def _pcm_to_wav(pcm: bytes, sample_rate: int = _OUTPUT_SAMPLE_RATE_HZ) -> bytes:
+    """Wrap raw LINEAR16 (16-bit signed LE mono) PCM in a RIFF/WAV container."""
+    buf = io.BytesIO()
+    with wave.open(buf, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)  # 16-bit
+        w.setframerate(sample_rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
 class GoogleProvider:
     """Synthesize SSML to WAV bytes using Google Cloud TTS Chirp 3 HD.
 
@@ -45,7 +60,7 @@ class GoogleProvider:
     avoid real network calls (identical pattern to AzureProvider).
 
     Args:
-        client_factory: Optional callable() → Google TTS client.  When
+        client_factory: Optional callable() -> Google TTS client.  When
             provided, the real ``google.cloud.texttospeech`` import is
             bypassed entirely.
     """
@@ -78,13 +93,6 @@ class GoogleProvider:
                 "Install it with: pip install 'synthbanshee[google-tts]'"
             ) from exc
 
-        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        if not creds_path:
-            raise RuntimeError(
-                "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set. "
-                "Set it to the path of a service-account JSON file."
-            )
-
         return texttospeech.TextToSpeechClient()
 
     # ------------------------------------------------------------------
@@ -92,11 +100,18 @@ class GoogleProvider:
     # ------------------------------------------------------------------
 
     def synthesize(self, ssml: str) -> bytes:
-        """Synthesize *ssml* and return raw WAV bytes (24 kHz, mono, LINEAR16).
+        """Synthesize *ssml* and return WAV bytes (24 kHz, 16-bit mono).
 
-        The voice name is embedded in the ``<voice name="...">`` element of
-        the SSML.  Google TTS reads the ``name`` attribute from the first
-        ``<voice>`` element; the language code is inferred from it.
+        Google Cloud TTS returns raw LINEAR16 PCM for
+        ``AudioEncoding.LINEAR16``.  This method wraps the PCM in a
+        RIFF/WAV container so downstream code (``SceneMixer``,
+        ``soundfile.read()``) receives a valid WAV file — the same
+        contract as ``AzureProvider.synthesize()``.
+
+        The voice name is extracted from the ``<voice name="...">``
+        element of the SSML.  If no voice name is found, a ``RuntimeError``
+        is raised immediately (rather than forwarding malformed params to
+        the API).
 
         Args:
             ssml: A complete SSML document.  Must not contain
@@ -108,8 +123,16 @@ class GoogleProvider:
             WAV file content as bytes (24 kHz, 16-bit PCM mono).
 
         Raises:
-            RuntimeError: If synthesis fails or credentials are missing.
+            RuntimeError: If synthesis fails, credentials cannot be
+                discovered, or the SSML is missing a ``<voice>`` element.
         """
+        voice_name = _extract_voice_name(ssml)
+        if not voice_name:
+            raise RuntimeError(
+                'SSML document is missing a <voice name="..."> element. '
+                "GoogleProvider requires the voice ID to be embedded in the SSML."
+            )
+
         try:
             from google.cloud import texttospeech  # type: ignore[import-untyped]
         except ImportError:
@@ -118,9 +141,7 @@ class GoogleProvider:
         client = self._get_client()
 
         synthesis_input = _build_input(ssml, texttospeech)
-        # Voice and language are declared in the SSML; pass empty params so
-        # Google resolves them from the document rather than overriding here.
-        voice_params = _build_voice_params(ssml, texttospeech)
+        voice_params = _build_voice_params(voice_name, texttospeech)
         audio_config = _build_audio_config(_OUTPUT_SAMPLE_RATE_HZ, texttospeech)
 
         try:
@@ -135,10 +156,18 @@ class GoogleProvider:
         audio = response.audio_content
         if not isinstance(audio, bytes | bytearray):
             raise RuntimeError(f"Unexpected audio_content type: {type(audio)}")
-        return bytes(audio)
+        return _pcm_to_wav(bytes(audio))
 
     def is_configured(self) -> bool:
-        """Return True if GOOGLE_APPLICATION_CREDENTIALS is set."""
+        """Return True if ADC credentials can likely be discovered.
+
+        Checks for the most common ADC signal
+        (``GOOGLE_APPLICATION_CREDENTIALS``).  This is a fast heuristic;
+        credentials may also be available via ``gcloud auth`` or the
+        metadata server even when this returns False.
+        """
+        import os
+
         return bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
 
 
@@ -152,7 +181,6 @@ def _build_input(ssml: str, tts_module):
     """Build a SynthesisInput from an SSML string."""
     if tts_module is not None:
         return tts_module.SynthesisInput(ssml=ssml)
-    # Mock-friendly fallback: return a plain dict the mock can inspect.
     return {"ssml": ssml}
 
 
@@ -164,11 +192,9 @@ def _extract_voice_name(ssml: str) -> str:
     return match.group(1) if match else ""
 
 
-def _build_voice_params(ssml: str, tts_module):
-    """Build VoiceSelectionParams from the voice name embedded in SSML."""
-    voice_name = _extract_voice_name(ssml)
-    # Language code is the first two dash-separated components (e.g. "he-IL").
-    lang_code = "-".join(voice_name.split("-")[:2]) if voice_name else "he-IL"
+def _build_voice_params(voice_name: str, tts_module):
+    """Build VoiceSelectionParams from a voice name."""
+    lang_code = "-".join(voice_name.split("-")[:2])
     if tts_module is not None:
         return tts_module.VoiceSelectionParams(
             language_code=lang_code,

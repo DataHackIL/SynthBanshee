@@ -17,7 +17,6 @@ from pathlib import Path
 
 from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.script.types import DialogueTurn, MixedScene
-from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.provider import TTSProvider
 from synthbanshee.tts.speaker_state import SpeakerState
@@ -43,7 +42,8 @@ class TTSRenderer:
 
     Args:
         provider: Single provider for backward compatibility.  Mutually
-            exclusive with ``providers``.
+            exclusive with ``providers``.  Accepts any ``TTSProvider``
+            (including ``AzureProvider`` and ``GoogleProvider``).
         providers: Mapping of provider name (``"azure"``, ``"google"``) to
             provider instance.  When present, the renderer dispatches based
             on ``speaker.tts_provider``.
@@ -52,7 +52,7 @@ class TTSRenderer:
 
     def __init__(
         self,
-        provider: AzureProvider | None = None,
+        provider: TTSProvider | None = None,
         cache_dir: Path | str | None = None,
         *,
         providers: dict[str, TTSProvider] | None = None,
@@ -63,7 +63,11 @@ class TTSRenderer:
             self._providers: dict[str, TTSProvider] = providers
             self._legacy_mode = False
         else:
-            self._providers = {"azure": provider or AzureProvider()}
+            if provider is None:
+                from synthbanshee.tts.azure_provider import AzureProvider
+
+                provider = AzureProvider()
+            self._providers = {"azure": provider}
             self._legacy_mode = True
         self._cache_dir = Path(
             cache_dir

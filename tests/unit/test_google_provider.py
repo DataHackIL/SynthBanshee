@@ -1,6 +1,8 @@
 """Unit tests for GoogleProvider and multi-provider TTSRenderer dispatch.
 
 The Google TTS client is mocked — no real API credentials are required.
+COPILOT-4/5: mocks return raw PCM (not WAV) to match real API behaviour;
+tests assert that GoogleProvider.synthesize() returns a valid WAV container.
 """
 
 from __future__ import annotations
@@ -14,7 +16,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from synthbanshee.config.speaker_config import SpeakerConfig
-from synthbanshee.tts.google_provider import GoogleProvider, _extract_voice_name
+from synthbanshee.tts.google_provider import (
+    GoogleProvider,
+    _build_audio_config,
+    _build_input,
+    _build_voice_params,
+    _extract_voice_name,
+    _pcm_to_wav,
+)
 from synthbanshee.tts.provider import TTSProvider
 from synthbanshee.tts.renderer import TTSRenderer
 from synthbanshee.tts.ssml_builder import SSMLBuilder, UtteranceSpec
@@ -27,29 +36,46 @@ EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 # ---------------------------------------------------------------------------
 
 
-def _make_wav_bytes(sample_rate: int = 24000, duration_s: float = 1.0) -> bytes:
+def _make_raw_pcm(sample_rate: int = 24000, duration_s: float = 1.0) -> bytes:
+    """Generate raw LINEAR16 PCM bytes (no RIFF header) — matches real API."""
     n_samples = int(sample_rate * duration_s)
+    return struct.pack(f"<{n_samples}h", *([1000] * n_samples))
+
+
+def _make_wav_bytes(sample_rate: int = 24000, duration_s: float = 1.0) -> bytes:
+    """Generate a valid WAV container (for Azure mock and assertion helpers)."""
     buf = io.BytesIO()
     with wave.open(buf, "w") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(sample_rate)
-        data = struct.pack(f"<{n_samples}h", *([1000] * n_samples))
-        w.writeframes(data)
+        w.writeframes(_make_raw_pcm(sample_rate, duration_s))
     return buf.getvalue()
 
 
 def _mock_google_client_factory():
-    """Return a factory that produces a mock Google TTS client."""
+    """Return a factory that produces a mock Google TTS client.
+
+    The mock returns raw PCM (no RIFF header) to match real API behaviour.
+    """
 
     def factory():
         client = MagicMock()
         response = MagicMock()
-        response.audio_content = _make_wav_bytes()
+        response.audio_content = _make_raw_pcm()
         client.synthesize_speech.return_value = response
         return client
 
     return factory
+
+
+def _assert_valid_wav(data: bytes, expected_rate: int = 24000) -> None:
+    """Assert that *data* is a valid WAV container with the expected properties."""
+    assert data[:4] == b"RIFF", "Output must start with RIFF header"
+    with wave.open(io.BytesIO(data), "r") as w:
+        assert w.getnchannels() == 1
+        assert w.getsampwidth() == 2
+        assert w.getframerate() == expected_rate
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +119,25 @@ class TestProviderCapabilities:
 
 
 # ---------------------------------------------------------------------------
+# _pcm_to_wav
+# ---------------------------------------------------------------------------
+
+
+class TestPcmToWav:
+    def test_wraps_pcm_in_valid_wav(self):
+        pcm = _make_raw_pcm(duration_s=0.1)
+        wav = _pcm_to_wav(pcm)
+        _assert_valid_wav(wav)
+
+    def test_preserves_sample_count(self):
+        n_samples = 480
+        pcm = struct.pack(f"<{n_samples}h", *([500] * n_samples))
+        wav = _pcm_to_wav(pcm)
+        with wave.open(io.BytesIO(wav), "r") as w:
+            assert w.getnframes() == n_samples
+
+
+# ---------------------------------------------------------------------------
 # GoogleProvider.synthesize (mocked)
 # ---------------------------------------------------------------------------
 
@@ -101,7 +146,8 @@ class TestGoogleProvider:
     def _make_provider(self) -> GoogleProvider:
         return GoogleProvider(client_factory=_mock_google_client_factory())
 
-    def test_synthesize_returns_bytes(self):
+    def test_synthesize_returns_valid_wav(self):
+        """Synthesize returns a WAV container, not raw PCM."""
         provider = self._make_provider()
         builder = SSMLBuilder()
         ssml = builder.build_from_speaker_config(
@@ -111,12 +157,11 @@ class TestGoogleProvider:
             supports_style_tags=False,
         )
         result = provider.synthesize(ssml)
-        assert isinstance(result, bytes)
-        assert len(result) > 0
+        _assert_valid_wav(result)
 
     def test_synthesize_calls_client_once(self):
         mock_client = MagicMock()
-        mock_client.synthesize_speech.return_value.audio_content = _make_wav_bytes()
+        mock_client.synthesize_speech.return_value.audio_content = _make_raw_pcm()
         provider = GoogleProvider(client_factory=lambda: mock_client)
 
         builder = SSMLBuilder()
@@ -160,15 +205,83 @@ class TestGoogleProvider:
         """GoogleProvider raises ImportError when the SDK is absent and no factory."""
         import sys
 
-        monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/fake.json")
-        # Simulate missing package by removing it from sys.modules and blocking import
         monkeypatch.setitem(sys.modules, "google", None)  # type: ignore[arg-type]
         monkeypatch.setitem(sys.modules, "google.cloud", None)  # type: ignore[arg-type]
         monkeypatch.setitem(sys.modules, "google.cloud.texttospeech", None)  # type: ignore[arg-type]
 
         provider = GoogleProvider()  # no factory
         with pytest.raises((ImportError, RuntimeError)):
-            provider.synthesize("<speak/>")
+            provider.synthesize('<speak><voice name="he-IL-Chirp3-HD-Achird">x</voice></speak>')
+
+    def test_synthesize_raises_on_missing_voice_name(self):
+        """COPILOT-2: SSML without <voice name=...> raises RuntimeError."""
+        provider = self._make_provider()
+        with pytest.raises(RuntimeError, match="missing a <voice"):
+            provider.synthesize("<speak>no voice element</speak>")
+
+    def test_synthesize_raises_on_unexpected_audio_type(self):
+        """Covers the audio_content type-check branch."""
+
+        def bad_type_client():
+            c = MagicMock()
+            resp = MagicMock()
+            resp.audio_content = 12345  # not bytes
+            c.synthesize_speech.return_value = resp
+            return c
+
+        provider = GoogleProvider(client_factory=bad_type_client)
+        ssml = '<speak><voice name="he-IL-Chirp3-HD-Achird">x</voice></speak>'
+        with pytest.raises(RuntimeError, match="Unexpected audio_content type"):
+            provider.synthesize(ssml)
+
+
+# ---------------------------------------------------------------------------
+# Private helpers with mock tts_module
+# ---------------------------------------------------------------------------
+
+
+class TestBuildHelpers:
+    """Cover the tts_module-is-not-None branches (lines 154, 173, 183)."""
+
+    def _fake_tts_module(self):
+        mod = MagicMock()
+        mod.SynthesisInput = MagicMock(return_value="mock_input")
+        mod.VoiceSelectionParams = MagicMock(return_value="mock_voice")
+        mod.AudioConfig = MagicMock(return_value="mock_config")
+        mod.AudioEncoding.LINEAR16 = "LINEAR16"
+        return mod
+
+    def test_build_input_with_module(self):
+        mod = self._fake_tts_module()
+        result = _build_input("<speak/>", mod)
+        assert result == "mock_input"
+        mod.SynthesisInput.assert_called_once_with(ssml="<speak/>")
+
+    def test_build_input_without_module(self):
+        result = _build_input("<speak/>", None)
+        assert result == {"ssml": "<speak/>"}
+
+    def test_build_voice_params_with_module(self):
+        mod = self._fake_tts_module()
+        result = _build_voice_params("he-IL-Chirp3-HD-Achird", mod)
+        assert result == "mock_voice"
+        mod.VoiceSelectionParams.assert_called_once_with(
+            language_code="he-IL", name="he-IL-Chirp3-HD-Achird"
+        )
+
+    def test_build_voice_params_without_module(self):
+        result = _build_voice_params("he-IL-Chirp3-HD-Achird", None)
+        assert result == {"language_code": "he-IL", "name": "he-IL-Chirp3-HD-Achird"}
+
+    def test_build_audio_config_with_module(self):
+        mod = self._fake_tts_module()
+        result = _build_audio_config(24000, mod)
+        assert result == "mock_config"
+        mod.AudioConfig.assert_called_once_with(audio_encoding="LINEAR16", sample_rate_hertz=24000)
+
+    def test_build_audio_config_without_module(self):
+        result = _build_audio_config(24000, None)
+        assert result == {"audio_encoding": "LINEAR16", "sample_rate_hertz": 24000}
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +375,7 @@ class TestTTSRendererMultiProvider:
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_002.yaml")
         assert speaker.tts_provider == "google"
         wav, _, hit = renderer.render_utterance("שלום", speaker, intensity=1)
-        assert isinstance(wav, bytes)
+        _assert_valid_wav(wav)
         assert not hit
 
     def test_google_ssml_has_no_mstts(self, tmp_path):
@@ -319,7 +432,6 @@ class TestTTSRendererMultiProvider:
             )
 
     def test_unknown_provider_raises_key_error(self, tmp_path):
-        from synthbanshee.config.speaker_config import SpeakerConfig
         from synthbanshee.tts.azure_provider import AzureProvider
 
         azure = AzureProvider(sdk_factory=_mock_azure_factory)
@@ -327,7 +439,6 @@ class TestTTSRendererMultiProvider:
             providers={"azure": azure},
             cache_dir=tmp_path / "cache",
         )
-        # Build a speaker whose tts_provider is "google" but no google provider is registered.
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_002.yaml")
         assert speaker.tts_provider == "google"
         with pytest.raises(KeyError, match="google"):
@@ -340,6 +451,21 @@ class TestTTSRendererMultiProvider:
         azure = AzureProvider(sdk_factory=_mock_azure_factory)
         renderer = TTSRenderer(provider=azure, cache_dir=tmp_path / "cache")
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        wav, _, _ = renderer.render_utterance("שלום", speaker, intensity=1)
+        assert isinstance(wav, bytes)
+
+    def test_legacy_mode_fallback_for_mismatched_provider(self, tmp_path):
+        """Legacy mode uses the single registered provider even for mismatched tts_provider.
+
+        Covers renderer.py line 90 (_legacy_mode fallback path).
+        """
+        from synthbanshee.tts.azure_provider import AzureProvider
+
+        azure = AzureProvider(sdk_factory=_mock_azure_factory)
+        renderer = TTSRenderer(provider=azure, cache_dir=tmp_path / "cache")
+        # Google speaker in legacy mode — should fall back to the azure provider.
+        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_002.yaml")
+        assert speaker.tts_provider == "google"
         wav, _, _ = renderer.render_utterance("שלום", speaker, intensity=1)
         assert isinstance(wav, bytes)
 
