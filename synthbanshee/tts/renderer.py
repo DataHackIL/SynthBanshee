@@ -223,6 +223,8 @@ class TTSRenderer:
         verbose_log: _VerboseLog | None = None,
         project: str = "she_proves",
         project_profile: ProjectProfile | None = None,
+        quality_gates: bool = True,
+        quality_gate_retries: int = 2,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -243,6 +245,10 @@ class TTSRenderer:
             project_profile: Optional ``ProjectProfile`` instance (M13).
                      When provided, gap timing and overlap probabilities are
                      loaded from the profile instead of the hardcoded tables.
+            quality_gates: If True (default), run M15 turn-level quality gates
+                     after each render.  Set False to skip for faster batch runs.
+            quality_gate_retries: Number of re-render attempts on gate failure
+                     (default 2).  Each retry uses a different random seed.
 
         Returns:
             MixedScene with concatenated audio and per-turn timing metadata.
@@ -295,32 +301,54 @@ class TTSRenderer:
                 text = new_text
             # Snapshot pre-render state for reproducibility metadata (prep for M11).
             turn.speaker_state_snapshot = state.to_metadata_dict()
+            render_seed = rng.randint(0, 2**31) if randomize else None
             wav_bytes, _, hit = self.render_utterance(
                 text,
                 speaker,
                 turn.intensity,
                 randomize=randomize,
-                rng_seed=rng.randint(0, 2**31) if randomize else None,
+                rng_seed=render_seed,
                 speaker_state=state,
                 phrase_prosody=phrases if phrases else None,
             )
-            # M15: run turn-level quality gates on the rendered audio.
-            gate_result = run_quality_gates(wav_bytes, speaker.gender)
-            if not gate_result.passed and verbose_log is not None:
-                verbose_log(
-                    f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
-                    f" [{turn.speaker_id}] quality gate FAILED:"
-                    f" {gate_result.gate_name}: {gate_result.detail}[/yellow]"
-                )
+            # M15: run turn-level quality gates with retry on failure.
+            if quality_gates:
+                from synthbanshee.tts.speaker_state import MAX_F0_DRIFT_ST
+
+                gate_result = run_quality_gates(wav_bytes, speaker.gender)
+                retries_left = quality_gate_retries if randomize else 0
+                while not gate_result.passed and retries_left > 0:
+                    retries_left -= 1
+                    render_seed = rng.randint(0, 2**31)
+                    wav_bytes, _, hit = self.render_utterance(
+                        text,
+                        speaker,
+                        turn.intensity,
+                        randomize=True,
+                        rng_seed=render_seed,
+                        speaker_state=state,
+                        phrase_prosody=phrases if phrases else None,
+                    )
+                    gate_result = run_quality_gates(wav_bytes, speaker.gender)
+                if not gate_result.passed:
+                    failure_str = f"{gate_result.gate_name}: {gate_result.detail}"
+                    turn.quality_gate_failures.append(failure_str)
+                    if verbose_log is not None:
+                        verbose_log(
+                            f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
+                            f" [{turn.speaker_id}] quality gate FAILED"
+                            f" (after {quality_gate_retries} retries):"
+                            f" {failure_str}[/yellow]"
+                        )
             # Update state after rendering so the first turn always uses neutral
             # state and drift accumulates from the second turn onward.
             state.update(turn.intensity, speaker.role)
             # M15: warn if accumulated F0 drift exceeds the 2.0 st bound.
-            if state.f0_drift_exceeded and verbose_log is not None:
+            if quality_gates and state.f0_drift_exceeded and verbose_log is not None:
                 verbose_log(
                     f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
                     f" [{turn.speaker_id}] F0 drift {state.pitch_offset_st:.2f} st"
-                    f" exceeds ±{state.__class__.__name__} bound[/yellow]"
+                    f" exceeds ±{MAX_F0_DRIFT_ST} st bound[/yellow]"
                 )
             if verbose_log is not None:
                 status = "cache hit" if hit else "rendered"

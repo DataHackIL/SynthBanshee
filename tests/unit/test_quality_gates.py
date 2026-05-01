@@ -128,23 +128,29 @@ class TestClickDetectionGate:
         result = check_clicks(samples, SR)
         assert result.passed
 
-    def test_multiple_clicks_fails(self) -> None:
-        # Insert artificial DC jumps
-        samples = _sine(200.0, 1.0, amplitude=0.3)
-        # Insert clicks at several points
+    def test_isolated_dc_jumps_fail(self) -> None:
+        # Low-amplitude signal with isolated DC jumps (simulating SSML boundary clicks)
+        samples = np.zeros(16000, dtype=np.float32)
+        # Insert isolated spikes well-separated (>CLICK_ISOLATION_RADIUS apart)
         for pos in [1000, 3000, 5000, 7000]:
-            samples[pos] = 0.8  # Large jump from ~0.3 amplitude signal
+            samples[pos] = 0.8  # Isolated single-sample spike
         result = check_clicks(samples, SR)
         assert not result.passed
         assert result.gate_name == "click_detection"
 
+    def test_plosive_burst_passes(self) -> None:
+        # A plosive burst spans many consecutive high-diff samples — not isolated
+        samples = np.zeros(16000, dtype=np.float32)
+        # Simulate a plosive: multiple consecutive high-amplitude samples
+        samples[5000:5020] = 0.5  # 20-sample burst — NOT an isolated click
+        result = check_clicks(samples, SR)
+        assert result.passed
+
     def test_few_clicks_passes(self) -> None:
-        # Only 1 click — below threshold
-        samples = _sine(200.0, 1.0, amplitude=0.01)
+        # Only 1-2 isolated clicks — below count threshold of 3
+        samples = np.zeros(16000, dtype=np.float32)
         samples[5000] = 0.8
         result = check_clicks(samples, SR)
-        # One click gives exactly 2 diff events (jump up, jump back down)
-        # which is below the threshold of 3
         assert result.passed
 
     def test_empty_passes(self) -> None:

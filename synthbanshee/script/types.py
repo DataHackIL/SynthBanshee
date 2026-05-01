@@ -51,6 +51,9 @@ class DialogueTurn:
     # M7: snapshot of SpeakerState.to_metadata_dict() at render time (pre-update).
     # Populated by TTSRenderer.render_scene(); empty when rendered without state.
     speaker_state_snapshot: dict[str, float] = field(default_factory=dict)
+    # M15: quality gate failures recorded during render_scene().
+    # Each entry is "{gate_name}: {detail}".  Empty list means all gates passed.
+    quality_gate_failures: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Default text_spoken to the original LLM text when not explicitly set.

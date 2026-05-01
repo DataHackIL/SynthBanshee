@@ -33,11 +33,17 @@ FEMALE_F0_MIN_HZ: float = 150.0
 FEMALE_F0_MAX_HZ: float = 290.0
 
 # Click detection: minimum absolute sample-to-sample jump (normalized to [-1,1])
-# that qualifies as a DC-offset click.  Empirically: 0.05 of full-scale.
-CLICK_THRESHOLD: float = 0.05
+# that qualifies as a DC-offset click.  Set at 0.15 to avoid false positives on
+# legitimate plosive transients (/p/, /t/, /k/) which typically peak around 0.1.
+# True DC-offset jumps from SSML block boundaries are typically 0.2+.
+CLICK_THRESHOLD: float = 0.15
 
-# Minimum number of click events to flag a turn.
+# Minimum number of *isolated* click events to flag a turn.
 CLICK_COUNT_THRESHOLD: int = 3
+
+# Number of neighboring samples that must be below threshold for a spike to
+# qualify as an isolated click (vs. a plosive burst which spans many samples).
+CLICK_ISOLATION_RADIUS: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +206,10 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     """Detect DC-offset jump clicks in the audio.
 
     Clicks manifest as sudden large sample-to-sample amplitude changes,
-    typically at SSML block boundaries.
+    typically at SSML block boundaries.  To distinguish from legitimate
+    plosive transients (which span many consecutive high-diff samples),
+    only *isolated* spikes are counted — a diff event is a click only if
+    the surrounding ±CLICK_ISOLATION_RADIUS samples are all below threshold.
 
     Args:
         samples: Float32 audio samples, mono, normalized to [-1, 1].
@@ -214,13 +223,30 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
 
     # Compute absolute sample-to-sample differences
     diffs = np.abs(np.diff(samples))
-    click_count = int(np.sum(diffs > CLICK_THRESHOLD))
+    candidates = np.where(diffs > CLICK_THRESHOLD)[0]
+
+    if len(candidates) < CLICK_COUNT_THRESHOLD:
+        return GateResult(passed=True)
+
+    # Filter to isolated spikes: surrounding samples must be below threshold
+    radius = CLICK_ISOLATION_RADIUS
+    click_count = 0
+    for idx in candidates:
+        lo = max(0, idx - radius)
+        hi = min(len(diffs), idx + radius + 1)
+        # Count how many neighbors (excluding self) are above threshold
+        neighborhood = diffs[lo:hi]
+        n_above = int(np.sum(neighborhood > CLICK_THRESHOLD))
+        # An isolated click has only 1-2 samples above threshold (the jump itself
+        # and possibly the immediate return)
+        if n_above <= 2:
+            click_count += 1
 
     if click_count >= CLICK_COUNT_THRESHOLD:
         return GateResult(
             passed=False,
             gate_name="click_detection",
-            detail=f"Detected {click_count} click events (threshold: {CLICK_COUNT_THRESHOLD})",
+            detail=f"Detected {click_count} isolated click events (threshold: {CLICK_COUNT_THRESHOLD})",
         )
     return GateResult(passed=True)
 

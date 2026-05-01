@@ -31,32 +31,32 @@ prosody_baseline:
 style_map:
   1:                                # Low tension — calm surface, controlled
     style: "General"
-    rate_multiplier: 0.98           # M15: research consensus Calm rate -6% to +2%
+    rate_multiplier: 0.97           # M15: consensus Calm [-6%,+2%]; variant: slightly below mid
     pitch_delta_st: 0               # M15: male pitch -3% to +2% at I1
     volume_delta_db: 0
     rms_target_dbfs: -28            # M3: quiet baseline
   2:                                # Moderate — slight edge, clipped responses
     style: "General"
-    rate_multiplier: 1.02           # M15: research consensus Neutral rate 0% to +4%
+    rate_multiplier: 1.03           # M15: consensus Neutral [0%,+4%]; variant: upper-mid
     pitch_delta_st: 0               # M15: male pitch -2% to +2%; AGG anger → rate not pitch
     volume_delta_db: 0
     rms_target_dbfs: -25            # M3: +3 dB
   3:                                # Active conflict — raised voice, contemptuous
     style: "General"
-    rate_multiplier: 1.05           # M15: research consensus Irritation rate +2% to +8%
+    rate_multiplier: 1.06           # M15: consensus Irritation [+2%,+8%]; variant: mid-high
     pitch_delta_st: +1              # M15: male pitch -1% to +3%
     volume_delta_db: +3
     rms_target_dbfs: -22            # M3: +6 dB above I1
   4:                                # Escalated — aggressive, loud
     style: "General"
-    rate_multiplier: 1.08           # M15: research consensus Anger rate +4% to +12%
+    rate_multiplier: 1.10           # M15: consensus Anger [+4%,+12%]; variant: upper
     pitch_delta_st: +2              # M15: male pitch -1% to +5%
     volume_delta_db: +8
     rms_target_dbfs: -19            # M3: +9 dB above I1
   5:                                # Extreme — shouting, near-clipping
     style: "General"
-    rate_multiplier: 1.12           # M15: research consensus Shouting rate +8% to +15%
-    pitch_delta_st: +2              # M15: male pitch 0% to +5%; hard cap
+    rate_multiplier: 1.14           # M15: consensus Shouting [+8%,+15%]; variant: mid-high
+    pitch_delta_st: +3              # M15: male pitch 0% to +5%
     volume_delta_db: +13
     rms_target_dbfs: -15            # M3: +13 dB above I1 (satisfies ≥8 dB spec)
 

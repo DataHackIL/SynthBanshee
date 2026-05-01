@@ -19,32 +19,32 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 0.97           # M15: female Calm rate -6% to +2%; VIC slightly hesitant
-    pitch_delta_st: -2              # M15: female pitch -3% to +2%; keeps F0 in [150,290] Hz
+    rate_multiplier: 0.95           # M15: consensus Calm [-6%,+2%]; variant: hesitant
+    pitch_delta_st: -2              # M15: female pitch -3% to +2%
     volume_delta_db: 0
     rms_target_dbfs: -26            # M3: baseline level (slightly quieter than AGG)
   2:                                # Tension — careful, watchful; slight vocal strain
     style: "General"
-    rate_multiplier: 0.97           # M15: female Neutral rate 0% to +4%; VIC guarded
+    rate_multiplier: 0.96           # M15: consensus Neutral [0%,+4%]; variant: guarded
     pitch_delta_st: -1              # M15: female pitch -2% to +3%
     volume_delta_db: 0
     rms_target_dbfs: -27            # M3: voice drops slightly (guarded/hushed)
   3:                                # Conflict — defensive, shaking voice
     style: "General"
-    rate_multiplier: 0.95           # M15: female Irritation rate; VIC slows under pressure
-    pitch_delta_st: +1              # M15: female pitch 0% to +5%; tension raises pitch slightly
+    rate_multiplier: 0.94           # M15: consensus Irritation; variant: very slow
+    pitch_delta_st: +2              # M15: female pitch 0% to +5%; tension
     volume_delta_db: +3
     rms_target_dbfs: -28            # M3: still dropping (victim shrinks under pressure)
-  4:                                # Escalated — pleading, distress; pitch capped to avoid child-voice range
+  4:                                # Escalated — pleading, distress
     style: "General"
-    rate_multiplier: 0.95           # M15: female Anger rate; VIC stays slow (pleading)
-    pitch_delta_st: +3              # M15: female pitch +2% to +7%; distress raises pitch
+    rate_multiplier: 0.93           # M15: consensus Anger; variant: slow pleading
+    pitch_delta_st: +4              # M15: female pitch +2% to +7%; distress
     volume_delta_db: +5
     rms_target_dbfs: -29            # M3: near-whisper pleading
   5:                                # Extreme — panic, screaming or sobbing
     style: "General"
-    rate_multiplier: 1.05           # M15: female Shouting rate; panic can speed up
-    pitch_delta_st: +5              # M15: female pitch +4% to +10%; panic pitch rise
+    rate_multiplier: 1.04           # M15: consensus Shouting; variant: panic speeds up
+    pitch_delta_st: +6              # M15: female pitch +4% to +10%
     volume_delta_db: +7
     rms_target_dbfs: -30            # M3: sobbing/panic often sounds quieter than shouting
 
