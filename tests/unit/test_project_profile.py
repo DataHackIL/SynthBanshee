@@ -22,6 +22,20 @@ from synthbanshee.config.run_config import RunConfig
 from synthbanshee.tts.gap_controller import TurnGapController
 from synthbanshee.tts.mix_mode import MixMode
 
+
+def _default_gap_timing() -> GapTimingDefaults:
+    """Return a GapTimingDefaults with framework-default values."""
+    return GapTimingDefaults(
+        vic_low=GapRange(lo=0.30, hi=0.60),
+        vic_i3=GapRange(lo=0.15, hi=0.35),
+        vic_i4=GapRange(lo=0.05, hi=0.15),
+        vic_i5=GapRange(lo=0.10, hi=0.30),
+        agg_low=GapRange(lo=0.20, hi=0.50),
+        agg_high=GapRange(lo=0.05, hi=0.20),
+        agg_pause=GapRange(lo=0.60, hi=1.40),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -59,17 +73,15 @@ class TestGapRange:
 
 
 class TestGapTimingDefaults:
-    def test_defaults(self):
-        g = GapTimingDefaults()
+    def test_all_fields_required(self):
+        with pytest.raises(ValidationError):
+            GapTimingDefaults()  # type: ignore[call-arg]
+
+    def test_explicit_construction(self):
+        g = _default_gap_timing()
         assert g.vic_low.lo == 0.30
         assert g.agg_pause.hi == 1.40
-
-    def test_to_table(self):
-        g = GapTimingDefaults()
-        table = g.to_table()
-        assert len(table) == 7
-        assert table["vic_low"] == (0.30, 0.60)
-        assert table["agg_pause"] == (0.60, 1.40)
+        assert g.vic_i4.lo == 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -78,8 +90,12 @@ class TestGapTimingDefaults:
 
 
 class TestProjectProfile:
-    def test_minimal(self):
-        p = ProjectProfile(name="test")
+    def test_requires_gap_timing(self):
+        with pytest.raises(ValidationError):
+            ProjectProfile(name="test")  # type: ignore[call-arg]
+
+    def test_with_gap_timing(self):
+        p = ProjectProfile(name="test", gap_timing=_default_gap_timing())
         assert p.name == "test"
         assert p.description == ""
         assert p.gap_timing.vic_low.lo == 0.30
@@ -88,6 +104,7 @@ class TestProjectProfile:
     def test_custom_values(self):
         p = ProjectProfile(
             name="custom",
+            gap_timing=_default_gap_timing(),
             loudness=LoudnessDefaults(agg_rms_dbfs=-18.0, vic_rms_dbfs=-22.0),
             acoustic=AcousticDefaults(snr_target_db=24.0),
         )

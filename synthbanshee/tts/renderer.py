@@ -14,8 +14,12 @@ import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from synthbanshee.config.speaker_config import SpeakerConfig
+
+if TYPE_CHECKING:
+    from synthbanshee.config.project_profile import ProjectProfile
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.provider import TTSProvider
@@ -217,7 +221,7 @@ class TTSRenderer:
         disfluency: bool = False,
         verbose_log: _VerboseLog | None = None,
         project: str = "she_proves",
-        project_profile: object | None = None,
+        project_profile: ProjectProfile | None = None,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -313,12 +317,20 @@ class TTSRenderer:
             gap_s, mix_mode = gap_ctrl.gap_seconds(
                 turn, prev_turn, gap_rng, speaker.role, prev_role
             )
+            rms_target = speaker.style_for_intensity(turn.intensity).rms_target_dbfs
+            # M13: if the speaker config doesn't set an RMS target for this
+            # intensity, fall back to the project profile's role-level default.
+            if rms_target is None and project_profile is not None:
+                if speaker.role == "AGG":
+                    rms_target = project_profile.loudness.agg_rms_dbfs
+                elif speaker.role == "VIC":
+                    rms_target = project_profile.loudness.vic_rms_dbfs
             segments.append(
                 (
                     wav_bytes,
                     gap_s,
                     turn.speaker_id,
-                    speaker.style_for_intensity(turn.intensity).rms_target_dbfs,
+                    rms_target,
                     mix_mode,
                 )
             )

@@ -10,8 +10,8 @@ Spec reference: docs/audio_generation_v3_design.md §M13
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -34,30 +34,20 @@ class GapTimingDefaults(BaseModel):
 
     Keys match the context keys used by ``TurnGapController``:
     vic_low, vic_i3, vic_i4, vic_i5, agg_low, agg_high, agg_pause.
+
+    All fields are required — the profile YAML is the single source of truth
+    for gap timing when a profile is active.  The hardcoded tables in
+    ``gap_controller.py`` are legacy fallbacks used only when no profile is
+    provided (backward compatibility for programmatic callers).
     """
 
-    vic_low: GapRange = GapRange(lo=0.30, hi=0.60)
-    vic_i3: GapRange = GapRange(lo=0.15, hi=0.35)
-    vic_i4: GapRange = GapRange(lo=0.05, hi=0.15)
-    vic_i5: GapRange = GapRange(lo=0.10, hi=0.30)
-    agg_low: GapRange = GapRange(lo=0.20, hi=0.50)
-    agg_high: GapRange = GapRange(lo=0.05, hi=0.20)
-    agg_pause: GapRange = GapRange(lo=0.60, hi=1.40)
-
-    def to_table(self) -> dict[str, tuple[float, float]]:
-        """Convert to the ``{context_key: (lo, hi)}`` dict used by the gap controller."""
-        return {
-            key: (getattr(self, key).lo, getattr(self, key).hi)
-            for key in (
-                "vic_low",
-                "vic_i3",
-                "vic_i4",
-                "vic_i5",
-                "agg_low",
-                "agg_high",
-                "agg_pause",
-            )
-        }
+    vic_low: GapRange
+    vic_i3: GapRange
+    vic_i4: GapRange
+    vic_i5: GapRange
+    agg_low: GapRange
+    agg_high: GapRange
+    agg_pause: GapRange
 
 
 class OverlapDefaults(BaseModel):
@@ -90,7 +80,7 @@ class ProjectProfile(BaseModel):
 
     name: str
     description: str = ""
-    gap_timing: GapTimingDefaults = Field(default_factory=GapTimingDefaults)
+    gap_timing: GapTimingDefaults
     overlap: OverlapDefaults = Field(default_factory=OverlapDefaults)
     loudness: LoudnessDefaults = Field(default_factory=LoudnessDefaults)
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
@@ -105,6 +95,7 @@ class ProjectProfile(BaseModel):
 # ---- Profile registry (data-driven, no hardcoded profile names) ----
 
 _profile_cache: dict[str, ProjectProfile] = {}
+_profile_cache_lock = threading.Lock()
 
 
 def _discover_profiles(profile_dir: Path) -> dict[str, Path]:
@@ -127,7 +118,6 @@ def load_profile(
     name: str,
     *,
     profile_dir: Path = _PROFILE_DIR,
-    extra: dict[str, Any] | None = None,
 ) -> ProjectProfile:
     """Load a project profile by name.
 
@@ -136,19 +126,30 @@ def load_profile(
             ``"generic"`` returns a default ``ProjectProfile`` with framework
             defaults (no YAML file required).
         profile_dir: Directory to search for ``profile_<name>.yaml``.
-        extra: Optional dict merged on top of the loaded YAML data (useful
-            for RunConfig-level overrides).
 
     Raises:
         FileNotFoundError: If no matching profile YAML exists and *name* is
             not ``"generic"``.
     """
     if name == "generic":
-        return ProjectProfile(name="generic", description="Framework defaults")
+        return ProjectProfile(
+            name="generic",
+            description="Framework defaults",
+            gap_timing=GapTimingDefaults(
+                vic_low=GapRange(lo=0.30, hi=0.60),
+                vic_i3=GapRange(lo=0.15, hi=0.35),
+                vic_i4=GapRange(lo=0.05, hi=0.15),
+                vic_i5=GapRange(lo=0.10, hi=0.30),
+                agg_low=GapRange(lo=0.20, hi=0.50),
+                agg_high=GapRange(lo=0.05, hi=0.20),
+                agg_pause=GapRange(lo=0.60, hi=1.40),
+            ),
+        )
 
     cache_key = f"{profile_dir}::{name}"
-    if cache_key in _profile_cache:
-        return _profile_cache[cache_key]
+    with _profile_cache_lock:
+        if cache_key in _profile_cache:
+            return _profile_cache[cache_key]
 
     available = _discover_profiles(profile_dir)
     if name not in available:
@@ -159,10 +160,12 @@ def load_profile(
         )
 
     profile = ProjectProfile.from_yaml(available[name])
-    _profile_cache[cache_key] = profile
+    with _profile_cache_lock:
+        _profile_cache[cache_key] = profile
     return profile
 
 
 def clear_profile_cache() -> None:
     """Clear the in-memory profile cache (useful for testing)."""
-    _profile_cache.clear()
+    with _profile_cache_lock:
+        _profile_cache.clear()

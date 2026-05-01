@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from synthbanshee.script.types import DialogueTurn
 from synthbanshee.tts.mix_mode import MixMode
+
+if TYPE_CHECKING:
+    from synthbanshee.config.project_profile import ProjectProfile
 
 
 class _GapRange(NamedTuple):
@@ -35,7 +38,12 @@ class _GapRange(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Project-specific gap tables
+# Legacy project-specific gap tables (fallback when no ProjectProfile is provided)
+#
+# When a ProjectProfile is active (M13), gap timing comes from the profile YAML
+# and these tables are NOT used.  They remain as backward-compatible fallbacks
+# for programmatic callers that construct TurnGapController without a profile.
+#
 # Each table maps a context_key string to a _GapRange (seconds).
 # context_key values:
 #   vic_low        — VIC responds to AGG at I1–I2 (normal conversation)
@@ -158,32 +166,30 @@ class TurnGapController:
     def from_profile(
         cls,
         project: str,
-        profile: object,
+        profile: ProjectProfile,
     ) -> TurnGapController:
         """Create a controller with gap table and overlap prob from a ``ProjectProfile``.
 
         Args:
             project: Project identifier (passed through for fallback).
-            profile: A ``ProjectProfile`` instance.  Typed as ``object`` to
-                avoid a circular import; duck-typed for ``gap_timing`` and
-                ``overlap`` attributes.
+            profile: A ``ProjectProfile`` instance providing gap timing and
+                overlap probability defaults.
         """
-        gap_timing = getattr(profile, "gap_timing", None)
-        overlap = getattr(profile, "overlap", None)
-
-        gap_table: dict[str, _GapRange] | None = None
-        if gap_timing is not None:
-            raw = gap_timing.to_table()
-            gap_table = {k: _GapRange(lo=v[0], hi=v[1]) for k, v in raw.items()}
-
-        agg_pause_prob: float | None = None
-        if overlap is not None:
-            agg_pause_prob = overlap.agg_pause_prob
+        gt = profile.gap_timing
+        gap_table: dict[str, _GapRange] = {
+            "vic_low": _GapRange(gt.vic_low.lo, gt.vic_low.hi),
+            "vic_i3": _GapRange(gt.vic_i3.lo, gt.vic_i3.hi),
+            "vic_i4": _GapRange(gt.vic_i4.lo, gt.vic_i4.hi),
+            "vic_i5": _GapRange(gt.vic_i5.lo, gt.vic_i5.hi),
+            "agg_low": _GapRange(gt.agg_low.lo, gt.agg_low.hi),
+            "agg_high": _GapRange(gt.agg_high.lo, gt.agg_high.hi),
+            "agg_pause": _GapRange(gt.agg_pause.lo, gt.agg_pause.hi),
+        }
 
         return cls(
             project=project,
             gap_table_override=gap_table,
-            agg_pause_prob_override=agg_pause_prob,
+            agg_pause_prob_override=profile.overlap.agg_pause_prob,
         )
 
     def gap_seconds(
