@@ -130,12 +130,61 @@ class TurnGapController:
             ``"elephant_in_the_room"``).  Unknown projects fall back to
             ``_DEFAULT_GAPS`` so that NEG/NEU confusor scenes always receive
             timing logic rather than mechanical fixed gaps.
+        gap_table_override: Optional externally-supplied gap table (e.g. from
+            a ``ProjectProfile``).  When provided, this table is used instead
+            of the hardcoded per-project tables, making gap timing fully
+            data-driven.  Keys must match the standard context keys
+            (``vic_low``, ``vic_i3``, etc.).
+        agg_pause_prob_override: Optional override for the probability that an
+            AGG turn at I4-I5 uses a deliberate menacing self-pause.
     """
 
     project: str
+    gap_table_override: dict[str, _GapRange] | None = None
+    agg_pause_prob_override: float | None = None
 
     def __post_init__(self) -> None:
-        self._table = _PROJECT_TABLES.get(self.project, _DEFAULT_GAPS)
+        if self.gap_table_override is not None:
+            self._table = self.gap_table_override
+        else:
+            self._table = _PROJECT_TABLES.get(self.project, _DEFAULT_GAPS)
+        self._agg_pause_prob = (
+            self.agg_pause_prob_override
+            if self.agg_pause_prob_override is not None
+            else _AGG_PAUSE_PROB
+        )
+
+    @classmethod
+    def from_profile(
+        cls,
+        project: str,
+        profile: object,
+    ) -> TurnGapController:
+        """Create a controller with gap table and overlap prob from a ``ProjectProfile``.
+
+        Args:
+            project: Project identifier (passed through for fallback).
+            profile: A ``ProjectProfile`` instance.  Typed as ``object`` to
+                avoid a circular import; duck-typed for ``gap_timing`` and
+                ``overlap`` attributes.
+        """
+        gap_timing = getattr(profile, "gap_timing", None)
+        overlap = getattr(profile, "overlap", None)
+
+        gap_table: dict[str, _GapRange] | None = None
+        if gap_timing is not None:
+            raw = gap_timing.to_table()
+            gap_table = {k: _GapRange(lo=v[0], hi=v[1]) for k, v in raw.items()}
+
+        agg_pause_prob: float | None = None
+        if overlap is not None:
+            agg_pause_prob = overlap.agg_pause_prob
+
+        return cls(
+            project=project,
+            gap_table_override=gap_table,
+            agg_pause_prob_override=agg_pause_prob,
+        )
 
     def gap_seconds(
         self,
@@ -218,11 +267,10 @@ class TurnGapController:
             return "vic_i4"
         return "vic_i5"  # intensity 5
 
-    @staticmethod
-    def _agg_context(current_intensity: int, rng: random.Random) -> str:
+    def _agg_context(self, current_intensity: int, rng: random.Random) -> str:
         if current_intensity <= 2:
             return "agg_low"
-        # I3–I5: default to cutting-in, but at I4–I5 allow menacing self-pause.
-        if current_intensity >= 4 and rng.random() < _AGG_PAUSE_PROB:
+        # I3-I5: default to cutting-in, but at I4-I5 allow menacing self-pause.
+        if current_intensity >= 4 and rng.random() < self._agg_pause_prob:
             return "agg_pause"
         return "agg_high"

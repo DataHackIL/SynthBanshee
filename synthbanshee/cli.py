@@ -187,6 +187,7 @@ def _run_generate_pipeline(
     script_cache_dir: Path,
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
+    project_profile: object | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
@@ -304,6 +305,7 @@ def _run_generate_pipeline(
             rng_seed=scene.random_seed,
             verbose_log=vlog if verbose else None,
             project=scene.project,
+            project_profile=project_profile,
         )
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]
@@ -327,7 +329,11 @@ def _run_generate_pipeline(
             # gain are preserved exactly; preprocess() peak-limits any
             # over-range peaks and then writes the final PCM_16 output safely.
             sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="FLOAT")
-            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=scene.preprocessing)
+            # M13: apply profile preprocessing defaults when scene has no override.
+            preproc_config = scene.preprocessing
+            if preproc_config is None and project_profile is not None:
+                preproc_config = getattr(project_profile, "preprocessing", None)
+            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=preproc_config)
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
@@ -912,6 +918,7 @@ def _render_one(
     stop_event: threading.Event,
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
+    project_profile: object | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -937,6 +944,7 @@ def _render_one(
             script_cache_dir,
             verbose=verbose,
             speaker_overrides=speaker_overrides,
+            project_profile=project_profile,
         )
         if wav_path is not None:
             return wav_path, messages
@@ -1042,12 +1050,19 @@ def generate_batch(
     per-typology count limits, renders each clip, assigns speaker-disjoint
     splits, and writes a manifest CSV.
     """
+    from synthbanshee.config.project_profile import ProjectProfile
     from synthbanshee.config.run_config import RunConfig
     from synthbanshee.package.manifest import generate_manifest
     from synthbanshee.package.splitter import assign_splits
 
     console.print(f"[bold]Loading run config:[/bold] {run_config}")
     run_cfg = RunConfig.from_yaml(run_config)
+
+    # M13: load the project profile for this run.
+    profile: ProjectProfile | None = None
+    if run_cfg.project_profile != "generic":
+        profile = run_cfg.resolved_profile()
+        console.print(f"[cyan]Project profile:[/cyan] {profile.name} — {profile.description}")
     console.print(
         Panel(
             f"Run: [bold]{run_cfg.run_id}[/bold]  "
@@ -1137,6 +1152,7 @@ def generate_batch(
                     _no_stop,
                     verbose=verbose,
                     speaker_overrides=speaker_override_map.get(scene_yaml),
+                    project_profile=profile,
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -1169,6 +1185,7 @@ def generate_batch(
                         stop_event,
                         verbose,
                         speaker_override_map.get(scene_yaml),
+                        profile,
                     ): scene_yaml
                     for scene_yaml in selected
                 }

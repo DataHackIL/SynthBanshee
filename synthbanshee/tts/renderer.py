@@ -217,6 +217,7 @@ class TTSRenderer:
         disfluency: bool = False,
         verbose_log: _VerboseLog | None = None,
         project: str = "she_proves",
+        project_profile: object | None = None,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -234,6 +235,9 @@ class TTSRenderer:
                         text using the speaker's disfluency profile.
             project: Project identifier passed to ``TurnGapController`` to
                      select psychologically-motivated gap ranges (§4.5).
+            project_profile: Optional ``ProjectProfile`` instance (M13).
+                     When provided, gap timing and overlap probabilities are
+                     loaded from the profile instead of the hardcoded tables.
 
         Returns:
             MixedScene with concatenated audio and per-turn timing metadata.
@@ -253,7 +257,10 @@ class TTSRenderer:
         # and vice versa.
         gap_rng = random.Random(rng_seed)
         mixer = SceneMixer()
-        gap_ctrl = TurnGapController(project=project)
+        if project_profile is not None:
+            gap_ctrl = TurnGapController.from_profile(project, project_profile)
+        else:
+            gap_ctrl = TurnGapController(project=project)
 
         # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
         states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
