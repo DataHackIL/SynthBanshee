@@ -16,6 +16,10 @@ import tempfile
 import threading
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from synthbanshee.config.project_profile import ProjectProfile
 
 import click
 from rich.console import Console
@@ -187,6 +191,7 @@ def _run_generate_pipeline(
     script_cache_dir: Path,
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
+    project_profile: ProjectProfile | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
@@ -304,6 +309,7 @@ def _run_generate_pipeline(
             rng_seed=scene.random_seed,
             verbose_log=vlog if verbose else None,
             project=scene.project,
+            project_profile=project_profile,
         )
     except Exception as exc:
         return None, [f"TTS render error: {exc}"]
@@ -327,7 +333,11 @@ def _run_generate_pipeline(
             # gain are preserved exactly; preprocess() peak-limits any
             # over-range peaks and then writes the final PCM_16 output safely.
             sf.write(str(raw_wav), mixed.samples, mixed.sample_rate, subtype="FLOAT")
-            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=scene.preprocessing)
+            # M13: apply profile preprocessing defaults when scene has no override.
+            preproc_config = scene.preprocessing
+            if preproc_config is None and project_profile is not None:
+                preproc_config = getattr(project_profile, "preprocessing", None)
+            result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=preproc_config)
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
 
@@ -347,6 +357,17 @@ def _run_generate_pipeline(
     # (This differs from the AugmentedEvent docstring convention, which assumes
     # NoiseMixer receives the raw un-padded MixedScene.  Here we pass padded audio
     # intentionally so the placed events align with audible speech, not with silence.)
+    # M13: apply profile acoustic defaults to the scene's acoustic config.
+    # The profile provides a project-appropriate SNR target (e.g. 18 dB for
+    # She-Proves, 24 dB for Elephant) that replaces the generic Pydantic
+    # default (20.0 dB) when the scene YAML didn't set snr_target_db.
+    if (
+        project_profile is not None
+        and scene.acoustic_scene is not None
+        and scene.acoustic_scene.snr_target_db == 20.0  # still at generic default
+    ):
+        scene.acoustic_scene.snr_target_db = project_profile.acoustic.snr_target_db
+
     acoustic_scene_meta = None
     _aug_acou_events: list = []  # ACOU_* SFX events for strong-label generation
     if scene.tier in ("B", "C") and scene.acoustic_scene is not None:
@@ -683,6 +704,16 @@ def cli() -> None:
     help="Parse and validate config only; do not render.",
 )
 @click.option(
+    "--project-profile",
+    "-p",
+    type=str,
+    default=None,
+    help=(
+        "Project profile name (e.g. 'she_proves', 'elephant'). "
+        "Loads defaults from configs/run_configs/profile_<name>.yaml."
+    ),
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -696,9 +727,11 @@ def generate(
     dirty_dir: Path,
     script_cache_dir: Path,
     dry_run: bool,
+    project_profile: str | None,
     verbose: bool,
 ) -> None:
     """Generate a synthetic clip from a scene YAML config."""
+    from synthbanshee.config.project_profile import load_profile
     from synthbanshee.config.scene_config import SceneConfig
 
     console.print(f"[bold]Loading config:[/bold] {config}")
@@ -717,11 +750,23 @@ def generate(
         console.print("[green]Dry run — config is valid. Exiting.[/green]")
         return
 
+    # M13: load profile if specified.
+    profile = None
+    if project_profile is not None:
+        profile = load_profile(project_profile)
+        console.print(f"[cyan]Project profile:[/cyan] {profile.name} — {profile.description}")
+
     out_dir = Path(output_dir or scene.output_dir)
 
     console.print("[cyan]Running generate pipeline...[/cyan]")
     wav_path, messages = _run_generate_pipeline(
-        config, out_dir, cache_dir, dirty_dir, script_cache_dir, verbose=verbose
+        config,
+        out_dir,
+        cache_dir,
+        dirty_dir,
+        script_cache_dir,
+        verbose=verbose,
+        project_profile=profile,
     )
 
     if wav_path is None:
@@ -912,6 +957,7 @@ def _render_one(
     stop_event: threading.Event,
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
+    project_profile: ProjectProfile | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -937,6 +983,7 @@ def _render_one(
             script_cache_dir,
             verbose=verbose,
             speaker_overrides=speaker_overrides,
+            project_profile=project_profile,
         )
         if wav_path is not None:
             return wav_path, messages
@@ -1048,6 +1095,16 @@ def generate_batch(
 
     console.print(f"[bold]Loading run config:[/bold] {run_config}")
     run_cfg = RunConfig.from_yaml(run_config)
+
+    # M13: load the project profile for this run.
+    profile: ProjectProfile | None = None
+    if run_cfg.project_profile != "generic":
+        try:
+            profile = run_cfg.resolved_profile()
+        except (FileNotFoundError, Exception) as exc:
+            console.print(f"[bold red]Failed to load project profile:[/bold red] {exc}")
+            sys.exit(1)
+        console.print(f"[cyan]Project profile:[/cyan] {profile.name} — {profile.description}")
     console.print(
         Panel(
             f"Run: [bold]{run_cfg.run_id}[/bold]  "
@@ -1137,6 +1194,7 @@ def generate_batch(
                     _no_stop,
                     verbose=verbose,
                     speaker_overrides=speaker_override_map.get(scene_yaml),
+                    project_profile=profile,
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -1169,6 +1227,7 @@ def generate_batch(
                         stop_event,
                         verbose,
                         speaker_override_map.get(scene_yaml),
+                        profile,
                     ): scene_yaml
                     for scene_yaml in selected
                 }

@@ -17,6 +17,7 @@ from typing import Literal, Self
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from synthbanshee.config.project_profile import ProjectProfile, load_profile
 from synthbanshee.config.taxonomy import violence_typology_codes
 
 _VALID_PROJECTS = {"she_proves", "elephant_in_the_room"}
@@ -71,6 +72,7 @@ class RunConfig(BaseModel):
     splits: SplitFractions = Field(default_factory=SplitFractions)
     max_retries: int = Field(default=3, ge=1)
     fail_fast: bool = False
+    project_profile: str = "generic"
 
     @field_validator("project")
     @classmethod
@@ -87,6 +89,10 @@ class RunConfig(BaseModel):
     def targets_by_typology(self) -> dict[str, int]:
         """Return {violence_typology: count} for all targets."""
         return {t.violence_typology: t.count for t in self.targets}
+
+    def resolved_profile(self) -> ProjectProfile:
+        """Load and return the ``ProjectProfile`` for this run's ``project_profile``."""
+        return load_profile(self.project_profile)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> Self:

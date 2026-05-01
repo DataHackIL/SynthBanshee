@@ -1095,6 +1095,7 @@ class TestGenerateBatchAdvanced:
             script_cache_dir,
             verbose=False,
             speaker_overrides=None,
+            project_profile=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:

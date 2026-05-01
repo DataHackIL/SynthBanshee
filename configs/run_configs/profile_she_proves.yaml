@@ -1,0 +1,46 @@
+# Project profile: She-Proves
+# Domestic violence detection — phone-recorded apartment confrontations.
+# Optimizes for high recall and incident window detection.
+# Scene length: 3-6 min | Device: phone_in_pocket / _on_table / _in_hand
+# Room types: apartment rooms | >= 60% pre-incident
+
+name: she_proves
+description: >-
+  She-Proves domestic violence detection project.
+  Longer scenes (3-6 min) with phone-based recording in apartment settings.
+  Tuned for high recall and incident window detection.
+
+# Inter-turn gap timing (seconds) — psychologically-motivated ranges per context.
+gap_timing:
+  vic_low:   {lo: 0.30, hi: 0.60}   # VIC responds to AGG at I1-I2
+  vic_i3:    {lo: 0.15, hi: 0.35}   # VIC responds to AGG accusation at I3
+  vic_i4:    {lo: 0.05, hi: 0.15}   # VIC responds to AGG command at I4
+  vic_i5:    {lo: 0.10, hi: 0.30}   # VIC responds to AGG threat at I5
+  agg_low:   {lo: 0.20, hi: 0.50}   # AGG turn at I1-I2 (normal)
+  agg_high:  {lo: 0.05, hi: 0.20}   # AGG turn at I3-I5 (cutting in)
+  agg_pause: {lo: 0.60, hi: 1.40}   # AGG deliberate menacing self-pause at I4-I5
+
+# Overlap / barge-in probabilities
+overlap:
+  agg_pause_prob: 0.30
+
+# Default loudness targets (dBFS) per role
+loudness:
+  agg_rms_dbfs: -20.0
+  vic_rms_dbfs: -24.0
+
+# Preprocessing defaults
+preprocessing:
+  wiener_denoise: false
+
+# Acoustic augmentation defaults (Tier B/C)
+acoustic:
+  snr_target_db: 18.0
+  preferred_devices:
+    - phone_in_hand
+    - phone_in_pocket
+    - phone_on_table
+  preferred_room_types:
+    - small_bedroom
+    - apartment_kitchen
+    - living_room

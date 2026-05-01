@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 from synthbanshee.script.types import DialogueTurn
 from synthbanshee.tts.mix_mode import MixMode
+
+if TYPE_CHECKING:
+    from synthbanshee.config.project_profile import ProjectProfile
 
 
 class _GapRange(NamedTuple):
@@ -35,7 +38,12 @@ class _GapRange(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Project-specific gap tables
+# Legacy project-specific gap tables (fallback when no ProjectProfile is provided)
+#
+# When a ProjectProfile is active (M13), gap timing comes from the profile YAML
+# and these tables are NOT used.  They remain as backward-compatible fallbacks
+# for programmatic callers that construct TurnGapController without a profile.
+#
 # Each table maps a context_key string to a _GapRange (seconds).
 # context_key values:
 #   vic_low        — VIC responds to AGG at I1–I2 (normal conversation)
@@ -130,12 +138,59 @@ class TurnGapController:
             ``"elephant_in_the_room"``).  Unknown projects fall back to
             ``_DEFAULT_GAPS`` so that NEG/NEU confusor scenes always receive
             timing logic rather than mechanical fixed gaps.
+        gap_table_override: Optional externally-supplied gap table (e.g. from
+            a ``ProjectProfile``).  When provided, this table is used instead
+            of the hardcoded per-project tables, making gap timing fully
+            data-driven.  Keys must match the standard context keys
+            (``vic_low``, ``vic_i3``, etc.).
+        agg_pause_prob_override: Optional override for the probability that an
+            AGG turn at I4-I5 uses a deliberate menacing self-pause.
     """
 
     project: str
+    gap_table_override: dict[str, _GapRange] | None = None
+    agg_pause_prob_override: float | None = None
 
     def __post_init__(self) -> None:
-        self._table = _PROJECT_TABLES.get(self.project, _DEFAULT_GAPS)
+        if self.gap_table_override is not None:
+            self._table = self.gap_table_override
+        else:
+            self._table = _PROJECT_TABLES.get(self.project, _DEFAULT_GAPS)
+        self._agg_pause_prob = (
+            self.agg_pause_prob_override
+            if self.agg_pause_prob_override is not None
+            else _AGG_PAUSE_PROB
+        )
+
+    @classmethod
+    def from_profile(
+        cls,
+        project: str,
+        profile: ProjectProfile,
+    ) -> TurnGapController:
+        """Create a controller with gap table and overlap prob from a ``ProjectProfile``.
+
+        Args:
+            project: Project identifier (passed through for fallback).
+            profile: A ``ProjectProfile`` instance providing gap timing and
+                overlap probability defaults.
+        """
+        gt = profile.gap_timing
+        gap_table: dict[str, _GapRange] = {
+            "vic_low": _GapRange(gt.vic_low.lo, gt.vic_low.hi),
+            "vic_i3": _GapRange(gt.vic_i3.lo, gt.vic_i3.hi),
+            "vic_i4": _GapRange(gt.vic_i4.lo, gt.vic_i4.hi),
+            "vic_i5": _GapRange(gt.vic_i5.lo, gt.vic_i5.hi),
+            "agg_low": _GapRange(gt.agg_low.lo, gt.agg_low.hi),
+            "agg_high": _GapRange(gt.agg_high.lo, gt.agg_high.hi),
+            "agg_pause": _GapRange(gt.agg_pause.lo, gt.agg_pause.hi),
+        }
+
+        return cls(
+            project=project,
+            gap_table_override=gap_table,
+            agg_pause_prob_override=profile.overlap.agg_pause_prob,
+        )
 
     def gap_seconds(
         self,
@@ -218,11 +273,10 @@ class TurnGapController:
             return "vic_i4"
         return "vic_i5"  # intensity 5
 
-    @staticmethod
-    def _agg_context(current_intensity: int, rng: random.Random) -> str:
+    def _agg_context(self, current_intensity: int, rng: random.Random) -> str:
         if current_intensity <= 2:
             return "agg_low"
-        # I3–I5: default to cutting-in, but at I4–I5 allow menacing self-pause.
-        if current_intensity >= 4 and rng.random() < _AGG_PAUSE_PROB:
+        # I3-I5: default to cutting-in, but at I4-I5 allow menacing self-pause.
+        if current_intensity >= 4 and rng.random() < self._agg_pause_prob:
             return "agg_pause"
         return "agg_high"

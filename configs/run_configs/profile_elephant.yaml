@@ -1,0 +1,44 @@
+# Project profile: Elephant in the Room
+# Workplace / institutional violence detection — pi-based clinic/office recording.
+# Optimizes for high precision and low false alarms.
+# Scene length: 1-4 min | Device: pi_budget_mic
+# Room types: clinic_office, welfare_office, open_office | Alert in final 40%
+
+name: elephant
+description: >-
+  Elephant in the Room institutional violence detection project.
+  Shorter scenes (1-4 min) with Raspberry Pi mic in clinical/office settings.
+  Tuned for high precision and low false alarms.
+
+# Inter-turn gap timing (seconds) — tighter ranges reflecting professional settings.
+gap_timing:
+  vic_low:   {lo: 0.25, hi: 0.50}   # VIC responds to AGG at I1-I2
+  vic_i3:    {lo: 0.10, hi: 0.30}   # VIC responds to AGG accusation at I3
+  vic_i4:    {lo: 0.05, hi: 0.10}   # VIC responds to AGG command at I4
+  vic_i5:    {lo: 0.08, hi: 0.20}   # VIC responds to AGG threat at I5
+  agg_low:   {lo: 0.15, hi: 0.40}   # AGG turn at I1-I2 (normal)
+  agg_high:  {lo: 0.05, hi: 0.15}   # AGG turn at I3-I5 (cutting in)
+  agg_pause: {lo: 0.50, hi: 1.20}   # AGG deliberate menacing self-pause at I4-I5
+
+# Overlap / barge-in probabilities — slightly lower for institutional settings
+overlap:
+  agg_pause_prob: 0.25
+
+# Default loudness targets (dBFS) per role — slightly louder (closer mic placement)
+loudness:
+  agg_rms_dbfs: -18.0
+  vic_rms_dbfs: -22.0
+
+# Preprocessing defaults
+preprocessing:
+  wiener_denoise: false
+
+# Acoustic augmentation defaults (Tier B/C)
+acoustic:
+  snr_target_db: 24.0
+  preferred_devices:
+    - pi_budget_mic
+  preferred_room_types:
+    - clinic_office
+    - welfare_office
+    - open_office_corridor

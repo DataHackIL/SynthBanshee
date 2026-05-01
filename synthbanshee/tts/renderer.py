@@ -14,8 +14,12 @@ import hashlib
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from synthbanshee.config.speaker_config import SpeakerConfig
+
+if TYPE_CHECKING:
+    from synthbanshee.config.project_profile import ProjectProfile
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.provider import TTSProvider
@@ -217,6 +221,7 @@ class TTSRenderer:
         disfluency: bool = False,
         verbose_log: _VerboseLog | None = None,
         project: str = "she_proves",
+        project_profile: ProjectProfile | None = None,
     ) -> MixedScene:
         """Render a multi-speaker dialogue script to a MixedScene.
 
@@ -234,6 +239,9 @@ class TTSRenderer:
                         text using the speaker's disfluency profile.
             project: Project identifier passed to ``TurnGapController`` to
                      select psychologically-motivated gap ranges (§4.5).
+            project_profile: Optional ``ProjectProfile`` instance (M13).
+                     When provided, gap timing and overlap probabilities are
+                     loaded from the profile instead of the hardcoded tables.
 
         Returns:
             MixedScene with concatenated audio and per-turn timing metadata.
@@ -253,7 +261,10 @@ class TTSRenderer:
         # and vice versa.
         gap_rng = random.Random(rng_seed)
         mixer = SceneMixer()
-        gap_ctrl = TurnGapController(project=project)
+        if project_profile is not None:
+            gap_ctrl = TurnGapController.from_profile(project, project_profile)
+        else:
+            gap_ctrl = TurnGapController(project=project)
 
         # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
         states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
@@ -306,12 +317,20 @@ class TTSRenderer:
             gap_s, mix_mode = gap_ctrl.gap_seconds(
                 turn, prev_turn, gap_rng, speaker.role, prev_role
             )
+            rms_target = speaker.style_for_intensity(turn.intensity).rms_target_dbfs
+            # M13: if the speaker config doesn't set an RMS target for this
+            # intensity, fall back to the project profile's role-level default.
+            if rms_target is None and project_profile is not None:
+                if speaker.role == "AGG":
+                    rms_target = project_profile.loudness.agg_rms_dbfs
+                elif speaker.role == "VIC":
+                    rms_target = project_profile.loudness.vic_rms_dbfs
             segments.append(
                 (
                     wav_bytes,
                     gap_s,
                     turn.speaker_id,
-                    speaker.style_for_intensity(turn.intensity).rms_target_dbfs,
+                    rms_target,
                     mix_mode,
                 )
             )
