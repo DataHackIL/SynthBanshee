@@ -21,6 +21,7 @@ from synthbanshee.labels.schema import (
     ClipAcousticScene,
     ClipMetadata,
     EventLabel,
+    GenerationMetadata,
     PreprocessingApplied,
     SpeakerInfo,
     WeakLabel,
@@ -224,6 +225,7 @@ class LabelGenerator:
         transcript_path: str | None = None,
         snr_db_estimated: float | None = None,
         quality_flags: list[str] | None = None,
+        generation_metadata: GenerationMetadata | None = None,
     ) -> ClipMetadata:
         """Build a ClipMetadata record from pipeline outputs."""
         violence_categories = sorted(
@@ -260,6 +262,7 @@ class LabelGenerator:
             dirty_file_path=dirty_file_path,
             transcript_path=transcript_path,
             quality_flags=quality_flags or [],
+            generation_metadata=generation_metadata,
         )
 
     def write_strong_labels_jsonl(self, labels: list[EventLabel], path: Path) -> None:

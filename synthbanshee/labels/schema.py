@@ -126,6 +126,25 @@ class PreprocessingApplied(BaseModel):
     silence_padded: bool = False
 
 
+class GenerationMetadata(BaseModel):
+    """Pipeline provenance metadata for ablation studies (spec §4.11).
+
+    Captures which TTS provider, voice, SSML parameters, mixer settings,
+    preprocessing steps, and augmentation config were used to generate a clip.
+    """
+
+    pipeline_version: str
+    tts_backend: str
+    voice_family: str
+    text_normalization_version: str = ""
+    prosody_controller_version: str = ""
+    timing_controller_version: str = ""
+    mix_mode_used: str = "SEQUENTIAL"
+    normalization_strategy: str = "per_turn_rms_v1"
+    breathiness_applied: bool = False
+    speaker_state_serialized: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
 # ---------------------------------------------------------------------------
 # Per-clip metadata (one .json per clip)
 # ---------------------------------------------------------------------------
@@ -158,6 +177,7 @@ class ClipMetadata(BaseModel):
     iaa_reviewed: bool = False
     she_proves_meta: dict | None = None
     elephant_meta: dict | None = None
+    generation_metadata: GenerationMetadata | None = None
 
     @field_validator("violence_typology")
     @classmethod

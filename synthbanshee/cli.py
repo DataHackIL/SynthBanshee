@@ -544,6 +544,33 @@ def _run_generate_pipeline(
         silence_padded=True,
     )
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
+
+    # M11: Build GenerationMetadata for pipeline provenance.
+    from synthbanshee import __version__
+    from synthbanshee.labels.schema import GenerationMetadata
+
+    # Determine dominant TTS backend and voice family from speakers.
+    _backends = [spk.tts_provider for spk in speakers.values()]
+    _dominant_backend = max(set(_backends), key=_backends.count) if _backends else "azure"
+    _voice_families = [spk.voice_family or spk.tts_voice_id for spk in speakers.values()]
+    _dominant_voice = _voice_families[0] if _voice_families else ""
+
+    # Collect final speaker state snapshots from the last turn per speaker.
+    _speaker_states: dict[str, dict[str, float]] = {}
+    for turn in reversed(turns):
+        if turn.speaker_id not in _speaker_states and turn.speaker_state_snapshot:
+            _speaker_states[turn.speaker_id] = turn.speaker_state_snapshot
+
+    gen_meta = GenerationMetadata(
+        pipeline_version=__version__,
+        tts_backend=_dominant_backend,
+        voice_family=_dominant_voice,
+        mix_mode_used="SEQUENTIAL",
+        normalization_strategy="per_turn_rms_v1",
+        breathiness_applied=False,
+        speaker_state_serialized=_speaker_states,
+    )
+
     metadata = label_gen.generate_clip_metadata(
         clip_id=f"{clip_id}_00",
         project=scene.project,
@@ -559,6 +586,7 @@ def _run_generate_pipeline(
         transcript_path=str(clip_txt),
         acoustic_scene=acoustic_scene_meta,
         quality_flags=quality_flags,
+        generation_metadata=gen_meta,
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 
