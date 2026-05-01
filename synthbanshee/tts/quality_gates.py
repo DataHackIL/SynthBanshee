@@ -72,10 +72,10 @@ class GateResult:
 
 
 def _wav_bytes_to_samples(wav_bytes: bytes) -> tuple[np.ndarray, int]:
-    """Parse raw WAV bytes into float32 samples and sample rate.
+    """Parse pipeline WAV bytes into mono float32 samples and sample rate.
 
-    Handles 16-bit PCM WAV (the only format in this pipeline).
-    Returns samples normalized to [-1.0, 1.0].
+    Accepts any WAV subtype readable by soundfile (PCM16, float32, etc.)
+    and returns samples normalized to [-1.0, 1.0].
     """
     import io
 

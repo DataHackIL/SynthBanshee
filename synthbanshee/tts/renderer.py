@@ -316,9 +316,10 @@ class TTSRenderer:
                 from synthbanshee.tts.speaker_state import MAX_F0_DRIFT_ST
 
                 gate_result = run_quality_gates(wav_bytes, speaker.gender)
-                retries_left = quality_gate_retries if randomize else 0
-                while not gate_result.passed and retries_left > 0:
-                    retries_left -= 1
+                max_retries = quality_gate_retries if randomize else 0
+                retries_attempted = 0
+                while not gate_result.passed and retries_attempted < max_retries:
+                    retries_attempted += 1
                     render_seed = rng.randint(0, 2**31)
                     wav_bytes, _, hit = self.render_utterance(
                         text,
@@ -337,7 +338,7 @@ class TTSRenderer:
                         verbose_log(
                             f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
                             f" [{turn.speaker_id}] quality gate FAILED"
-                            f" (after {quality_gate_retries} retries):"
+                            f" (after {retries_attempted} retries):"
                             f" {failure_str}[/yellow]"
                         )
             # Update state after rendering so the first turn always uses neutral
