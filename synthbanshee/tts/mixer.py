@@ -41,6 +41,7 @@ from synthbanshee.script.types import MixedScene
 from synthbanshee.tts.mix_mode import MixMode
 
 _TARGET_SR = 16_000
+_EDGE_FADE_SAMPLES = 160  # 10ms at 16 kHz — eliminates DC-offset clicks at turn boundaries
 
 
 def _apply_rms_gain(mono: np.ndarray, rms_target_dbfs: float) -> np.ndarray:
@@ -64,6 +65,24 @@ def _apply_rms_gain(mono: np.ndarray, rms_target_dbfs: float) -> np.ndarray:
     gain_db = rms_target_dbfs - current_dbfs
     gain_linear = 10.0 ** (gain_db / 20.0)
     return (mono * gain_linear).astype(np.float32)
+
+
+def _apply_edge_fades(mono: np.ndarray, n: int = _EDGE_FADE_SAMPLES) -> np.ndarray:
+    """Apply linear fade-in and fade-out of *n* samples to eliminate boundary clicks.
+
+    Short segments (< 2*n samples) get proportionally shorter fades.
+    """
+    if len(mono) == 0 or n <= 0:
+        return mono
+    fade_len = min(n, len(mono) // 2)
+    if fade_len <= 0:
+        return mono
+    out = mono.copy()
+    fade_in = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+    fade_out = np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+    out[:fade_len] *= fade_in
+    out[-fade_len:] *= fade_out
+    return out
 
 
 class SceneMixer:
@@ -128,7 +147,8 @@ class SceneMixer:
             if rms_target_dbfs is not None:
                 mono = _apply_rms_gain(mono, rms_target_dbfs)
 
-            mono = mono.astype(np.float32)
+            # M14: apply fade-in/fade-out to eliminate DC-offset clicks
+            mono = _apply_edge_fades(mono.astype(np.float32))
             seg_duration_s = len(mono) / _TARGET_SR
 
             # --- Determine onset position ---
@@ -171,7 +191,13 @@ class SceneMixer:
                     rendered_offsets[-1] = prev_onset_s_f
                     audible_ends[-1] = prev_onset_s_f
                 elif max_samples < len(prev_mono):
-                    placed[-1] = (prev_mono[:max_samples], prev_onset_sample)
+                    truncated = prev_mono[:max_samples].copy()
+                    # Re-apply fade-out at the new truncation boundary so the
+                    # hard cut doesn't reintroduce the click we're trying to fix.
+                    fade_n = min(_EDGE_FADE_SAMPLES, len(truncated))
+                    if fade_n > 0:
+                        truncated[-fade_n:] *= np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
+                    placed[-1] = (truncated, prev_onset_sample)
                     # onset_s is already quantised to the sample boundary above.
                     rendered_offsets[-1] = onset_s
                     audible_ends[-1] = onset_s

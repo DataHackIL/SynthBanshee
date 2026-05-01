@@ -9,10 +9,16 @@ class PreprocessingConfig(BaseModel):
     """Per-scene preprocessing options.
 
     Passed to ``preprocess()`` to control which pipeline steps are applied.
-    All flags default to the spec-mandated behaviour so existing call sites
-    that omit the config are unaffected.
+
+    M14 (2026-05-01): ``wiener_denoise`` default changed from ``True`` to
+    ``False`` — Wiener denoising on clean TTS output over-smooths
+    high-frequency transients.  Enable explicitly for Tier B/C clips
+    with real added noise.
     """
 
-    wiener_denoise: bool = True
-    """Apply Wiener noise reduction (step 4).  Set to False for Tier A scenes
-    where the clean TTS signal should be preserved without spectral smoothing."""
+    wiener_denoise: bool = False
+    """Apply Wiener noise reduction (step 4).  Defaults to False because
+    Wiener denoising on clean TTS output causes muffled sound by
+    over-smoothing high-frequency transients (confirmed by three
+    independent research reports).  Enable only for clips with real
+    added noise (Tier B/C after acoustic augmentation)."""

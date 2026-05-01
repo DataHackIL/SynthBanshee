@@ -87,7 +87,7 @@ class TestProviderCapabilities:
         p = AzureProvider(sdk_factory=lambda k, r: MagicMock())
         caps = p.capabilities
         assert caps.supports_ssml is True
-        assert caps.supports_style_tags is True
+        assert caps.supports_style_tags is False  # M14: disabled for he-IL voices
         assert caps.supports_phoneme_tags is True
         assert caps.supports_api_emotion_sliders is False
 
@@ -300,7 +300,8 @@ class TestSSMLBuilderGoogleMode:
         ssml = self.builder.build_single(utt, supports_style_tags=False)
         assert "express-as" not in ssml
 
-    def test_azure_mode_still_includes_express_as(self):
+    def test_style_tags_true_flag_includes_express_as(self):
+        """SSMLBuilder with supports_style_tags=True emits express-as (flag-level, not provider)."""
         utt = UtteranceSpec(text="hi", voice_id="he-IL-AvriNeural", style="angry")
         ssml = self.builder.build_single(utt, supports_style_tags=True)
         assert "express-as" in ssml
@@ -392,8 +393,8 @@ class TestTTSRendererMultiProvider:
         assert "mstts" not in captured_ssml[0]
         assert "express-as" not in captured_ssml[0]
 
-    def test_azure_ssml_has_mstts_at_intensity_3(self, tmp_path):
-        """Azure speaker at intensity 3 (angry style) must include express-as."""
+    def test_azure_ssml_no_express_as_at_intensity_3(self, tmp_path):
+        """Azure speaker at intensity 3 must NOT include express-as (M14: disabled for he-IL)."""
         from synthbanshee.tts.azure_provider import AzureProvider
 
         captured_ssml: list[str] = []
@@ -410,7 +411,7 @@ class TestTTSRendererMultiProvider:
         speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         renderer.render_utterance("שלום", speaker, intensity=3)
         assert captured_ssml
-        assert "express-as" in captured_ssml[0]
+        assert "express-as" not in captured_ssml[0]
 
     def test_provider_and_providers_mutually_exclusive(self, tmp_path):
         from synthbanshee.tts.azure_provider import AzureProvider
@@ -455,7 +456,7 @@ class TestTTSRendererMultiProvider:
 
         mock_azure = MagicMock()
         mock_azure.capabilities = MagicMock()
-        mock_azure.capabilities.supports_style_tags = True
+        mock_azure.capabilities.supports_style_tags = False
 
         with patch(
             "synthbanshee.tts.azure_provider.AzureProvider", return_value=mock_azure

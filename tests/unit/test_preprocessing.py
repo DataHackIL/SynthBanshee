@@ -124,7 +124,7 @@ class TestPreprocess:
         steps_str = " ".join(result.steps_applied)
         assert "resample" in steps_str
         # "mono" step only appears when source has >1 channels
-        assert "lowpass" in steps_str
+        assert "highpass" in steps_str
         assert "peak_limit" in steps_str
         assert "silence_pad" in steps_str
 
@@ -241,12 +241,12 @@ class TestPeakLimit:
 class TestPreprocessingConfig:
     """Unit tests for M5 — PreprocessingConfig + wiener_denoise flag."""
 
-    def test_default_config_applies_wiener(self, tmp_path):
-        """With no config (defaults), wiener_denoise step appears in steps_applied."""
+    def test_default_config_skips_wiener(self, tmp_path):
+        """With no config (defaults), wiener_denoise step must NOT appear (M14: default=False)."""
         src = _write_sine_wav(tmp_path / "src.wav", sample_rate=_TARGET_SR)
         dst = tmp_path / "out.wav"
         result = preprocess(src, dst)
-        assert "wiener_denoise" in result.steps_applied
+        assert "wiener_denoise" not in result.steps_applied
 
     def test_explicit_wiener_true_applies_wiener(self, tmp_path):
         src = _write_sine_wav(tmp_path / "src.wav", sample_rate=_TARGET_SR)
@@ -268,7 +268,7 @@ class TestPreprocessingConfig:
         result = preprocess(src, dst, config=PreprocessingConfig(wiener_denoise=False))
         steps_str = " ".join(result.steps_applied)
         assert "resample" in steps_str
-        assert "lowpass" in steps_str
+        assert "highpass" in steps_str
         assert "peak_limit" in steps_str
         assert "silence_pad" in steps_str
 
@@ -282,4 +282,4 @@ class TestPreprocessingConfig:
 
     def test_config_default_values(self):
         cfg = PreprocessingConfig()
-        assert cfg.wiener_denoise is True
+        assert cfg.wiener_denoise is False
