@@ -62,9 +62,17 @@ class TestGapRange:
         assert r.lo == 0.1
         assert r.hi == 0.5
 
+    def test_equal_lo_hi_allowed(self):
+        r = GapRange(lo=0.3, hi=0.3)
+        assert r.lo == r.hi
+
     def test_negative_rejected(self):
         with pytest.raises(ValidationError):
             GapRange(lo=-0.1, hi=0.5)
+
+    def test_inverted_range_rejected(self):
+        with pytest.raises(ValidationError, match="lo.*must be <= hi"):
+            GapRange(lo=0.5, hi=0.1)
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from synthbanshee.config.preprocessing_config import PreprocessingConfig
 
@@ -27,6 +27,12 @@ class GapRange(BaseModel):
 
     lo: float = Field(ge=0.0)
     hi: float = Field(ge=0.0)
+
+    @model_validator(mode="after")
+    def lo_le_hi(self) -> GapRange:
+        if self.lo > self.hi:
+            raise ValueError(f"GapRange lo ({self.lo}) must be <= hi ({self.hi})")
+        return self
 
 
 class GapTimingDefaults(BaseModel):

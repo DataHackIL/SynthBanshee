@@ -1099,7 +1099,11 @@ def generate_batch(
     # M13: load the project profile for this run.
     profile: ProjectProfile | None = None
     if run_cfg.project_profile != "generic":
-        profile = run_cfg.resolved_profile()
+        try:
+            profile = run_cfg.resolved_profile()
+        except (FileNotFoundError, Exception) as exc:
+            console.print(f"[bold red]Failed to load project profile:[/bold red] {exc}")
+            sys.exit(1)
         console.print(f"[cyan]Project profile:[/cyan] {profile.name} — {profile.description}")
     console.print(
         Panel(
