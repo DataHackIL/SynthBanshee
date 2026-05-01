@@ -4,13 +4,11 @@ kind: topic
 title: Audio Quality Issues — Known Problems and Root Causes
 page_id: topic-audio-quality-issues
 status: active
-review_state: human-authored
+review_state: human-reviewed
 source_refs:
   - src-b98ddf4495b0916b6c9cdc3804daf32554f40b26dc0ba217c5e3d1664ee5ddf4
   - src-42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89
 tags: [audio-quality, tts, ssml, preprocessing, feedback]
-created: '2026-04-30'
-updated: '2026-04-30'
 ---
 
 # Audio Quality Issues — Known Problems and Root Causes
