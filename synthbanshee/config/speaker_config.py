@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -78,6 +79,26 @@ class SpeakerConfig(BaseModel):
         """Default voice_family to tts_voice_id when not explicitly set."""
         if self.voice_family is None:
             self.voice_family = self.tts_voice_id
+        return self
+
+    @model_validator(mode="after")
+    def google_style_warning(self) -> SpeakerConfig:
+        """Warn when Google TTS speaker uses styles this backend cannot render."""
+        if self.tts_provider == "google":
+            offending = [
+                (level, entry.style)
+                for level, entry in self.style_map.items()
+                if entry.style.lower() not in ("general", "")
+            ]
+            if offending:
+                details = ", ".join(f"'{style}' at intensity {lvl}" for lvl, style in offending)
+                warnings.warn(
+                    f"Speaker {self.speaker_id}: {details} — "
+                    "has no effect with Google TTS "
+                    "(this backend does not support mstts:express-as style tags)",
+                    UserWarning,
+                    stacklevel=1,
+                )
         return self
 
     @model_validator(mode="after")
