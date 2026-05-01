@@ -30,6 +30,9 @@ class ArchiveResult:
     file_count: int
     """Number of data files included (dirty originals excluded)."""
 
+    excluded_clip_count: int
+    """Number of clip IDs excluded via *exclude_clip_ids*."""
+
     total_bytes: int
     """Sum of uncompressed file sizes for all included files."""
 
@@ -51,6 +54,7 @@ def create_archive(
     output_path: Path,
     *,
     dataset_card_text: str | None = None,
+    exclude_clip_ids: set[str] | None = None,
 ) -> ArchiveResult:
     """Create a ``.tar.gz`` archive of *data_dir*.
 
@@ -62,17 +66,21 @@ def create_archive(
             created if it does not exist.
         dataset_card_text: Optional text to include as ``DATASET_CARD.md`` at
             the archive root.
+        exclude_clip_ids: Optional set of clip IDs (filename stems) whose
+            sibling files (``.wav``, ``.txt``, ``.json``, ``.jsonl``) should
+            be excluded from the archive.
 
     Returns:
         :class:`ArchiveResult` with the archive path, SHA-256 checksum, file
         count, total uncompressed bytes, and path to ``SHA256SUMS.txt``.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    _excluded = exclude_clip_ids or set()
 
     files = sorted(
         p
         for p in data_dir.rglob("*")
-        if p.is_file() and not p.is_symlink() and "_dirty" not in p.stem
+        if p.is_file() and not p.is_symlink() and "_dirty" not in p.stem and p.stem not in _excluded
     )
 
     file_checksums: list[tuple[str, str]] = []
@@ -113,6 +121,7 @@ def create_archive(
         archive_path=output_path,
         checksum=archive_checksum,
         file_count=len(files),
+        excluded_clip_count=len(_excluded),
         total_bytes=total_bytes,
         manifest_path=manifest_path,
     )

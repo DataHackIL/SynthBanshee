@@ -149,3 +149,32 @@ class TestCreateArchive:
         with tarfile.open(out, "r:gz") as tar:
             names = tar.getnames()
         assert not any("link" in n for n in names)
+
+    def test_exclude_clip_ids_removes_siblings(self, tmp_path):
+        """All sibling files for an excluded clip ID are omitted."""
+        data_dir = _make_data_dir(tmp_path)
+        out = tmp_path / "dataset.tar.gz"
+        # clip_001 has .wav, .txt, .json → all 3 should be excluded
+        result = create_archive(data_dir, out, exclude_clip_ids={"clip_001"})
+        with tarfile.open(out, "r:gz") as tar:
+            names = tar.getnames()
+        assert not any("clip_001" in n for n in names)
+        # Only sub/clip_002.wav should remain
+        assert result.file_count == 1
+        assert result.excluded_clip_count == 1
+
+    def test_exclude_clip_ids_empty_set_changes_nothing(self, tmp_path):
+        """An empty exclusion set behaves the same as no exclusion."""
+        data_dir = _make_data_dir(tmp_path)
+        out = tmp_path / "dataset.tar.gz"
+        result = create_archive(data_dir, out, exclude_clip_ids=set())
+        assert result.file_count == 4  # same as default
+        assert result.excluded_clip_count == 0
+
+    def test_exclude_nonexistent_clip_id(self, tmp_path):
+        """Excluding a clip ID not present in data_dir is a no-op."""
+        data_dir = _make_data_dir(tmp_path)
+        out = tmp_path / "dataset.tar.gz"
+        result = create_archive(data_dir, out, exclude_clip_ids={"no_such_clip"})
+        assert result.file_count == 4
+        assert result.excluded_clip_count == 1
