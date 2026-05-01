@@ -300,7 +300,8 @@ class TestSSMLBuilderGoogleMode:
         ssml = self.builder.build_single(utt, supports_style_tags=False)
         assert "express-as" not in ssml
 
-    def test_azure_mode_still_includes_express_as(self):
+    def test_style_tags_true_flag_includes_express_as(self):
+        """SSMLBuilder with supports_style_tags=True emits express-as (flag-level, not provider)."""
         utt = UtteranceSpec(text="hi", voice_id="he-IL-AvriNeural", style="angry")
         ssml = self.builder.build_single(utt, supports_style_tags=True)
         assert "express-as" in ssml

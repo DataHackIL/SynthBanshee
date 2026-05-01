@@ -1,6 +1,7 @@
 """Preprocessing pipeline: resample → downmix → high-pass → denoise → normalize → pad → validate.
 
-Spec reference: docs/spec.md §3.1
+Spec reference: docs/spec.md §3.1 (M14 supersedes §3.1 filter and denoise defaults;
+see wiki/topics/research-synthesis.md for rationale)
 
 Order of operations is fixed. The "dirty" pre-pipeline file is retained in assets/
 and must never be overwritten by this module.

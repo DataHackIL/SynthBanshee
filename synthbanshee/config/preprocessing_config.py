@@ -9,8 +9,11 @@ class PreprocessingConfig(BaseModel):
     """Per-scene preprocessing options.
 
     Passed to ``preprocess()`` to control which pipeline steps are applied.
-    All flags default to the spec-mandated behaviour so existing call sites
-    that omit the config are unaffected.
+
+    M14 (2026-05-01): ``wiener_denoise`` default changed from ``True`` to
+    ``False`` — Wiener denoising on clean TTS output over-smooths
+    high-frequency transients.  Enable explicitly for Tier B/C clips
+    with real added noise.
     """
 
     wiener_denoise: bool = False
