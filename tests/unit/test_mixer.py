@@ -509,3 +509,10 @@ class TestApplyEdgeFades:
         assert len(result) == 50
         assert result[0] == pytest.approx(0.0, abs=1e-6)
         assert result[-1] == pytest.approx(0.0, abs=1e-6)
+
+    def test_single_sample_returned_unchanged(self):
+        """A 1-sample array has fade_len=0 and must be returned unchanged."""
+        mono = np.array([0.5], dtype=np.float32)
+        result = _apply_edge_fades(mono, n=160)
+        assert len(result) == 1
+        assert result[0] == pytest.approx(0.5)
