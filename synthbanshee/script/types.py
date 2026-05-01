@@ -106,3 +106,5 @@ class MixedScene:
     rendered_offsets_s: list[float] = field(default_factory=list)
     audible_onsets_s: list[float] = field(default_factory=list)
     audible_ends_s: list[float] = field(default_factory=list)
+    # M11: per-turn MixMode values (parallel with onsets/offsets).
+    mix_modes: list[str] = field(default_factory=list)

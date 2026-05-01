@@ -121,6 +121,7 @@ class SceneMixer:
         audible_onsets: list[float] = []
         audible_ends: list[float] = []
         speaker_ids: list[str] = []
+        mix_modes: list[str] = []
 
         # render_cursor_s tracks the end of the last placed segment in buffer time.
         # script_cursor_s advances sequentially (overlap is not subtracted).
@@ -216,6 +217,7 @@ class SceneMixer:
             audible_onsets.append(onset_s)
             audible_ends.append(offset_s)
             speaker_ids.append(speaker_id)
+            mix_modes.append(mix_mode.value)
 
         # --- Build output buffer ---
         if placed:
@@ -241,4 +243,5 @@ class SceneMixer:
             rendered_offsets_s=rendered_offsets,
             audible_onsets_s=audible_onsets,
             audible_ends_s=audible_ends,
+            mix_modes=mix_modes,
         )

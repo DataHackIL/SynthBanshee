@@ -546,16 +546,31 @@ def _run_generate_pipeline(
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
 
     # M11: Build GenerationMetadata for pipeline provenance.
+    from collections import Counter
+
     from synthbanshee import __version__
     from synthbanshee.labels.schema import GenerationMetadata
 
-    # Determine dominant TTS backend and voice family from speakers.
-    _backends = [spk.tts_provider for spk in speakers.values()]
-    _dominant_backend = max(set(_backends), key=_backends.count) if _backends else "azure"
-    _voice_families = [spk.voice_family or spk.tts_voice_id for spk in speakers.values()]
-    _dominant_voice = _voice_families[0] if _voice_families else ""
+    # Per-speaker TTS backend and voice family.
+    _backends_map: dict[str, str] = {sid: spk.tts_provider for sid, spk in speakers.items()}
+    _voices_map = {sid: spk.voice_family or spk.tts_voice_id for sid, spk in speakers.items()}
 
-    # Collect final speaker state snapshots from the last turn per speaker.
+    # Dominant mix mode from actual mixer output.
+    if mixed.mix_modes:
+        _mode_counts = Counter(mixed.mix_modes)
+        _dominant_mix_mode = _mode_counts.most_common(1)[0][0].upper()
+    else:
+        _dominant_mix_mode = "SEQUENTIAL"
+
+    # Final speaker state: capture post-last-update state by replaying
+    # the last turn's update on top of the pre-render snapshot.
+    # speaker_state_snapshot is captured *before* update() in the renderer,
+    # so it reflects the state going into the last turn, not the state after.
+    # We need the post-update state for provenance; use the SpeakerState
+    # objects still alive in the renderer — but they're local to render_scene().
+    # Instead, collect the last snapshot per speaker and note it represents
+    # the pre-render state of the final turn (the best we have without
+    # a renderer API change).
     _speaker_states: dict[str, dict[str, float]] = {}
     for turn in reversed(turns):
         if turn.speaker_id not in _speaker_states and turn.speaker_state_snapshot:
@@ -563,9 +578,9 @@ def _run_generate_pipeline(
 
     gen_meta = GenerationMetadata(
         pipeline_version=__version__,
-        tts_backend=_dominant_backend,
-        voice_family=_dominant_voice,
-        mix_mode_used="SEQUENTIAL",
+        tts_backend=_backends_map,
+        voice_family=_voices_map,
+        mix_mode_used=_dominant_mix_mode,
         normalization_strategy="per_turn_rms_v1",
         breathiness_applied=False,
         speaker_state_serialized=_speaker_states,

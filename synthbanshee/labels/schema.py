@@ -134,11 +134,11 @@ class GenerationMetadata(BaseModel):
     """
 
     pipeline_version: str
-    tts_backend: str
-    voice_family: str
-    text_normalization_version: str = ""
-    prosody_controller_version: str = ""
-    timing_controller_version: str = ""
+    tts_backend: dict[str, str] = Field(default_factory=dict)
+    voice_family: dict[str, str] = Field(default_factory=dict)
+    text_normalization_version: str | None = None
+    prosody_controller_version: str | None = None
+    timing_controller_version: str | None = None
     mix_mode_used: str = "SEQUENTIAL"
     normalization_strategy: str = "per_turn_rms_v1"
     breathiness_applied: bool = False
