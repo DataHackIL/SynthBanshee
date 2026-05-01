@@ -23,32 +23,32 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: 0
+    rate_multiplier: 0.98           # M15: research consensus Calm rate
+    pitch_delta_st: 0               # M15: male pitch -3% to +2%
     volume_delta_db: 0
     rms_target_dbfs: -28
   2:
     style: "General"
-    rate_multiplier: 1.05
-    pitch_delta_st: 0
-    volume_delta_db: +2
+    rate_multiplier: 1.02           # M15: research consensus Neutral rate
+    pitch_delta_st: 0               # M15: male pitch stays flat
+    volume_delta_db: 0
     rms_target_dbfs: -25
   3:
-    style: "angry"
-    rate_multiplier: 1.12
-    pitch_delta_st: 0
-    volume_delta_db: +5
+    style: "General"
+    rate_multiplier: 1.05           # M15: research consensus Irritation rate
+    pitch_delta_st: +1              # M15: male pitch -1% to +3%
+    volume_delta_db: +3
     rms_target_dbfs: -22
   4:
-    style: "angry"
-    rate_multiplier: 1.18
-    pitch_delta_st: +1
-    volume_delta_db: +9
+    style: "General"
+    rate_multiplier: 1.08           # M15: research consensus Anger rate
+    pitch_delta_st: +2              # M15: male pitch -1% to +5%
+    volume_delta_db: +8
     rms_target_dbfs: -19
   5:
-    style: "angry"
-    rate_multiplier: 1.22
-    pitch_delta_st: +1
+    style: "General"
+    rate_multiplier: 1.12           # M15: research consensus Shouting rate
+    pitch_delta_st: +2              # M15: male pitch 0% to +5%; hard cap
     volume_delta_db: +13
     rms_target_dbfs: -15
 

@@ -21,33 +21,33 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: -4
+    rate_multiplier: 0.97           # M15: female Calm rate
+    pitch_delta_st: -2              # M15: female pitch -3% to +2%
     volume_delta_db: 0
     rms_target_dbfs: -26
   2:
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: -3
-    volume_delta_db: +1
+    rate_multiplier: 1.0            # M15: female Neutral rate
+    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    volume_delta_db: 0
     rms_target_dbfs: -27
   3:
     style: "General"
-    rate_multiplier: 0.95
-    pitch_delta_st: -3
-    volume_delta_db: +2
+    rate_multiplier: 0.95           # M15: female Irritation rate; SW slows deliberately
+    pitch_delta_st: +1              # M15: female pitch 0% to +5%
+    volume_delta_db: +3
     rms_target_dbfs: -28
   4:
     style: "General"
-    rate_multiplier: 1.05
-    pitch_delta_st: -2
-    volume_delta_db: +4
+    rate_multiplier: 0.98           # M15: female Anger rate; SW tries to stay controlled
+    pitch_delta_st: +3              # M15: female pitch +2% to +7%
+    volume_delta_db: +5
     rms_target_dbfs: -29
   5:
     style: "General"
-    rate_multiplier: 1.20
-    pitch_delta_st: -1
-    volume_delta_db: +5
+    rate_multiplier: 1.08           # M15: female Shouting rate; panic
+    pitch_delta_st: +5              # M15: female pitch +4% to +10%
+    volume_delta_db: +7
     rms_target_dbfs: -30
 
 disfluency:

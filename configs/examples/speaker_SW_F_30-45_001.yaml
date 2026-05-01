@@ -20,33 +20,33 @@ prosody_baseline:
 style_map:
   1:                                # Routine intake — calm, professional
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: -4              # M2a: lower baseline F0; prevents child-voice range at higher intensities
+    rate_multiplier: 0.97           # M15: female Calm rate -6% to +2%
+    pitch_delta_st: -2              # M15: female pitch -3% to +2%; professional baseline
     volume_delta_db: 0
     rms_target_dbfs: -26            # M3: professional baseline level
   2:                                # Slight tension — still professional, firmer tone
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: -3
-    volume_delta_db: +1
+    rate_multiplier: 1.0            # M15: female Neutral rate 0% to +4%
+    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    volume_delta_db: 0
     rms_target_dbfs: -27            # M3: slightly quieter (controlled de-escalation posture)
   3:                                # Conflict — de-escalation attempt, controlled stress
     style: "General"
-    rate_multiplier: 0.95           # Slows down deliberately (de-escalation technique)
-    pitch_delta_st: -3
-    volume_delta_db: +2
+    rate_multiplier: 0.95           # M15: female Irritation rate; SW slows deliberately
+    pitch_delta_st: +1              # M15: female pitch 0% to +5%
+    volume_delta_db: +3
     rms_target_dbfs: -28            # M3: quieter still (deliberate lowering of voice)
-  4:                                # Escalated — fear breaking through; pitch capped to avoid child-voice range
-    style: "sad"
-    rate_multiplier: 1.05
-    pitch_delta_st: -2              # M2a: cap pitch escalation; additional distress via rate/timing
-    volume_delta_db: +4
+  4:                                # Escalated — fear breaking through
+    style: "General"
+    rate_multiplier: 0.98           # M15: female Anger rate; SW tries to stay controlled
+    pitch_delta_st: +3              # M15: female pitch +2% to +7%; fear raises pitch
+    volume_delta_db: +5
     rms_target_dbfs: -29            # M3: fear suppresses volume further
   5:                                # Attack — panic, screaming for help
-    style: "sad"
-    rate_multiplier: 1.20
-    pitch_delta_st: -1              # M2a: hard cap
-    volume_delta_db: +5
+    style: "General"
+    rate_multiplier: 1.08           # M15: female Shouting rate; panic
+    pitch_delta_st: +5              # M15: female pitch +4% to +10%
+    volume_delta_db: +7
     rms_target_dbfs: -30            # M3: panic cry often perceived quieter than aggressor
 
 disfluency:

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.provider import TTSProvider
+from synthbanshee.tts.quality_gates import run_quality_gates
 from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody
@@ -303,9 +304,24 @@ class TTSRenderer:
                 speaker_state=state,
                 phrase_prosody=phrases if phrases else None,
             )
+            # M15: run turn-level quality gates on the rendered audio.
+            gate_result = run_quality_gates(wav_bytes, speaker.gender)
+            if not gate_result.passed and verbose_log is not None:
+                verbose_log(
+                    f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
+                    f" [{turn.speaker_id}] quality gate FAILED:"
+                    f" {gate_result.gate_name}: {gate_result.detail}[/yellow]"
+                )
             # Update state after rendering so the first turn always uses neutral
             # state and drift accumulates from the second turn onward.
             state.update(turn.intensity, speaker.role)
+            # M15: warn if accumulated F0 drift exceeds the 2.0 st bound.
+            if state.f0_drift_exceeded and verbose_log is not None:
+                verbose_log(
+                    f"  [yellow]turn {i + 1:02d}/{len(turns):02d}"
+                    f" [{turn.speaker_id}] F0 drift {state.pitch_offset_st:.2f} st"
+                    f" exceeds ±{state.__class__.__name__} bound[/yellow]"
+                )
             if verbose_log is not None:
                 status = "cache hit" if hit else "rendered"
                 verbose_log(
