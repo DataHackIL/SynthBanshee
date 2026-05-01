@@ -49,12 +49,19 @@ class TestGenerationMetadata:
         assert gm.prosody_controller_version is None
         assert gm.timing_controller_version is None
         assert gm.breathiness_applied is False
-        assert gm.mix_mode_used == "SEQUENTIAL"
+        assert gm.mix_mode_used == "sequential"
         assert gm.normalization_strategy == "per_turn_rms_v1"
         assert gm.speaker_state_serialized == {}
 
     def test_full_construction(self) -> None:
-        states = {"spk_a": {"rate_offset": 0.05, "pitch_offset": 1.2, "volume_offset": 3.0}}
+        states = {
+            "spk_a": {
+                "rate_offset": 1.05,
+                "pitch_offset_st": 1.2,
+                "volume_offset_db": 3.0,
+                "breathiness_level": 0.0,
+            }
+        }
         gm = GenerationMetadata(
             pipeline_version="v3.0",
             tts_backend={"spk_a": "google", "spk_b": "azure"},
@@ -62,14 +69,14 @@ class TestGenerationMetadata:
             text_normalization_version="1.0",
             prosody_controller_version="1.0",
             timing_controller_version="1.0",
-            mix_mode_used="OVERLAP",
+            mix_mode_used="overlap",
             normalization_strategy="per_turn_rms_v1",
             breathiness_applied=True,
             speaker_state_serialized=states,
         )
         assert gm.tts_backend == {"spk_a": "google", "spk_b": "azure"}
         assert gm.breathiness_applied is True
-        assert gm.speaker_state_serialized["spk_a"]["pitch_offset"] == 1.2
+        assert gm.speaker_state_serialized["spk_a"]["pitch_offset_st"] == 1.2
 
     def test_per_speaker_backend_and_voice(self) -> None:
         """Per-speaker maps capture mixed-provider scenes (M9a)."""
@@ -153,13 +160,13 @@ class TestClipMetadataWithGenerationMetadata:
         assert "generation_metadata" in output
         assert output["generation_metadata"]["pipeline_version"] == "v3.0"
 
-    def test_json_output_omits_generation_metadata_when_none(self) -> None:
+    def test_generation_metadata_null_when_not_provided(self) -> None:
+        """When generation_metadata is not set, the key serializes as null."""
         data = _minimal_clip_metadata()
         cm = ClipMetadata.model_validate(data)
         output = json.loads(cm.model_dump_json())
-        # When None, the key should still appear in the output (Pydantic default)
-        # but the value should be null — backward compat is about parsing, not omission.
-        assert output.get("generation_metadata") is None
+        assert "generation_metadata" in output
+        assert output["generation_metadata"] is None
 
 
 class TestMixedSceneMixModes:
@@ -192,12 +199,12 @@ class TestMixedSceneMixModes:
     def test_dominant_mix_mode_from_counter(self) -> None:
         """Counter.most_common gives deterministic dominant mode."""
         modes = ["sequential", "overlap", "sequential", "barge_in"]
-        dominant = Counter(modes).most_common(1)[0][0].upper()
-        assert dominant == "SEQUENTIAL"
+        dominant = Counter(modes).most_common(1)[0][0]
+        assert dominant == "sequential"
 
         modes2 = ["overlap", "overlap", "barge_in"]
-        dominant2 = Counter(modes2).most_common(1)[0][0].upper()
-        assert dominant2 == "OVERLAP"
+        dominant2 = Counter(modes2).most_common(1)[0][0]
+        assert dominant2 == "overlap"
 
 
 class TestGenerateClipMetadataWithGenMeta:
@@ -221,7 +228,7 @@ class TestGenerateClipMetadataWithGenMeta:
             pipeline_version="v3.0",
             tts_backend={"spk_a": "azure"},
             voice_family={"spk_a": "he-IL-AvriNeural"},
-            mix_mode_used="OVERLAP",
+            mix_mode_used="overlap",
         )
         metadata = gen.generate_clip_metadata(
             clip_id="test_00",
@@ -234,7 +241,7 @@ class TestGenerateClipMetadataWithGenMeta:
         )
         assert metadata.generation_metadata is not None
         assert metadata.generation_metadata.pipeline_version == "v3.0"
-        assert metadata.generation_metadata.mix_mode_used == "OVERLAP"
+        assert metadata.generation_metadata.mix_mode_used == "overlap"
         assert metadata.generation_metadata.tts_backend == {"spk_a": "azure"}
 
     def test_none_by_default(self) -> None:

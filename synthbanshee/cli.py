@@ -558,7 +558,7 @@ def _run_generate_pipeline(
     # Dominant mix mode from actual mixer output.
     if mixed.mix_modes:
         _mode_counts = Counter(mixed.mix_modes)
-        _dominant_mix_mode = _mode_counts.most_common(1)[0][0].upper()
+        _dominant_mix_mode = _mode_counts.most_common(1)[0][0]
     else:
         _dominant_mix_mode = "SEQUENTIAL"
 

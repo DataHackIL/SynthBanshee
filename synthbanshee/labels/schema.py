@@ -139,7 +139,7 @@ class GenerationMetadata(BaseModel):
     text_normalization_version: str | None = None
     prosody_controller_version: str | None = None
     timing_controller_version: str | None = None
-    mix_mode_used: str = "SEQUENTIAL"
+    mix_mode_used: str = "sequential"
     normalization_strategy: str = "per_turn_rms_v1"
     breathiness_applied: bool = False
     speaker_state_serialized: dict[str, dict[str, float]] = Field(default_factory=dict)
