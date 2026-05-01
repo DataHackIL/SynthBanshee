@@ -46,11 +46,11 @@ All P0–P2 work is tracked here. Milestones that span multiple PRs are listed o
 | **M9b** | P2 | ✅ Done | ≥ 3 voice variants per gender across dataset | ≥ 4 additional speaker YAMLs in `configs/speakers/` (≥ 2 male, ≥ 2 female, including ≥ 1 Google variant per gender); update scene configs to distribute speaker IDs across scenes; `voice_family` column in manifest CSV; `generate-batch` distributes across voice variants | Small | No |
 | **M10a** | P2 | ✅ Done | Catches clip-level prosody regressions | Extend `qa.py` with per-clip acoustic metrics: F0 median/std by speaker by intensity (librosa pyin), RMS and LUFS by turn (pyloudnorm); per-clip warning flags: `vic_f0_high`, `agg_no_escalation`; `SegmentMeasurement` NamedTuple for typed `_measure_segment` return | Medium | No |
 | **M10b** | P2 | ✅ Done | Catches systematic run-level biases | Run-level aggregation in `QAReport`: F0/RMS/LUFS distributions by role/typology/project; voice and backend diversity counts; `mix_mode` distribution; outlier clips; `qa-report --run-summary` CLI table; `WARN_NO_OVERLAP` and `WARN_EMOTION_DOWNGRADE` run-level flags | Medium | No |
-| **M11** | P2 | 🔲 Not started | Enables ablation studies and debugging across pipeline versions | `GenerationMetadata` dataclass (§4.11); written to `{clip_id}.json` under `generation_metadata` key; backward-compatible — existing V1 clips not invalidated | Small | No |
+| **M11** | P2 | ✅ Done | Enables ablation studies and debugging across pipeline versions | `GenerationMetadata` Pydantic `BaseModel` (§4.11); written to `{clip_id}.json` under `generation_metadata` key; backward-compatible — existing V1 clips not invalidated | Small | No |
 | **M12** | P2 | 🧪 Experimental | Reduces VIC HNR at I3–I5 if listening-test gate passes | `add_breathiness()` in `synthbanshee/augment/voice_texture.py`; wire for VIC turns via `SpeakerState.breathiness_level`; listening-test gate — 20 clips, native Hebrew listener, blind A/B (§8.3); `breathiness_applied` flag in `GenerationMetadata`; disabled by default if gate fails | Medium | No |
-| **M13** | P2 | 🔲 Not started | She-Proves / Elephant generate audio appropriate to their distinct acoustic regimes | `project_profile` field in `RunConfig`; gap, overlap probability, loudness targets, preprocessing config, and augmentation config all carry project-specific defaults; two profile YAML files in `configs/run_configs/`; new profiles addable without code changes | Small | No |
+| **M13** | P2 | ✅ Done | She-Proves / Elephant generate audio appropriate to their distinct acoustic regimes | `project_profile` field in `RunConfig`; gap, overlap probability, loudness targets, preprocessing config, and augmentation config all carry project-specific defaults; two profile YAML files in `configs/run_configs/`; new profiles addable without code changes | Small | No |
 | **M14** | P0 | ✅ Done | Fixes muffled audio, click artifacts, and voice identity shifts | Replace 7.5 kHz LPF with 80 Hz HPF in `preprocessing.py`; default `wiener_denoise=False` in `PreprocessingConfig`; add 10ms (160 sample) edge fades at turn boundaries in `mixer.py`; set `supports_style_tags=False` in `AzureProvider` capabilities (disables `express-as` for he-IL voices); update unit tests | Small | No |
-| **M15** | P1 | 🔲 Not started | Tunes SSML prosody to research-validated Hebrew parameters | Update `style_map` values in speaker YAMLs per research consensus table (rate, pitch, volume, F0 range by intensity); update `SpeakerState` drift bounds (max 2.0 st unexplained drift); add turn-level quality gates: sustained-vowel detection (>2.8 s reject), F0 guardrails (male [80,180] Hz, female [150,290] Hz), click detection | Medium | No |
+| **M15** | P1 | ✅ Done | Tunes SSML prosody to research-validated Hebrew parameters | Update `style_map` values in speaker YAMLs per research consensus table (rate, pitch, volume, F0 range by intensity); update `SpeakerState` drift bounds (max 2.0 st unexplained drift); add turn-level quality gates: sustained-vowel detection (>2.8 s reject), F0 guardrails (male [80,180] Hz, female [150,290] Hz), click detection | Medium | No |
 | **M16** | P2 | 🔲 Not started | Adds realistic acoustic environments to Tier B clips | Implement `room_sim.py` with pyroomacoustics (RT60 0.25–0.7 s, shoebox rooms, phone-on-table early reflection model); implement `device_profiles.py` (phone EQ: 80 Hz HPF, presence boost +2–4 dB @ 2.5–3.5 kHz, gentle high shelf above 6.5 kHz); implement `noise_mixer.py` (SNR distribution: 50% 18–30 dB, 30% 10–18 dB, 10% 5–10 dB, 10% 30–40 dB); optional codec simulation (Opus/AMR-NB) | Large | No |
 
 ---
@@ -72,7 +72,7 @@ The scripts, label taxonomy, pipeline stage decomposition, and cache system are 
 - **P1 (realism core):** Add stateful conversational dynamics; preserve escalation cues
 - **P2 (diversity and observability):** Widen voice diversity; harden QA; add release gates
 
-**V3.1 additions (2026-04-30, post-research):** Three new milestones (M14–M16) based on cross-referenced findings from three independent research reports on Hebrew synthetic speech naturalness (Gemini, GPT-5.2 thinking, GPT-5.5 Pro). See `wiki/topics/research-synthesis.md` for full parameter tables and citations. Recommended order: M14 → M11 → M15 → M13 → M16 → M12.
+**V3.1 additions (2026-04-30, post-research):** Three new milestones (M14–M16) based on cross-referenced findings from three independent research reports on Hebrew synthetic speech naturalness (Gemini, GPT-5.2 thinking, GPT-5.5 Pro). See `wiki/topics/research-synthesis.md` for full parameter tables and citations. Original recommended order: M14 → M11 → M15 → M13 → M16 → M12. As of 2026-05-01, M14, M11, M15, and M13 are all merged; remaining: M16 (Tier B augmentation) and M12 (breathiness, gated).
 
 ---
 
@@ -612,7 +612,7 @@ Per-clip warning flags:
 #### M11: Dataset Provenance Metadata
 **Impact:** Enables ablation studies and debugging across pipeline versions.
 **Scope:**
-- `GenerationMetadata` dataclass (§4.11)
+- `GenerationMetadata` Pydantic `BaseModel` (§4.11)
 - Write to `{clip_id}.json` under `generation_metadata` key
 - Backward compatible (existing V1 clips are not invalidated)
 

@@ -4,13 +4,11 @@ kind: topic
 title: Preprocessing Pipeline — Filters, Denoising, and Audio Quality Impact
 page_id: topic-preprocessing-pipeline
 status: active
-review_state: human-authored
+review_state: human-reviewed
 source_refs:
   - src-5184b8f4c65ccf204f748e694ad677f7ae3792c2e91a861e636ede81b7ba3c1f
   - src-42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89
 tags: [preprocessing, audio, filter, denoiser, muffled, quality]
-created: '2026-04-30'
-updated: '2026-04-30'
 ---
 
 # Preprocessing Pipeline — Filters, Denoising, and Audio Quality Impact

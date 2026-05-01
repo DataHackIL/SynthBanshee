@@ -4,14 +4,12 @@ kind: topic
 title: Research Synthesis — Cross-Referenced Findings from Three Independent Reports
 page_id: topic-research-synthesis
 status: active
-review_state: human-authored
+review_state: human-reviewed
 source_refs:
   - src-d7392e10f92c3d658171300d2475c96103de715667bc17b429910da9ba8cea40
   - src-0032ce484cf3a12b55535ba22c39eba309352f6564765fe5f6c2c87431294996
   - src-5539b824c2a485f676fe6097f25b5de407229f8c05d3632e58860a815bb28963
 tags: [research, synthesis, tts, prosody, preprocessing, room-acoustics, quality-gates]
-created: '2026-04-30'
-updated: '2026-04-30'
 ---
 
 # Research Synthesis — Cross-Referenced Findings

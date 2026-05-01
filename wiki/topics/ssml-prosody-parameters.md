@@ -4,14 +4,12 @@ kind: topic
 title: SSML Prosody Parameters — Current Settings and Tuning
 page_id: topic-ssml-prosody-params
 status: active
-review_state: human-authored
+review_state: human-reviewed
 source_refs:
   - src-3d18f514d3e6bae4424eb2a3a8ff318976d5d5834a19fe6ddc16e9e8e6baebc4
   - src-bdb2f9f939e8892e2c60a517264027e1e7b86c33cfce2f41015c8f0a90c463eb
   - src-42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89
 tags: [ssml, prosody, tts, azure, pitch, rate, volume]
-created: '2026-04-30'
-updated: '2026-04-30'
 ---
 
 # SSML Prosody Parameters — Current Settings and Tuning
