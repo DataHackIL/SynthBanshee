@@ -237,6 +237,64 @@ class TestSpeakerConfig:
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         assert cfg.voice_family == "he-IL-AvriNeural"
 
+    def test_google_provider_non_general_style_warns(self):
+        """Google TTS speaker with non-General style emits a UserWarning."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            SpeakerConfig(
+                speaker_id="AGG_M_30-45_099",
+                role="AGG",
+                gender="male",
+                age_range="30-45",
+                context="she_proves",
+                tts_voice_id="he-IL-Chirp3-HD",
+                tts_provider="google",
+                style_map={1: {"style": "angry"}},
+            )
+        matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
+        assert len(matched) == 1
+        assert "angry" in str(matched[0].message)
+
+    def test_google_provider_general_style_no_warning(self):
+        """Google TTS speaker with 'General' style does not warn."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            SpeakerConfig(
+                speaker_id="AGG_M_30-45_099",
+                role="AGG",
+                gender="male",
+                age_range="30-45",
+                context="she_proves",
+                tts_voice_id="he-IL-Chirp3-HD",
+                tts_provider="google",
+                style_map={1: {"style": "General"}},
+            )
+        matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
+        assert len(matched) == 0
+
+    def test_azure_provider_non_general_style_no_warning(self):
+        """Azure TTS speaker with non-General style does not warn."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            SpeakerConfig(
+                speaker_id="AGG_M_30-45_099",
+                role="AGG",
+                gender="male",
+                age_range="30-45",
+                context="she_proves",
+                tts_voice_id="he-IL-AvriNeural",
+                tts_provider="azure",
+                style_map={1: {"style": "angry"}},
+            )
+        matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
+        assert len(matched) == 0
+
     def test_round_trip_serialization(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         data = cfg.model_dump()
