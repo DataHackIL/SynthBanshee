@@ -24,33 +24,33 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 1.0
+    rate_multiplier: 1.0            # M15: consensus Calm [-6%,+2%]; variant: upper (fast talker)
     pitch_delta_st: 0
     volume_delta_db: 0
     rms_target_dbfs: -28
   2:
     style: "General"
-    rate_multiplier: 1.05
+    rate_multiplier: 1.03           # M15: consensus Neutral [0%,+4%]; variant: upper-mid
     pitch_delta_st: 0
-    volume_delta_db: +2
+    volume_delta_db: 0
     rms_target_dbfs: -25
   3:
-    style: "angry"
-    rate_multiplier: 1.18
-    pitch_delta_st: 0
-    volume_delta_db: +5
+    style: "General"
+    rate_multiplier: 1.08           # M15: consensus Irritation [+2%,+8%]; variant: upper
+    pitch_delta_st: +1
+    volume_delta_db: +3
     rms_target_dbfs: -22
   4:
-    style: "angry"
-    rate_multiplier: 1.25
-    pitch_delta_st: +1
+    style: "General"
+    rate_multiplier: 1.12           # M15: consensus Anger [+4%,+12%]; variant: upper
+    pitch_delta_st: +2
     volume_delta_db: +9
     rms_target_dbfs: -19
   5:
-    style: "angry"
-    rate_multiplier: 1.35
-    pitch_delta_st: +1
-    volume_delta_db: +13
+    style: "General"
+    rate_multiplier: 1.15           # M15: consensus Shouting [+8%,+15%]; variant: upper
+    pitch_delta_st: +3              # M15: male pitch upper bound
+    volume_delta_db: +14
     rms_target_dbfs: -15
 
 disfluency:

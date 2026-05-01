@@ -52,6 +52,11 @@ _DRIFT_RATE_ESCALATE: float = 0.60
 # Fraction closed per turn when intensity drops (decay).
 _DRIFT_RATE_DECAY: float = 0.30
 
+# M15: Maximum unexplained F0 drift (semitones) across a clip.
+# Research consensus (wiki/topics/research-synthesis.md line 76):
+# reject if accumulated pitch drift exceeds this bound.
+MAX_F0_DRIFT_ST: float = 2.0
+
 
 def _target_for(role: str, intensity: int) -> tuple[float, float, float]:
     """Return the target offsets for *role* at *intensity* (clamped to 1–5)."""
@@ -115,6 +120,16 @@ class SpeakerState:
         self.rate_offset += drift * (t_rate - self.rate_offset)
         self.pitch_offset_st += drift * (t_pitch - self.pitch_offset_st)
         self.volume_offset_db += drift * (t_vol - self.volume_offset_db)
+
+    @property
+    def f0_drift_exceeded(self) -> bool:
+        """Return True if accumulated pitch drift exceeds the M15 bound.
+
+        The bound (``MAX_F0_DRIFT_ST``) limits unexplained F0 drift to 2.0
+        semitones across a clip, as recommended by the research synthesis
+        (wiki/topics/research-synthesis.md line 76).
+        """
+        return abs(self.pitch_offset_st) > MAX_F0_DRIFT_ST
 
     def to_metadata_dict(self) -> dict[str, float]:
         """Serialize current state for per-turn generation metadata (prep for M11).

@@ -23,33 +23,33 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 0.95
-    pitch_delta_st: -4
+    rate_multiplier: 0.96           # M15: consensus Calm [-6%,+2%]; variant: hesitant
+    pitch_delta_st: -2              # M15: female pitch -3% to +2%
     volume_delta_db: 0
     rms_target_dbfs: -26
   2:
     style: "General"
-    rate_multiplier: 0.98
-    pitch_delta_st: -3
-    volume_delta_db: -1
+    rate_multiplier: 0.97           # M15: consensus Neutral [0%,+4%]; variant: guarded
+    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    volume_delta_db: 0
     rms_target_dbfs: -27
   3:
-    style: "sad"
-    rate_multiplier: 1.0
-    pitch_delta_st: -2
-    volume_delta_db: -2
+    style: "General"
+    rate_multiplier: 0.93           # M15: consensus Irritation; variant: slow
+    pitch_delta_st: +2              # M15: female pitch 0% to +5%
+    volume_delta_db: +3
     rms_target_dbfs: -28
   4:
-    style: "sad"
-    rate_multiplier: 1.05
-    pitch_delta_st: -1
-    volume_delta_db: -3
+    style: "General"
+    rate_multiplier: 0.94           # M15: consensus Anger; variant: slow pleading
+    pitch_delta_st: +4              # M15: female pitch +2% to +7%
+    volume_delta_db: +5
     rms_target_dbfs: -29
   5:
-    style: "sad"
-    rate_multiplier: 1.10
-    pitch_delta_st: -1
-    volume_delta_db: -4
+    style: "General"
+    rate_multiplier: 1.06           # M15: consensus Shouting; variant: panic
+    pitch_delta_st: +6              # M15: female pitch +4% to +10%
+    volume_delta_db: +7
     rms_target_dbfs: -30
 
 disfluency:

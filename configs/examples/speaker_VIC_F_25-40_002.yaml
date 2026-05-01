@@ -19,34 +19,34 @@ prosody_baseline:
 style_map:
   1:
     style: "General"
-    rate_multiplier: 1.0
-    pitch_delta_st: -4              # M2a: lower baseline F0; prevents child-voice range at higher intensities
+    rate_multiplier: 0.95           # M15: consensus Calm [-6%,+2%]; variant: hesitant
+    pitch_delta_st: -2              # M15: female pitch -3% to +2%
     volume_delta_db: 0
     rms_target_dbfs: -26            # M3: baseline level (slightly quieter than AGG)
   2:                                # Tension — careful, watchful; slight vocal strain
     style: "General"
-    rate_multiplier: 0.95
-    pitch_delta_st: -3
-    volume_delta_db: +1
+    rate_multiplier: 0.96           # M15: consensus Neutral [0%,+4%]; variant: guarded
+    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    volume_delta_db: 0
     rms_target_dbfs: -27            # M3: voice drops slightly (guarded/hushed)
   3:                                # Conflict — defensive, shaking voice
-    style: "sad"                    # Azure "sad" approximates fear/distress for he-IL
-    rate_multiplier: 0.90
-    pitch_delta_st: -3
-    volume_delta_db: +2
+    style: "General"
+    rate_multiplier: 0.94           # M15: consensus Irritation; variant: very slow
+    pitch_delta_st: +2              # M15: female pitch 0% to +5%; tension
+    volume_delta_db: +3
     rms_target_dbfs: -28            # M3: still dropping (victim shrinks under pressure)
-  4:                                # Escalated — pleading, distress; pitch capped to avoid child-voice range
-    style: "sad"
-    rate_multiplier: 0.88
-    pitch_delta_st: -2              # M2a: cap pitch escalation; additional distress via rate/timing
-    volume_delta_db: +4
+  4:                                # Escalated — pleading, distress
+    style: "General"
+    rate_multiplier: 0.93           # M15: consensus Anger; variant: slow pleading
+    pitch_delta_st: +4              # M15: female pitch +2% to +7%; distress
+    volume_delta_db: +5
     rms_target_dbfs: -29            # M3: near-whisper pleading
   5:                                # Extreme — panic, screaming or sobbing
-    style: "sad"
-    rate_multiplier: 1.10           # Can speed up under panic
-    pitch_delta_st: -1              # M2a: hard cap; distress from rate instability, not further pitch rise
-    volume_delta_db: +5
-    rms_target_dbfs: -30            # M3: sobbing/panic often sounds quieter than shouting (mic overload avoided)
+    style: "General"
+    rate_multiplier: 1.04           # M15: consensus Shouting; variant: panic speeds up
+    pitch_delta_st: +6              # M15: female pitch +4% to +10%
+    volume_delta_db: +7
+    rms_target_dbfs: -30            # M3: sobbing/panic often sounds quieter than shouting
 
 disfluency:
   filled_pause_prob: 0.08           # Higher — victim is more hesitant, searches for words

@@ -162,12 +162,12 @@ class TestSpeakerConfig:
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         assert 1 in cfg.style_map
         assert 5 in cfg.style_map
-        assert cfg.style_map[5].style == "angry"
+        assert cfg.style_map[5].style == "General"
 
     def test_style_for_intensity_exact(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         entry = cfg.style_for_intensity(3)
-        assert entry.style == "angry"
+        assert entry.style == "General"
 
     def test_style_for_intensity_fallback(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")

@@ -7,6 +7,7 @@ import pytest
 from synthbanshee.tts.speaker_state import (
     _DRIFT_RATE_DECAY,
     _DRIFT_RATE_ESCALATE,
+    MAX_F0_DRIFT_ST,
     SpeakerState,
     _target_for,
 )
@@ -264,3 +265,45 @@ class TestNeutralRole:
         assert s.rate_offset == pytest.approx(1.0)
         assert s.pitch_offset_st == pytest.approx(0.0)
         assert s.volume_offset_db == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# M15: F0 drift bound
+# ---------------------------------------------------------------------------
+
+
+class TestF0DriftBound:
+    def test_max_f0_drift_is_two_semitones(self) -> None:
+        assert MAX_F0_DRIFT_ST == 2.0
+
+    def test_neutral_state_not_exceeded(self) -> None:
+        assert not SpeakerState().f0_drift_exceeded
+
+    def test_small_drift_not_exceeded(self) -> None:
+        s = SpeakerState()
+        s.pitch_offset_st = 1.5
+        assert not s.f0_drift_exceeded
+
+    def test_exactly_at_bound_not_exceeded(self) -> None:
+        s = SpeakerState()
+        s.pitch_offset_st = 2.0
+        assert not s.f0_drift_exceeded
+
+    def test_above_bound_exceeded(self) -> None:
+        s = SpeakerState()
+        s.pitch_offset_st = 2.1
+        assert s.f0_drift_exceeded
+
+    def test_negative_drift_exceeded(self) -> None:
+        s = SpeakerState()
+        s.pitch_offset_st = -2.5
+        assert s.f0_drift_exceeded
+
+    def test_agg_sustained_i5_stays_within_bound(self) -> None:
+        """AGG at I5 asymptotically approaches but never exceeds 2.0 st target."""
+        s = SpeakerState()
+        for _ in range(20):
+            s.update(5, "AGG")
+        # AGG I5 target is exactly 2.0 st; drift converges toward it but
+        # never overshoots (exponential decay toward target).
+        assert s.pitch_offset_st <= MAX_F0_DRIFT_ST + 0.01
