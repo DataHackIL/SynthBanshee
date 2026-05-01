@@ -83,7 +83,7 @@ class SpeakerConfig(BaseModel):
 
     @model_validator(mode="after")
     def google_style_warning(self) -> SpeakerConfig:
-        """Warn when Google TTS speaker uses styles that only Azure supports."""
+        """Warn when Google TTS speaker uses styles this backend cannot render."""
         if self.tts_provider == "google":
             offending = [
                 (level, entry.style)
@@ -95,7 +95,7 @@ class SpeakerConfig(BaseModel):
                 warnings.warn(
                     f"Speaker {self.speaker_id}: {details} — "
                     "has no effect with Google TTS "
-                    "(only Azure supports express-as)",
+                    "(this backend does not support mstts:express-as style tags)",
                     UserWarning,
                     stacklevel=1,
                 )
