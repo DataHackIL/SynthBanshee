@@ -544,6 +544,48 @@ def _run_generate_pipeline(
         silence_padded=True,
     )
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
+
+    # M11: Build GenerationMetadata for pipeline provenance.
+    from collections import Counter
+
+    from synthbanshee import __version__
+    from synthbanshee.labels.schema import GenerationMetadata
+
+    # Per-speaker TTS backend and voice family.
+    _backends_map: dict[str, str] = {sid: spk.tts_provider for sid, spk in speakers.items()}
+    _voices_map = {sid: spk.voice_family or spk.tts_voice_id for sid, spk in speakers.items()}
+
+    # Dominant mix mode from actual mixer output.
+    if mixed.mix_modes:
+        _mode_counts = Counter(mixed.mix_modes)
+        _dominant_mix_mode = _mode_counts.most_common(1)[0][0]
+    else:
+        _dominant_mix_mode = "SEQUENTIAL"
+
+    # Final speaker state: capture post-last-update state by replaying
+    # the last turn's update on top of the pre-render snapshot.
+    # speaker_state_snapshot is captured *before* update() in the renderer,
+    # so it reflects the state going into the last turn, not the state after.
+    # We need the post-update state for provenance; use the SpeakerState
+    # objects still alive in the renderer — but they're local to render_scene().
+    # Instead, collect the last snapshot per speaker and note it represents
+    # the pre-render state of the final turn (the best we have without
+    # a renderer API change).
+    _speaker_states: dict[str, dict[str, float]] = {}
+    for turn in reversed(turns):
+        if turn.speaker_id not in _speaker_states and turn.speaker_state_snapshot:
+            _speaker_states[turn.speaker_id] = turn.speaker_state_snapshot
+
+    gen_meta = GenerationMetadata(
+        pipeline_version=__version__,
+        tts_backend=_backends_map,
+        voice_family=_voices_map,
+        mix_mode_used=_dominant_mix_mode,
+        normalization_strategy="per_turn_rms_v1",
+        breathiness_applied=False,
+        speaker_state_serialized=_speaker_states,
+    )
+
     metadata = label_gen.generate_clip_metadata(
         clip_id=f"{clip_id}_00",
         project=scene.project,
@@ -559,6 +601,7 @@ def _run_generate_pipeline(
         transcript_path=str(clip_txt),
         acoustic_scene=acoustic_scene_meta,
         quality_flags=quality_flags,
+        generation_metadata=gen_meta,
     )
     label_gen.write_clip_metadata_json(metadata, clip_json)
 
