@@ -124,7 +124,10 @@ def check_sustained_vowel(samples: np.ndarray, sr: int) -> GateResult:
             current_run = 0
     max_voiced_frames = max(max_voiced_frames, current_run)
 
-    max_duration_s = max_voiced_frames * (hop / sr)
+    # Duration = first frame length + (N-1) hops (frames overlap by frame_len - hop).
+    max_duration_s = (
+        (frame_len + (max_voiced_frames - 1) * hop) / sr if max_voiced_frames > 0 else 0.0
+    )
     if max_duration_s > MAX_SUSTAINED_VOICED_S:
         return GateResult(
             passed=False,

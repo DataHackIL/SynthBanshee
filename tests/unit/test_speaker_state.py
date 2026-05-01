@@ -299,12 +299,11 @@ class TestF0DriftBound:
         s.pitch_offset_st = -2.5
         assert s.f0_drift_exceeded
 
-    def test_agg_sustained_i5_may_exceed(self) -> None:
-        """AGG at I5 for many turns can exceed the 2.0 st bound."""
+    def test_agg_sustained_i5_stays_within_bound(self) -> None:
+        """AGG at I5 asymptotically approaches but never exceeds 2.0 st target."""
         s = SpeakerState()
         for _ in range(20):
             s.update(5, "AGG")
-        # AGG I5 target is 2.0 st; asymptotically approaches it
-        # After many turns it should be very close to 2.0 but not necessarily over
-        # (depends on drift rate math)
+        # AGG I5 target is exactly 2.0 st; drift converges toward it but
+        # never overshoots (exponential decay toward target).
         assert s.pitch_offset_st <= MAX_F0_DRIFT_ST + 0.01
