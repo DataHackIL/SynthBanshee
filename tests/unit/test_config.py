@@ -237,8 +237,47 @@ class TestSpeakerConfig:
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
         assert cfg.voice_family == "he-IL-AvriNeural"
 
-    def test_google_provider_non_general_style_warns(self):
-        """Google TTS speaker with non-General style emits a UserWarning."""
+    @pytest.mark.parametrize(
+        ("provider", "voice_id", "style_map", "expect_warning", "expected_fragments"),
+        [
+            pytest.param(
+                "google",
+                "he-IL-Chirp3-HD",
+                {1: {"style": "angry"}},
+                True,
+                ["angry", "intensity 1"],
+                id="google-non-general-warns",
+            ),
+            pytest.param(
+                "google",
+                "he-IL-Chirp3-HD",
+                {1: {"style": "General"}},
+                False,
+                [],
+                id="google-general-no-warn",
+            ),
+            pytest.param(
+                "azure",
+                "he-IL-AvriNeural",
+                {1: {"style": "angry"}},
+                False,
+                [],
+                id="azure-non-general-no-warn",
+            ),
+            pytest.param(
+                "google",
+                "he-IL-Chirp3-HD",
+                {1: {"style": "angry"}, 3: {"style": "sad"}},
+                True,
+                ["angry", "sad", "intensity 1", "intensity 3"],
+                id="google-multi-style-single-warning",
+            ),
+        ],
+    )
+    def test_google_style_warning(
+        self, provider, voice_id, style_map, expect_warning, expected_fragments
+    ):
+        """Google TTS speakers with non-General styles warn; Azure and General do not."""
         import warnings
 
         with warnings.catch_warnings(record=True) as w:
@@ -249,51 +288,18 @@ class TestSpeakerConfig:
                 gender="male",
                 age_range="30-45",
                 context="she_proves",
-                tts_voice_id="he-IL-Chirp3-HD",
-                tts_provider="google",
-                style_map={1: {"style": "angry"}},
+                tts_voice_id=voice_id,
+                tts_provider=provider,
+                style_map=style_map,
             )
         matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
-        assert len(matched) == 1
-        assert "angry" in str(matched[0].message)
-
-    def test_google_provider_general_style_no_warning(self):
-        """Google TTS speaker with 'General' style does not warn."""
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            SpeakerConfig(
-                speaker_id="AGG_M_30-45_099",
-                role="AGG",
-                gender="male",
-                age_range="30-45",
-                context="she_proves",
-                tts_voice_id="he-IL-Chirp3-HD",
-                tts_provider="google",
-                style_map={1: {"style": "General"}},
-            )
-        matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
-        assert len(matched) == 0
-
-    def test_azure_provider_non_general_style_no_warning(self):
-        """Azure TTS speaker with non-General style does not warn."""
-        import warnings
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            SpeakerConfig(
-                speaker_id="AGG_M_30-45_099",
-                role="AGG",
-                gender="male",
-                age_range="30-45",
-                context="she_proves",
-                tts_voice_id="he-IL-AvriNeural",
-                tts_provider="azure",
-                style_map={1: {"style": "angry"}},
-            )
-        matched = [x for x in w if "has no effect with Google TTS" in str(x.message)]
-        assert len(matched) == 0
+        if expect_warning:
+            assert len(matched) == 1, f"Expected 1 warning, got {len(matched)}"
+            msg = str(matched[0].message)
+            for fragment in expected_fragments:
+                assert fragment in msg, f"Expected {fragment!r} in warning: {msg}"
+        else:
+            assert len(matched) == 0, f"Expected no warning, got {matched}"
 
     def test_round_trip_serialization(self):
         cfg = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")

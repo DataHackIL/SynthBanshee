@@ -85,15 +85,20 @@ class SpeakerConfig(BaseModel):
     def google_style_warning(self) -> SpeakerConfig:
         """Warn when Google TTS speaker uses styles that only Azure supports."""
         if self.tts_provider == "google":
-            for level, entry in self.style_map.items():
-                if entry.style.lower() not in ("general", ""):
-                    warnings.warn(
-                        f"Speaker {self.speaker_id}: style '{entry.style}' at intensity "
-                        f"{level} has no effect with Google TTS "
-                        "(only Azure supports express-as)",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+            offending = [
+                (level, entry.style)
+                for level, entry in self.style_map.items()
+                if entry.style.lower() not in ("general", "")
+            ]
+            if offending:
+                details = ", ".join(f"'{style}' at intensity {lvl}" for lvl, style in offending)
+                warnings.warn(
+                    f"Speaker {self.speaker_id}: {details} — "
+                    "has no effect with Google TTS "
+                    "(only Azure supports express-as)",
+                    UserWarning,
+                    stacklevel=1,
+                )
         return self
 
     @model_validator(mode="after")
