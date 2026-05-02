@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from synthbanshee.config.project_profile import ProjectProfile
+    from synthbanshee.config.scene_config import SceneConfig
 
 import click
 from rich.console import Console
@@ -789,26 +790,26 @@ def _discover_scene_configs(
     scene_configs_dir: Path,
     project: str,
     tier: str,
-) -> list[Path]:
-    """Return all scene config YAML paths in scene_configs_dir matching project + tier."""
+) -> list[tuple[Path, SceneConfig]]:
+    """Return parsed (path, SceneConfig) tuples matching project + tier."""
     from synthbanshee.config.scene_config import SceneConfig
 
-    results: list[Path] = []
+    results: list[tuple[Path, SceneConfig]] = []
     for yaml_path in sorted(scene_configs_dir.rglob("*.yaml")):
         try:
             scene = SceneConfig.from_yaml(yaml_path)
         except Exception:
             continue
         if scene.project == project and scene.tier == tier:
-            results.append(yaml_path)
+            results.append((yaml_path, scene))
     return results
 
 
 def _select_configs_by_typology(
-    all_configs: list[Path],
+    all_configs: list[tuple[Path, SceneConfig]],
     targets: dict[str, int],
     rng_seed: int,
-) -> list[Path]:
+) -> list[tuple[Path, SceneConfig]]:
     """Select scene configs stratified by typology targets.
 
     For each typology, configs are shuffled with rng_seed then capped at the
@@ -816,19 +817,12 @@ def _select_configs_by_typology(
     """
     import random
 
-    from synthbanshee.config.scene_config import SceneConfig
-
-    by_typology: dict[str, list[Path]] = {}
-    for yaml_path in all_configs:
-        try:
-            scene = SceneConfig.from_yaml(yaml_path)
-        except Exception:
-            continue
-        typology = scene.violence_typology
-        by_typology.setdefault(typology, []).append(yaml_path)
+    by_typology: dict[str, list[tuple[Path, SceneConfig]]] = {}
+    for path, scene in all_configs:
+        by_typology.setdefault(scene.violence_typology, []).append((path, scene))
 
     rng = random.Random(rng_seed)
-    selected: list[Path] = []
+    selected: list[tuple[Path, SceneConfig]] = []
     for typology, limit in targets.items():
         pool = list(by_typology.get(typology, []))
         rng.shuffle(pool)
@@ -838,7 +832,7 @@ def _select_configs_by_typology(
 
 
 def _distribute_speakers(
-    scenes: list[Path],
+    scenes: list[tuple[Path, SceneConfig]],
     rng_seed: int,
 ) -> dict[Path, dict[str, str]]:
     """Build per-scene speaker override maps for voice variant rotation.
@@ -863,7 +857,6 @@ def _distribute_speakers(
     import logging
     import random
 
-    from synthbanshee.config.scene_config import SceneConfig
     from synthbanshee.config.speaker_config import SpeakerConfig
 
     logger = logging.getLogger(__name__)
@@ -887,7 +880,7 @@ def _distribute_speakers(
             "No speaker configs found in configs/speakers/ or configs/examples/; "
             "speaker distribution disabled."
         )
-        return {p: {} for p in scenes}
+        return {p: {} for p, _sc in scenes}
 
     # 2. Group speakers by (context, role, split).
     #    Speakers with context="both" are added to both project pools.
@@ -909,13 +902,7 @@ def _distribute_speakers(
 
     # 4. Assign overrides per scene.
     overrides: dict[Path, dict[str, str]] = {}
-    for scene_path in scenes:
-        try:
-            scene = SceneConfig.from_yaml(scene_path)
-        except Exception:
-            overrides[scene_path] = {}
-            continue
-
+    for scene_path, scene in scenes:
         scene_overrides: dict[str, str] = {}
         for spk_ref in scene.speakers:
             original_id = spk_ref.speaker_id
@@ -1147,6 +1134,10 @@ def generate_batch(
         console.print("[green]Dry run — no clips rendered.[/green]")
         return
 
+    # Extract paths for the render loop (SceneConfig objects are no longer
+    # needed — _run_generate_pipeline re-parses internally for its own use).
+    selected_paths = [p for p, _sc in selected]
+
     out_dir = Path(output_dir or run_cfg.output_dir)
     manifest_path = manifest_out or (out_dir / "manifest.csv")
 
@@ -1159,11 +1150,11 @@ def generate_batch(
         overrides_applied = sum(1 for v in speaker_override_map.values() if v)
         if overrides_applied:
             console.print(
-                f"[cyan]Voice distribution:[/cyan] {overrides_applied}/{len(selected)} "
+                f"[cyan]Voice distribution:[/cyan] {overrides_applied}/{len(selected_paths)} "
                 f"clips will use alternate speaker variants"
             )
     else:
-        speaker_override_map = {p: {} for p in selected}
+        speaker_override_map = {p: {} for p in selected_paths}
 
     # --- Render loop ---
     succeeded: list[Path] = []
@@ -1177,13 +1168,13 @@ def generate_batch(
         TimeElapsedColumn(),
         console=console,
     ) as progress:
-        task_id = progress.add_task("Rendering clips", total=len(selected))
+        task_id = progress.add_task("Rendering clips", total=len(selected_paths))
 
         if workers == 1:
             # Sequential path — exact pre-parallelisation behaviour; no thread
             # overhead, no signal-handling differences, debugger-friendly.
             _no_stop = threading.Event()
-            for scene_yaml in selected:
+            for scene_yaml in selected_paths:
                 wav_path, messages = _render_one(
                     scene_yaml,
                     out_dir,
@@ -1229,7 +1220,7 @@ def generate_batch(
                         speaker_override_map.get(scene_yaml),
                         profile,
                     ): scene_yaml
-                    for scene_yaml in selected
+                    for scene_yaml in selected_paths
                 }
 
                 for future in as_completed(future_to_scene):
@@ -1288,17 +1279,11 @@ def generate_batch(
         sys.exit(1)
 
 
-def _print_selection_summary(configs: list[Path]) -> None:
+def _print_selection_summary(configs: list[tuple[Path, SceneConfig]]) -> None:
     """Print a Rich table showing selected configs by typology."""
-    from synthbanshee.config.scene_config import SceneConfig
-
     counts: dict[str, int] = {}
-    for p in configs:
-        try:
-            scene = SceneConfig.from_yaml(p)
-            counts[scene.violence_typology] = counts.get(scene.violence_typology, 0) + 1
-        except Exception:
-            pass
+    for _path, scene in configs:
+        counts[scene.violence_typology] = counts.get(scene.violence_typology, 0) + 1
 
     table = Table(title="Selected configs by typology")
     table.add_column("Typology")
