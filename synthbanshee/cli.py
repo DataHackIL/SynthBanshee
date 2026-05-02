@@ -1902,7 +1902,15 @@ def dataset_card(data_dir: Path, version: str, output: Path | None) -> None:
     default=False,
     help="Create the archive even if the QA suite reports failures.",
 )
-def package_dataset(data_dir: Path, output_dir: Path, version: str, *, force: bool) -> None:
+@click.option(
+    "--include-failed",
+    is_flag=True,
+    default=False,
+    help="Include QA-failed clips in the archive (for debugging).",
+)
+def package_dataset(
+    data_dir: Path, output_dir: Path, version: str, *, force: bool, include_failed: bool
+) -> None:
     """Package DATA_DIR into a versioned archive in OUTPUT_DIR.
 
     Steps:
@@ -1946,8 +1954,18 @@ def package_dataset(data_dir: Path, output_dir: Path, version: str, *, force: bo
     archive_name = f"avdp_synth_{version}.tar.gz"
     archive_path = output_dir / archive_name
 
+    exclude_ids: set[str] = set()
+    if not include_failed and qa_report.failed_clip_ids:
+        exclude_ids = set(qa_report.failed_clip_ids)
+        console.print(
+            f"[yellow]Excluding {len(exclude_ids)} failed clip(s) from archive:"
+            f" {', '.join(sorted(exclude_ids))}[/yellow]"
+        )
+
     console.print(f"[cyan]Creating archive {archive_path} …[/cyan]")
-    result = create_archive(data_dir, archive_path, dataset_card_text=card_text)
+    result = create_archive(
+        data_dir, archive_path, dataset_card_text=card_text, exclude_clip_ids=exclude_ids
+    )
 
     card_out = output_dir / "DATASET_CARD.md"
     card_out.write_text(card_text, encoding="utf-8")

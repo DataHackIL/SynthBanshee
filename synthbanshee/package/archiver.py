@@ -36,6 +36,9 @@ class ArchiveResult:
     manifest_path: Path
     """Path to ``SHA256SUMS.txt`` written alongside the archive."""
 
+    excluded_clip_count: int = 0
+    """Number of clip IDs that were actually present in *data_dir* and excluded."""
+
 
 def _file_sha256(path: Path) -> str:
     """Return the SHA-256 hex digest of *path*."""
@@ -51,6 +54,7 @@ def create_archive(
     output_path: Path,
     *,
     dataset_card_text: str | None = None,
+    exclude_clip_ids: set[str] | None = None,
 ) -> ArchiveResult:
     """Create a ``.tar.gz`` archive of *data_dir*.
 
@@ -62,18 +66,35 @@ def create_archive(
             created if it does not exist.
         dataset_card_text: Optional text to include as ``DATASET_CARD.md`` at
             the archive root.
+        exclude_clip_ids: Optional set of clip IDs (filename stems) whose
+            sibling files (``.wav``, ``.txt``, ``.json``, ``.jsonl``) should
+            be excluded from the archive.
 
     Returns:
         :class:`ArchiveResult` with the archive path, SHA-256 checksum, file
         count, total uncompressed bytes, and path to ``SHA256SUMS.txt``.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    _excluded = exclude_clip_ids or set()
 
-    files = sorted(
+    all_candidates = sorted(
         p
         for p in data_dir.rglob("*")
         if p.is_file() and not p.is_symlink() and "_dirty" not in p.stem
     )
+
+    if _excluded:
+        actually_excluded: set[str] = set()
+        files: list[Path] = []
+        for p in all_candidates:
+            if p.stem in _excluded:
+                actually_excluded.add(p.stem)
+            else:
+                files.append(p)
+        _actual_excluded_count = len(actually_excluded)
+    else:
+        files = all_candidates
+        _actual_excluded_count = 0
 
     file_checksums: list[tuple[str, str]] = []
     total_bytes = 0
@@ -113,6 +134,7 @@ def create_archive(
         archive_path=output_path,
         checksum=archive_checksum,
         file_count=len(files),
+        excluded_clip_count=_actual_excluded_count,
         total_bytes=total_bytes,
         manifest_path=manifest_path,
     )
