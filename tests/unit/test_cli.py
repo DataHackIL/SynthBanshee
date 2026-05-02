@@ -15,6 +15,7 @@ import soundfile as sf
 from click.testing import CliRunner
 
 from synthbanshee.cli import (
+    DiscoveredScene,
     _derive_event_type,
     _discover_scene_configs,
     _distribute_speakers,
@@ -903,33 +904,43 @@ class TestDiscoverSceneConfigs:
     def test_valid_matching_config_is_returned(self):
         """test_scene_001.yaml is returned when project/tier match."""
         result = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
-        names = [p.name for p in result]
+        names = [s.path.name for s in result]
         assert "test_scene_001.yaml" in names
+
+    def test_returns_parsed_scene_configs(self):
+        """Each result tuple contains a parsed SceneConfig with matching fields."""
+        from synthbanshee.config.scene_config import SceneConfig
+
+        result = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
+        assert len(result) > 0
+        for entry in result:
+            assert isinstance(entry, DiscoveredScene)
+            assert isinstance(entry.config, SceneConfig)
+            assert entry.config.project == "she_proves"
+            assert entry.config.tier == "A"
 
     def test_wrong_project_is_filtered_out(self):
         """Configs with a different project are excluded."""
         result = _discover_scene_configs(SCENES_DIR, "elephant_in_the_room", "A")
-        assert all("she_proves" not in p.name for p in result), (
+        assert all("she_proves" not in s.path.name for s in result), (
             "she_proves configs should not appear for elephant project"
         )
 
 
 class TestSelectConfigsByTypology:
-    def test_unparseable_config_is_skipped(self, tmp_path):
-        """Configs that fail SceneConfig.from_yaml inside _select are silently skipped."""
-        bad = tmp_path / "bad.yaml"
-        bad.write_text("project: not_a_valid_project\n", encoding="utf-8")
-        result = _select_configs_by_typology([bad], {"IT": 10}, rng_seed=0)
+    def test_empty_input_returns_empty(self):
+        """An empty config list returns an empty selection."""
+        result = _select_configs_by_typology([], {"IT": 10}, rng_seed=0)
         assert result == []
 
     def test_count_cap_applied(self):
         """Only up to `count` configs per typology are returned."""
-        configs = list(SCENES_DIR.rglob("*.yaml"))
+        configs = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
         result = _select_configs_by_typology(configs, {"IT": 1}, rng_seed=0)
         assert len(result) <= 1
 
     def test_reproducible_with_same_seed(self):
-        configs = list(SCENES_DIR.rglob("*.yaml"))
+        configs = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
         r1 = _select_configs_by_typology(configs, {"IT": 1}, rng_seed=99)
         r2 = _select_configs_by_typology(configs, {"IT": 1}, rng_seed=99)
         assert r1 == r2
@@ -937,14 +948,10 @@ class TestSelectConfigsByTypology:
 
 class TestPrintSelectionSummary:
     def test_with_valid_config_does_not_raise(self):
-        """_print_selection_summary with a valid config renders without error."""
-        _print_selection_summary([SCENES_DIR / "test_scene_001.yaml"])
-
-    def test_with_invalid_config_silently_passes(self, tmp_path):
-        """An unparseable config is caught and skipped (covers the except:pass branch)."""
-        bad = tmp_path / "bad.yaml"
-        bad.write_text("project: not_a_valid_project\n", encoding="utf-8")
-        _print_selection_summary([bad])  # must not raise
+        """_print_selection_summary with a parsed config renders without error."""
+        configs = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
+        assert len(configs) > 0
+        _print_selection_summary(configs[:1])
 
     def test_with_empty_list_does_not_raise(self):
         _print_selection_summary([])
@@ -2554,8 +2561,10 @@ def _write_scene_yaml(
     *,
     project: str = "she_proves",
     typology: str = "IT",
-) -> Path:
-    """Write a minimal scene YAML referencing the given speakers."""
+) -> DiscoveredScene:
+    """Write a minimal scene YAML and return a DiscoveredScene."""
+    from synthbanshee.config.scene_config import SceneConfig
+
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{scene_id}.yaml"
     spk_lines = "\n".join(f"  - speaker_id: {sid}\n    role: {role}" for sid, role in speakers)
@@ -2576,7 +2585,7 @@ def _write_scene_yaml(
         + "\n",
         encoding="utf-8",
     )
-    return path
+    return DiscoveredScene(path, SceneConfig.from_yaml(path))
 
 
 class TestDistributeSpeakers:
@@ -2601,8 +2610,8 @@ class TestDistributeSpeakers:
 
         assert len(overrides) == 6
         assigned = []
-        for scene_path in scenes:
-            ov = overrides[scene_path]
+        for entry in scenes:
+            ov = overrides[entry.path]
             assigned.append(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
 
         # All three speakers must appear (round-robin)
@@ -2651,8 +2660,8 @@ class TestDistributeSpeakers:
         result1 = _distribute_speakers(scenes, rng_seed=1)
         result2 = _distribute_speakers(scenes, rng_seed=3)
 
-        pick1 = result1[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
-        pick2 = result2[scenes[0]].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick1 = result1[scenes[0].path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick2 = result2[scenes[0].path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
         assert pick1 != pick2
 
     def test_no_override_when_single_speaker(self, tmp_path, monkeypatch):
@@ -2725,7 +2734,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides[scenes[0]] == {}
+        assert overrides[scenes[0].path] == {}
 
     def test_context_both_included_in_project_pools(self, tmp_path, monkeypatch):
         """Speakers with context='both' are candidates in both projects."""
@@ -2800,22 +2809,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides == {scenes[0]: {}}
-
-    def test_malformed_scene_yaml_gets_empty_override(self, tmp_path, monkeypatch):
-        """A scene YAML that fails to parse gets an empty override dict."""
-        spk_dir = tmp_path / "configs" / "speakers"
-        _write_speaker_yaml(spk_dir, "AGG_M_30-45_001")
-        _write_speaker_yaml(spk_dir, "AGG_M_30-45_002")
-
-        scene_dir = tmp_path / "scenes"
-        bad_scene = scene_dir / "bad_scene.yaml"
-        scene_dir.mkdir(parents=True, exist_ok=True)
-        bad_scene.write_text("invalid: yaml: content\n  broken", encoding="utf-8")
-
-        monkeypatch.chdir(tmp_path)
-        overrides = _distribute_speakers([bad_scene], rng_seed=42)
-        assert overrides[bad_scene] == {}
+        assert overrides == {scenes[0].path: {}}
 
     def test_empty_candidates_pool_skipped(self, tmp_path, monkeypatch):
         """When pool lookup yields no candidates, speaker is skipped."""
@@ -2843,7 +2837,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides[scenes[0]] == {}
+        assert overrides[scenes[0].path] == {}
 
     def test_context_both_original_speaker_rotates(self, tmp_path, monkeypatch):
         """A scene referencing a context='both' speaker still gets rotation."""
