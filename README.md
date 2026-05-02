@@ -54,7 +54,7 @@ Labels use a three-level hierarchy. `has_violence` (in clip metadata and manifes
 2. **Tier 1 category** (event): `PHYS` · `VERB` · `DIST` · `ACOU` · `EMOT` · `NONE`
 3. **Tier 2 subtype** (event): e.g. `PHYS_HARD` · `VERB_THREAT` · `DIST_SCREAM`
 
-Full taxonomy: `configs/taxonomy.yaml`.
+Full taxonomy: `synthbanshee/data/taxonomy.yaml`.
 
 ---
 

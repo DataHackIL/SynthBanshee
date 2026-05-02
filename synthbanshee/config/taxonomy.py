@@ -1,23 +1,21 @@
 """Taxonomy loader — single source of truth for all AVDP label codes.
 
-All label codes must be loaded from configs/taxonomy.yaml, never hardcoded.
+All label codes must be loaded from synthbanshee/data/taxonomy.yaml, never hardcoded.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
+from importlib import resources
 
 import yaml
-
-_TAXONOMY_PATH = Path(__file__).parent.parent.parent / "configs" / "taxonomy.yaml"
 
 
 @lru_cache(maxsize=1)
 def load_taxonomy() -> dict:
     """Load and cache the taxonomy YAML. Call this instead of hardcoding codes."""
-    with _TAXONOMY_PATH.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    ref = resources.files("synthbanshee.data").joinpath("taxonomy.yaml")
+    return yaml.safe_load(ref.read_text(encoding="utf-8"))
 
 
 def violence_typology_codes() -> frozenset[str]:

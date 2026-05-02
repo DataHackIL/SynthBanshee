@@ -45,7 +45,7 @@ class DiscoveredScene(NamedTuple):
 
 # Semantic mapping: (violence_typology) → ordered list of (max_intensity, tier1, tier2).
 # Each entry matches intensities ≤ max_intensity; the last entry is the catch-all.
-# Validated against configs/taxonomy.yaml at import time (see _validate_event_type_codes).
+# Validated against synthbanshee/data/taxonomy.yaml at import time (see _validate_event_type_codes).
 _TYPOLOGY_INTENSITY_MAP: dict[str, list[tuple[int, str, str]]] = {
     "NEU": [(5, "NONE", "NONE_AMBIENT")],
     "NEG": [(5, "NONE", "NONE_ARGU")],
@@ -65,7 +65,7 @@ _DEFAULT_EVENT_TYPE: tuple[str, str] = ("NONE", "NONE_AMBIENT")
 
 
 def _validate_event_type_codes() -> None:
-    """Assert every code in _TYPOLOGY_INTENSITY_MAP is valid per configs/taxonomy.yaml."""
+    """Assert every code in _TYPOLOGY_INTENSITY_MAP is valid per synthbanshee/data/taxonomy.yaml."""
     from synthbanshee.config.taxonomy import tier1_category_codes, tier2_subtype_codes
 
     valid_tier1 = tier1_category_codes()
@@ -187,7 +187,7 @@ def _normalize_emotion(state: str) -> tuple[str, bool]:
         return canonical, True
     raise ValueError(
         f"Unknown emotional_state {state!r}. "
-        "Add it to configs/taxonomy.yaml or map it in _EMOTION_ALIASES in cli.py."
+        "Add it to synthbanshee/data/taxonomy.yaml or map it in _EMOTION_ALIASES in cli.py."
     )
 
 
