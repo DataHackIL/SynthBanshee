@@ -16,7 +16,7 @@ import tempfile
 import threading
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from synthbanshee.config.project_profile import ProjectProfile
@@ -29,6 +29,13 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 from rich.table import Table
 
 console = Console()
+
+
+class DiscoveredScene(NamedTuple):
+    """A scene YAML parsed during discovery — avoids redundant re-parsing."""
+
+    path: Path
+    config: SceneConfig
 
 
 # ---------------------------------------------------------------------------
@@ -790,39 +797,41 @@ def _discover_scene_configs(
     scene_configs_dir: Path,
     project: str,
     tier: str,
-) -> list[tuple[Path, SceneConfig]]:
+) -> list[DiscoveredScene]:
     """Return parsed (path, SceneConfig) tuples matching project + tier."""
     from synthbanshee.config.scene_config import SceneConfig
 
-    results: list[tuple[Path, SceneConfig]] = []
+    results: list[DiscoveredScene] = []
     for yaml_path in sorted(scene_configs_dir.rglob("*.yaml")):
         try:
             scene = SceneConfig.from_yaml(yaml_path)
         except Exception:
             continue
         if scene.project == project and scene.tier == tier:
-            results.append((yaml_path, scene))
+            results.append(DiscoveredScene(yaml_path, scene))
     return results
 
 
 def _select_configs_by_typology(
-    all_configs: list[tuple[Path, SceneConfig]],
+    all_configs: list[DiscoveredScene],
     targets: dict[str, int],
     rng_seed: int,
-) -> list[tuple[Path, SceneConfig]]:
+) -> list[DiscoveredScene]:
     """Select scene configs stratified by typology targets.
 
     For each typology, configs are shuffled with rng_seed then capped at the
     target count.  This ensures reproducible selection across runs.
+
+    Expects pre-parsed DiscoveredScene entries (from _discover_scene_configs).
     """
     import random
 
-    by_typology: dict[str, list[tuple[Path, SceneConfig]]] = {}
-    for path, scene in all_configs:
-        by_typology.setdefault(scene.violence_typology, []).append((path, scene))
+    by_typology: dict[str, list[DiscoveredScene]] = {}
+    for entry in all_configs:
+        by_typology.setdefault(entry.config.violence_typology, []).append(entry)
 
     rng = random.Random(rng_seed)
-    selected: list[tuple[Path, SceneConfig]] = []
+    selected: list[DiscoveredScene] = []
     for typology, limit in targets.items():
         pool = list(by_typology.get(typology, []))
         rng.shuffle(pool)
@@ -832,7 +841,7 @@ def _select_configs_by_typology(
 
 
 def _distribute_speakers(
-    scenes: list[tuple[Path, SceneConfig]],
+    scenes: list[DiscoveredScene],
     rng_seed: int,
 ) -> dict[Path, dict[str, str]]:
     """Build per-scene speaker override maps for voice variant rotation.
@@ -849,6 +858,8 @@ def _distribute_speakers(
 
     The round-robin is modular: with *N* candidates and *M* scenes,
     each candidate is assigned ``floor(M/N)`` or ``ceil(M/N)`` scenes.
+
+    Expects pre-parsed DiscoveredScene entries (from _discover_scene_configs).
 
     Returns ``{scene_path: {original_speaker_id: replacement_speaker_id}}``.
     Scenes whose speakers already match the assigned variant get an empty
@@ -880,7 +891,7 @@ def _distribute_speakers(
             "No speaker configs found in configs/speakers/ or configs/examples/; "
             "speaker distribution disabled."
         )
-        return {p: {} for p, _sc in scenes}
+        return {s.path: {} for s in scenes}
 
     # 2. Group speakers by (context, role, split).
     #    Speakers with context="both" are added to both project pools.
@@ -902,21 +913,21 @@ def _distribute_speakers(
 
     # 4. Assign overrides per scene.
     overrides: dict[Path, dict[str, str]] = {}
-    for scene_path, scene in scenes:
+    for entry in scenes:
         scene_overrides: dict[str, str] = {}
-        for spk_ref in scene.speakers:
+        for spk_ref in entry.config.speakers:
             original_id = spk_ref.speaker_id
             original_spk = all_speakers.get(original_id)
             if original_spk is None:
                 logger.debug(
                     "Scene %s references unknown speaker %s; skipping rotation.",
-                    scene_path.name,
+                    entry.path.name,
                     original_id,
                 )
                 continue
             # context="both" speakers were expanded into concrete project
             # pools; use the scene's project for lookup so they participate.
-            ctx = scene.project if original_spk.context == "both" else original_spk.context
+            ctx = entry.config.project if original_spk.context == "both" else original_spk.context
             key = (ctx, original_spk.role, original_spk.split)
             candidates = pool.get(key, [])
             if (
@@ -929,7 +940,7 @@ def _distribute_speakers(
             if replacement_id != original_id:
                 scene_overrides[original_id] = replacement_id
 
-        overrides[scene_path] = scene_overrides
+        overrides[entry.path] = scene_overrides
 
     return overrides
 
@@ -1136,7 +1147,7 @@ def generate_batch(
 
     # Extract paths for the render loop (SceneConfig objects are no longer
     # needed — _run_generate_pipeline re-parses internally for its own use).
-    selected_paths = [p for p, _sc in selected]
+    selected_paths = [s.path for s in selected]
 
     out_dir = Path(output_dir or run_cfg.output_dir)
     manifest_path = manifest_out or (out_dir / "manifest.csv")
@@ -1279,11 +1290,11 @@ def generate_batch(
         sys.exit(1)
 
 
-def _print_selection_summary(configs: list[tuple[Path, SceneConfig]]) -> None:
+def _print_selection_summary(configs: list[DiscoveredScene]) -> None:
     """Print a Rich table showing selected configs by typology."""
     counts: dict[str, int] = {}
-    for _path, scene in configs:
-        counts[scene.violence_typology] = counts.get(scene.violence_typology, 0) + 1
+    for entry in configs:
+        counts[entry.config.violence_typology] = counts.get(entry.config.violence_typology, 0) + 1
 
     table = Table(title="Selected configs by typology")
     table.add_column("Typology")

@@ -8,17 +8,14 @@ import pathlib
 import textwrap
 import wave
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
 import soundfile as sf
 from click.testing import CliRunner
 
-if TYPE_CHECKING:
-    from synthbanshee.config.scene_config import SceneConfig
-
 from synthbanshee.cli import (
+    DiscoveredScene,
     _derive_event_type,
     _discover_scene_configs,
     _distribute_speakers,
@@ -907,7 +904,7 @@ class TestDiscoverSceneConfigs:
     def test_valid_matching_config_is_returned(self):
         """test_scene_001.yaml is returned when project/tier match."""
         result = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
-        names = [p.name for p, _sc in result]
+        names = [s.path.name for s in result]
         assert "test_scene_001.yaml" in names
 
     def test_returns_parsed_scene_configs(self):
@@ -916,15 +913,16 @@ class TestDiscoverSceneConfigs:
 
         result = _discover_scene_configs(SCENES_DIR, "she_proves", "A")
         assert len(result) > 0
-        for _path, scene in result:
-            assert isinstance(scene, SceneConfig)
-            assert scene.project == "she_proves"
-            assert scene.tier == "A"
+        for entry in result:
+            assert isinstance(entry, DiscoveredScene)
+            assert isinstance(entry.config, SceneConfig)
+            assert entry.config.project == "she_proves"
+            assert entry.config.tier == "A"
 
     def test_wrong_project_is_filtered_out(self):
         """Configs with a different project are excluded."""
         result = _discover_scene_configs(SCENES_DIR, "elephant_in_the_room", "A")
-        assert all("she_proves" not in p.name for p, _sc in result), (
+        assert all("she_proves" not in s.path.name for s in result), (
             "she_proves configs should not appear for elephant project"
         )
 
@@ -2563,8 +2561,8 @@ def _write_scene_yaml(
     *,
     project: str = "she_proves",
     typology: str = "IT",
-) -> tuple[Path, SceneConfig]:
-    """Write a minimal scene YAML and return (path, parsed SceneConfig)."""
+) -> DiscoveredScene:
+    """Write a minimal scene YAML and return a DiscoveredScene."""
     from synthbanshee.config.scene_config import SceneConfig
 
     directory.mkdir(parents=True, exist_ok=True)
@@ -2587,7 +2585,7 @@ def _write_scene_yaml(
         + "\n",
         encoding="utf-8",
     )
-    return path, SceneConfig.from_yaml(path)
+    return DiscoveredScene(path, SceneConfig.from_yaml(path))
 
 
 class TestDistributeSpeakers:
@@ -2612,8 +2610,8 @@ class TestDistributeSpeakers:
 
         assert len(overrides) == 6
         assigned = []
-        for scene_path, _sc in scenes:
-            ov = overrides[scene_path]
+        for entry in scenes:
+            ov = overrides[entry.path]
             assigned.append(ov.get("AGG_M_30-45_001", "AGG_M_30-45_001"))
 
         # All three speakers must appear (round-robin)
@@ -2662,9 +2660,8 @@ class TestDistributeSpeakers:
         result1 = _distribute_speakers(scenes, rng_seed=1)
         result2 = _distribute_speakers(scenes, rng_seed=3)
 
-        scene_path = scenes[0][0]
-        pick1 = result1[scene_path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
-        pick2 = result2[scene_path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick1 = result1[scenes[0].path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
+        pick2 = result2[scenes[0].path].get("AGG_M_30-45_001", "AGG_M_30-45_001")
         assert pick1 != pick2
 
     def test_no_override_when_single_speaker(self, tmp_path, monkeypatch):
@@ -2737,7 +2734,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides[scenes[0][0]] == {}
+        assert overrides[scenes[0].path] == {}
 
     def test_context_both_included_in_project_pools(self, tmp_path, monkeypatch):
         """Speakers with context='both' are candidates in both projects."""
@@ -2812,7 +2809,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides == {scenes[0][0]: {}}
+        assert overrides == {scenes[0].path: {}}
 
     def test_empty_candidates_pool_skipped(self, tmp_path, monkeypatch):
         """When pool lookup yields no candidates, speaker is skipped."""
@@ -2840,7 +2837,7 @@ class TestDistributeSpeakers:
 
         monkeypatch.chdir(tmp_path)
         overrides = _distribute_speakers(scenes, rng_seed=42)
-        assert overrides[scenes[0][0]] == {}
+        assert overrides[scenes[0].path] == {}
 
     def test_context_both_original_speaker_rotates(self, tmp_path, monkeypatch):
         """A scene referencing a context='both' speaker still gets rotation."""
