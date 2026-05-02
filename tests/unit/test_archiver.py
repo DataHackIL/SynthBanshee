@@ -177,4 +177,4 @@ class TestCreateArchive:
         out = tmp_path / "dataset.tar.gz"
         result = create_archive(data_dir, out, exclude_clip_ids={"no_such_clip"})
         assert result.file_count == 4
-        assert result.excluded_clip_count == 1
+        assert result.excluded_clip_count == 0  # nothing was actually in data_dir

@@ -2409,6 +2409,89 @@ class TestPackageDatasetCommand:
             assert result.exit_code != 0, f"Expected failure for version {bad_version!r}"
             assert not (out_dir / f"avdp_synth_{bad_version}.tar.gz").exists()
 
+    def test_failed_clips_excluded_by_default(self, tmp_path):
+        """Failed clip IDs from QA are excluded from the archive by default."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        # Create a file that would be excluded
+        (data_dir / "bad_clip.wav").write_bytes(b"bad")
+        (data_dir / "good_clip.wav").write_bytes(b"good")
+        out_dir = tmp_path / "releases"
+        from unittest.mock import patch
+
+        from synthbanshee.package.qa import DatasetStats, QAReport
+
+        report = QAReport(
+            data_dir=str(data_dir),
+            stats=DatasetStats(total_clips=1, failed_clips=1),
+            failed_clip_ids=["bad_clip"],
+            passed=True,
+            failure_rate=0.01,
+        )
+        with patch("synthbanshee.package.qa.run_qa", return_value=report):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
+            )
+        assert result.exit_code == 0, result.output
+        assert "Excluding 1 failed clip(s)" in result.output
+        assert "bad_clip" in result.output
+        import tarfile
+
+        with tarfile.open(out_dir / "avdp_synth_v1.0.tar.gz", "r:gz") as tar:
+            names = tar.getnames()
+        assert not any("bad_clip" in n for n in names)
+        assert any("good_clip" in n for n in names)
+
+    def test_include_failed_flag_keeps_failed_clips(self, tmp_path):
+        """--include-failed overrides exclusion and keeps failed clips in archive."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        (data_dir / "bad_clip.wav").write_bytes(b"bad")
+        out_dir = tmp_path / "releases"
+        from unittest.mock import patch
+
+        from synthbanshee.package.qa import DatasetStats, QAReport
+
+        report = QAReport(
+            data_dir=str(data_dir),
+            stats=DatasetStats(total_clips=0, failed_clips=1),
+            failed_clip_ids=["bad_clip"],
+            passed=True,
+            failure_rate=0.01,
+        )
+        with patch("synthbanshee.package.qa.run_qa", return_value=report):
+            runner = CliRunner()
+            result = runner.invoke(
+                cli,
+                [
+                    "package-dataset",
+                    str(data_dir),
+                    str(out_dir),
+                    "--version",
+                    "v1.0",
+                    "--include-failed",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        assert "Excluding" not in result.output
+        import tarfile
+
+        with tarfile.open(out_dir / "avdp_synth_v1.0.tar.gz", "r:gz") as tar:
+            names = tar.getnames()
+        assert any("bad_clip" in n for n in names)
+
+    def test_no_failures_no_exclusion_message(self, tmp_path):
+        """When QA has no failures, no exclusion message is printed."""
+        data_dir = _make_empty_data_dir(tmp_path)
+        out_dir = tmp_path / "releases"
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["package-dataset", str(data_dir), str(out_dir), "--version", "v1.0"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "Excluding" not in result.output
+
 
 # ---------------------------------------------------------------------------
 # _distribute_speakers tests (M9b)

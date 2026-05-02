@@ -1957,11 +1957,14 @@ def package_dataset(
     exclude_ids: set[str] = set()
     if not include_failed and qa_report.failed_clip_ids:
         exclude_ids = set(qa_report.failed_clip_ids)
-        console.print(f"[yellow]Excluding {len(exclude_ids)} failed clip(s) from archive.[/yellow]")
+        console.print(
+            f"[yellow]Excluding {len(exclude_ids)} failed clip(s) from archive:"
+            f" {', '.join(sorted(exclude_ids))}[/yellow]"
+        )
 
     console.print(f"[cyan]Creating archive {archive_path} …[/cyan]")
     result = create_archive(
-        data_dir, archive_path, dataset_card_text=card_text, exclude_clip_ids=exclude_ids or None
+        data_dir, archive_path, dataset_card_text=card_text, exclude_clip_ids=exclude_ids
     )
 
     card_out = output_dir / "DATASET_CARD.md"
