@@ -187,7 +187,7 @@ def _normalize_emotion(state: str) -> tuple[str, bool]:
         return canonical, True
     raise ValueError(
         f"Unknown emotional_state {state!r}. "
-        "Add it to synthbanshee/data/taxonomy.yaml or map it in _EMOTION_ALIASES in cli.py."
+        "Map it in _EMOTION_ALIASES in cli.py, or add it to taxonomy.yaml and reinstall."
     )
 
 

@@ -10,11 +10,13 @@ from importlib import resources
 
 import yaml
 
+import synthbanshee.data as _data_pkg
+
 
 @lru_cache(maxsize=1)
 def load_taxonomy() -> dict:
     """Load and cache the taxonomy YAML. Call this instead of hardcoding codes."""
-    ref = resources.files("synthbanshee.data").joinpath("taxonomy.yaml")
+    ref = resources.files(_data_pkg).joinpath("taxonomy.yaml")
     return yaml.safe_load(ref.read_text(encoding="utf-8"))
 
 
