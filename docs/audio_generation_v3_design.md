@@ -99,7 +99,7 @@ The scripts, label taxonomy, pipeline stage decomposition, and cache system are 
 ## 3. What Does NOT Need to Change
 
 - **Script generation** (LLM + Jinja2 templates) — produces structurally correct dialogue; the problem is in rendering, not generation
-- **Label taxonomy** (`configs/taxonomy.yaml`) — hierarchical PHYS/VERB/DIST/EMOT/ACOU/NONE is appropriate
+- **Label taxonomy** (`synthbanshee/data/taxonomy.yaml`) — hierarchical PHYS/VERB/DIST/EMOT/ACOU/NONE is appropriate
 - **Pipeline stage decomposition** — the five stages are correctly separated
 - **TTS cache** (SHA-256 of full SSML string) — correct; will naturally miss on any SSML change
 - **Acoustic augmentation** (Tier B) — still needed and architecturally correct; runs after V3 audio assembly
@@ -386,7 +386,7 @@ This is not just a data cleanliness issue — an emotion-conditioned model that 
 
 1. **Remove the silent downgrade.** `_normalize_emotion()` should log a warning and either (a) fail loudly for known invalid emotional states, or (b) map only to the nearest valid state with an explicit mapping table, not to `neutral` as a catch-all.
 
-2. **Extend `configs/taxonomy.yaml` `emotional_states` list** to cover all emotional states that the LLM plausibly generates for each intensity level. Run the debug_run_1 script through the pipeline, collect all unique emotional states, and add any missing ones to the taxonomy before removing the fallback.
+2. **Extend `synthbanshee/data/taxonomy.yaml` `emotional_states` list** to cover all emotional states that the LLM plausibly generates for each intensity level. Run the debug_run_1 script through the pipeline, collect all unique emotional states, and add any missing ones to the taxonomy before removing the fallback.
 
 3. **Add a QA check:** `qa.py` should flag any clip where the number of turns with emotional_state = `neutral` in the JSONL exceeds the number of turns with intensity ≤ 2 in the script. If I4 and I5 turns are being labeled as `neutral`, the normalization fallback has been triggered.
 

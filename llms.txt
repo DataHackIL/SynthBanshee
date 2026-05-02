@@ -54,7 +54,7 @@ Synthetic Hebrew audio dataset generator for two DataHack AI safety projects:
 - synthbanshee/config/taxonomy.py          — taxonomy loader helpers
 
 ## Config files (YAML)
-- configs/taxonomy.yaml                    — label taxonomy (source of truth for all label strings)
+- synthbanshee/data/taxonomy.yaml          — label taxonomy (source of truth for all label strings)
 - configs/examples/scene_*.yaml            — worked scene examples
 - configs/examples/speaker_*.yaml          — worked speaker persona examples (with rms_target_dbfs)
 - synthbanshee/config/acoustic_config.py   — room + device validity/source of truth (currently hardcoded sets; configs/acoustic_scenes/ is user-created if needed)

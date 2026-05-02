@@ -72,13 +72,6 @@ dev = [
 [project.scripts]
 synthbanshee = "synthbanshee.cli:cli"
 
-[tool.hatch.build]
-artifacts = [
-    "synthbanshee/**/*.yaml",
-    "synthbanshee/**/*.j2",
-    "synthbanshee/**/*.txt",
-]
-
 [tool.hatch.build.targets.wheel]
 packages = ["synthbanshee"]
 
