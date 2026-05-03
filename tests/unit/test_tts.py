@@ -331,6 +331,196 @@ class TestWordBoundaryBreaks:
 
 
 # ---------------------------------------------------------------------------
+# SSML parse-error regression tests (#67)
+# ---------------------------------------------------------------------------
+
+
+class TestSSMLParseErrorFix67:
+    """Regression tests for Azure SSML parsing error 0x80045003.
+
+    The root cause is adjacent <break> elements created when inter-word breaks
+    (PR #70) interact with phrase prosody break_before/break_after attributes.
+    Azure's SSML parser rejects adjacent breaks as malformed.
+    """
+
+    def setup_method(self):
+        self.builder = SSMLBuilder()
+
+    def _body(self, ssml: str) -> str:
+        return ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
+
+    def test_no_adjacent_breaks_with_break_before(self):
+        """Phrase break_before must merge with preceding inter-word break."""
+        import re
+
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # "word1 word2 phrase1 phrase2" — phrase starts at word boundary
+        text = "word1 word2 phrase1 phrase2"
+        phrase = PhraseProsody(
+            phrase_id="p0",
+            char_start=12,  # "phrase1 phrase2"
+            char_end=27,
+            rate="-25%",
+            pitch="-1st",
+            break_before_ms=300,  # "menace" hint
+        )
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            phrase_prosody=[phrase],
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # No two <break .../> elements should be adjacent (only whitespace between).
+        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert len(adjacent_breaks) == 0, f"Adjacent breaks found in SSML: {ssml}"
+
+    def test_merged_break_uses_max_duration(self):
+        """When merging breaks, the longer duration wins."""
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        text = "before phrase_word"
+        phrase = PhraseProsody(
+            phrase_id="p0",
+            char_start=7,  # "phrase_word"
+            char_end=18,
+            rate="-20%",
+            break_before_ms=150,  # "slow" hint — longer than 50ms word break
+        )
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            phrase_prosody=[phrase],
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # The inter-word break (50ms) between "before" and phrase should be
+        # merged to 150ms (the phrase break_before duration wins).
+        assert 'time="150ms"' in ssml
+        # The original 50ms word break should NOT appear as a separate element.
+        assert ssml.count('time="50ms"') == 0
+
+    def test_menace_hint_no_adjacent_breaks(self):
+        """Menace hint (break_before=300ms) must not create adjacent breaks."""
+        import re
+
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # Simulate a failing pattern: multi-word text with menace-annotated phrase.
+        text = "word1 word2 word3 threat_word1 threat_word2"
+        phrase = PhraseProsody(
+            phrase_id="p0",
+            char_start=18,
+            char_end=44,
+            rate="-25%",
+            pitch="-1st",
+            break_before_ms=300,
+        )
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            rate_multiplier=1.14,
+            pitch_delta_st=2.0,
+            volume_delta_db=13.0,
+            phrase_prosody=[phrase],
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # Must be valid XML.
+        import xml.etree.ElementTree as ET
+
+        ET.fromstring(self._body(ssml))
+
+        # No adjacent breaks.
+        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert len(adjacent_breaks) == 0, f"Adjacent breaks found in SSML: {ssml}"
+
+        # The 300ms menace break should appear (merged with the word break).
+        assert 'time="300ms"' in ssml
+
+    def test_text_with_invalid_xml_chars_sanitized(self):
+        """Characters invalid in XML 1.0 must be stripped before SSML building."""
+        # Simulate LLM output with control characters.
+        text = "hello\x00world\x0bfoo\x1fbar"
+        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+        # Must not contain invalid chars.
+        assert "\x00" not in ssml
+        assert "\x0b" not in ssml
+        assert "\x1f" not in ssml
+        # Words must still be present.
+        assert "hello" in ssml
+        assert "world" in ssml
+        assert "foo" in ssml
+        assert "bar" in ssml
+
+    def test_prosody_pitch_clamped_to_azure_range(self):
+        """Extreme pitch values must be clamped to ±50%."""
+        # 12 semitones → 71% unclamped, should be clamped to 50%
+        assert _semitones_to_percent(12.0) == "+50%"
+        assert _semitones_to_percent(-12.0) == "-50%"
+        # Moderate values remain unchanged
+        assert _semitones_to_percent(3.0) == "+18%"
+        assert _semitones_to_percent(-2.0) == "-12%"
+
+    def test_prosody_rate_clamped_to_azure_range(self):
+        """Extreme rate values must be clamped to Azure's -50% to +200% range."""
+        # rate=4.0 → +300% unclamped, should be clamped to +200%
+        assert _rate_to_string(4.0) == "+200%"
+        # rate=0.3 → -70% unclamped, should be clamped to -50%
+        assert _rate_to_string(0.3) == "-50%"
+        # Normal values pass through
+        assert _rate_to_string(1.1) == "+10%"
+
+    def test_well_formed_ssml_with_phrase_prosody_and_breaks(self):
+        """Full integration: high-intensity turn with phrase prosody must be valid XML."""
+        import xml.etree.ElementTree as ET
+
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # Simulate a high-intensity assault-scene turn with multiple hints.
+        text = "word1 word2 word3 word4 phrase_a1 phrase_a2 word5 word6 phrase_b1 word7"
+        # Offsets: phrase_a1 phrase_a2 = 24:43, phrase_b1 = 56:65
+        phrases = [
+            PhraseProsody(
+                phrase_id="p0",
+                char_start=24,
+                char_end=43,
+                rate="+15%",
+                volume="+3dB",
+                pitch="+1st",
+                break_before_ms=0,  # "stress" — no break_before
+            ),
+            PhraseProsody(
+                phrase_id="p1",
+                char_start=56,
+                char_end=65,
+                rate="-25%",
+                pitch="-1st",
+                break_before_ms=300,  # "menace" — has break_before
+            ),
+        ]
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            rate_multiplier=1.14,
+            pitch_delta_st=3.5,
+            volume_delta_db=17.0,
+            phrase_prosody=phrases,
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+        body = self._body(ssml)
+
+        # Must parse as valid XML.
+        ET.fromstring(body)
+
+        # All words must be present in the output.
+        for word in text.split():
+            assert word in ssml
+
+
+# ---------------------------------------------------------------------------
 # AzureProvider tests (mocked)
 # ---------------------------------------------------------------------------
 

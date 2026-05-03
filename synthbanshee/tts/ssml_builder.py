@@ -15,6 +15,7 @@ https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-synthe
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
@@ -29,6 +30,23 @@ _SPEAK_LANG = "he-IL"
 # an audible pause.  This value needs empirical validation with real TTS
 # output — it may need per-provider tuning if engines respond differently.
 _WORD_BREAK_MS = 50
+
+# Azure prosody attribute limits (documented ranges).
+_AZURE_RATE_MIN_PCT = -50  # rate="-50%" → 0.5x
+_AZURE_RATE_MAX_PCT = 200  # rate="+200%" → 3.0x
+_AZURE_PITCH_MIN_PCT = -50
+_AZURE_PITCH_MAX_PCT = 50
+_AZURE_VOLUME_MIN_PCT = -50
+_AZURE_VOLUME_MAX_PCT = 50
+
+# Characters invalid in XML 1.0: U+0000–U+0008, U+000B, U+000C, U+000E–U+001F.
+# These must be stripped before embedding text in SSML.
+_XML_INVALID_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _sanitize_text(text: str) -> str:
+    """Remove characters that are invalid in XML 1.0 from *text*."""
+    return _XML_INVALID_CHARS_RE.sub("", text)
 
 
 def _inject_word_breaks(
@@ -113,22 +131,34 @@ class UtteranceSpec:
 
 
 def _semitones_to_percent(st: float) -> str:
-    """Convert a semitone shift to the Azure pitch % format (e.g. '+5%' / '-10%')."""
+    """Convert a semitone shift to the Azure pitch % format (e.g. '+5%' / '-10%').
+
+    Values are clamped to Azure's documented ±50% range.
+    """
     # Approximation: 1 semitone ≈ 5.946% pitch change
     pct = round(st * 5.946)
+    pct = max(_AZURE_PITCH_MIN_PCT, min(_AZURE_PITCH_MAX_PCT, pct))
     return f"+{pct}%" if pct >= 0 else f"{pct}%"
 
 
 def _rate_to_string(rate: float) -> str:
-    """Format a rate multiplier as a percentage string for <prosody rate=...>."""
+    """Format a rate multiplier as a percentage string for <prosody rate=...>.
+
+    Values are clamped to Azure's documented -50% to +200% range.
+    """
     pct = round((rate - 1.0) * 100)
+    pct = max(_AZURE_RATE_MIN_PCT, min(_AZURE_RATE_MAX_PCT, pct))
     return f"+{pct}%" if pct >= 0 else f"{pct}%"
 
 
 def _volume_to_string(db: float) -> str:
-    """Format a dB volume offset as a percentage for <prosody volume=...>."""
+    """Format a dB volume offset as a percentage for <prosody volume=...>.
+
+    Values are clamped to Azure's documented ±50% range.
+    """
     # Azure volume is 0–100; default is 100. Map dB linearly (rough).
     pct = round(db * 1.0)
+    pct = max(_AZURE_VOLUME_MIN_PCT, min(_AZURE_VOLUME_MAX_PCT, pct))
     return f"+{pct}%" if pct >= 0 else f"{pct}%"
 
 
@@ -180,9 +210,18 @@ def _apply_phrase_prosody(
         if phrase.char_start > cursor:
             _append_text(text[cursor : phrase.char_start])
 
-        # Optional break before the phrase.
+        # Optional break before the phrase.  Merge with the preceding
+        # inter-word <break> element (if any) to avoid adjacent breaks that
+        # Azure's SSML parser rejects with error 0x80045003 (#67).
         if phrase.break_before_ms > 0:
-            _append_break(phrase.break_before_ms)
+            if prev is not None and prev.tag == "break":
+                # Merge: replace the preceding word-boundary break with the
+                # longer phrase break (the phrase break subsumes the 50 ms).
+                prev_ms = int(prev.attrib.get("time", "0").replace("ms", ""))
+                merged_ms = max(prev_ms, phrase.break_before_ms)
+                prev.attrib["time"] = f"{merged_ms}ms"
+            else:
+                _append_break(phrase.break_before_ms)
 
         # Phrase-level prosody wrapper (omitted when only breaks are requested).
         phrase_attrs: dict[str, str] = {}
@@ -256,6 +295,8 @@ class SSMLBuilder:
         speak = ET.Element("speak", attrib=speak_attribs)
 
         for utt in utterances:
+            # Sanitize text: strip characters invalid in XML 1.0 (#67).
+            utt_text = _sanitize_text(utt.text)
             voice = ET.SubElement(speak, "voice", attrib={"name": utt.voice_id})
 
             # Add express-as only when a non-default style is requested AND
@@ -285,12 +326,20 @@ class SSMLBuilder:
                 inner = parent
 
             if utt.phrase_prosody:
-                _apply_phrase_prosody(inner, utt.text, utt.phrase_prosody)
+                _apply_phrase_prosody(inner, utt_text, utt.phrase_prosody)
             else:
-                _inject_word_breaks(inner, utt.text)
+                _inject_word_breaks(inner, utt_text)
 
         raw = ET.tostring(speak, encoding="unicode", xml_declaration=False)
-        return '<?xml version="1.0" encoding="UTF-8"?>\n' + raw
+        ssml = '<?xml version="1.0" encoding="UTF-8"?>\n' + raw
+
+        # Validate well-formedness: catch malformed XML before sending to Azure.
+        try:
+            ET.fromstring(raw)
+        except ET.ParseError as exc:
+            raise ValueError(f"Generated SSML is not well-formed XML: {exc}") from exc
+
+        return ssml
 
     def build_from_speaker_config(
         self,
