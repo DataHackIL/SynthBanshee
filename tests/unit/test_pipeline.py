@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from synthbanshee.augment.pipeline import (
     _SNR_BANDS,
@@ -235,3 +236,27 @@ class TestGenerateVariantConfigs:
         for v in variants:
             assert len(v.background_events) == 1
             assert v.background_events[0].type == "tv_ambient"
+
+    def test_empty_preferred_devices_raises(self):
+        base = _make_config()
+        with pytest.raises(ValueError, match="must not be empty"):
+            generate_variant_configs(base, n_variants=1, rng_seed=0, preferred_devices=[])
+
+    def test_empty_preferred_rooms_raises(self):
+        base = _make_config()
+        with pytest.raises(ValueError, match="must not be empty"):
+            generate_variant_configs(base, n_variants=1, rng_seed=0, preferred_room_types=[])
+
+    def test_invalid_preferred_device_raises(self):
+        base = _make_config()
+        with pytest.raises(ValueError, match="Unknown device"):
+            generate_variant_configs(
+                base, n_variants=1, rng_seed=0, preferred_devices=["nonexistent"]
+            )
+
+    def test_invalid_preferred_room_raises(self):
+        base = _make_config()
+        with pytest.raises(ValueError, match="Unknown room type"):
+            generate_variant_configs(
+                base, n_variants=1, rng_seed=0, preferred_room_types=["nonexistent"]
+            )

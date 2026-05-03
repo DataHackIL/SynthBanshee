@@ -66,18 +66,25 @@ def augment_scene(
     Returns:
         AugmentationResult with the augmented samples and event log.
     """
+    # Derive independent child seeds so the three stages don't share
+    # the same random sequence (which would correlate their choices).
+    child_rng = np.random.default_rng(rng_seed)
+    room_seed = int(child_rng.integers(0, 2**31))
+    device_seed = int(child_rng.integers(0, 2**31))
+    noise_seed = int(child_rng.integers(0, 2**31))
+
     # Room simulation
-    reverbed = RoomSimulator().apply(samples, sr, config, rng_seed=rng_seed)
+    reverbed = RoomSimulator().apply(samples, sr, config, rng_seed=room_seed)
 
     # Device profiling
-    device_colored = DeviceProfiler().apply(reverbed, sr, config.device, rng_seed=rng_seed)
+    device_colored = DeviceProfiler().apply(reverbed, sr, config.device, rng_seed=device_seed)
 
     # Noise mixing
     aug_samples, aug_events, snr_actual = NoiseMixer(assets_dir=assets_dir).mix(
         device_colored,
         sr,
         config,
-        rng_seed=rng_seed,
+        rng_seed=noise_seed,
         phase_boundaries=phase_boundaries,
     )
 
@@ -118,12 +125,28 @@ def generate_variant_configs(
         List of *n_variants* AcousticSceneConfig objects, each with a
         different room/device/SNR combination.
     """
-    from synthbanshee.config.acoustic_config import _VALID_DEVICES, _VALID_ROOM_TYPES
+    from synthbanshee.config.acoustic_config import VALID_DEVICES, VALID_ROOM_TYPES
+
+    if preferred_devices is not None:
+        if len(preferred_devices) == 0:
+            raise ValueError("preferred_devices must not be empty when provided")
+        bad = set(preferred_devices) - VALID_DEVICES
+        if bad:
+            raise ValueError(f"Unknown device(s): {sorted(bad)}. Valid: {sorted(VALID_DEVICES)}")
+
+    if preferred_room_types is not None:
+        if len(preferred_room_types) == 0:
+            raise ValueError("preferred_room_types must not be empty when provided")
+        bad = set(preferred_room_types) - VALID_ROOM_TYPES
+        if bad:
+            raise ValueError(
+                f"Unknown room type(s): {sorted(bad)}. Valid: {sorted(VALID_ROOM_TYPES)}"
+            )
 
     rng = np.random.default_rng(rng_seed)
 
-    devices = list(preferred_devices) if preferred_devices else sorted(_VALID_DEVICES)
-    rooms = list(preferred_room_types) if preferred_room_types else sorted(_VALID_ROOM_TYPES)
+    devices = list(preferred_devices) if preferred_devices else sorted(VALID_DEVICES)
+    rooms = list(preferred_room_types) if preferred_room_types else sorted(VALID_ROOM_TYPES)
 
     # Speaker distance range: near (0.5 m), mid (1.5 m), far (3.5 m)
     distance_options = [0.5, 1.5, 3.5]

@@ -34,7 +34,7 @@ def test_profile_keys_complete():
         "highpass_hz",
         "lowpass_hz",
         "presence_boost",
-        "high_shelf_hz",
+        "extra_lowpass_hz",
         "hum_hz",
         "hum_dbfs",
         "level_db",
@@ -176,7 +176,7 @@ def test_highpass_skipped_when_hz_is_zero():
         "highpass_hz": 0,
         "lowpass_hz": 8_000,
         "presence_boost": None,
-        "high_shelf_hz": None,
+        "extra_lowpass_hz": None,
         "hum_hz": None,
         "hum_dbfs": None,
         "level_db": 0.0,
@@ -188,7 +188,7 @@ def test_highpass_skipped_when_hz_is_zero():
 
 
 # ---------------------------------------------------------------------------
-# M16: Presence boost and high shelf tests
+# M16: Presence boost and extra low-pass tests
 # ---------------------------------------------------------------------------
 
 
@@ -215,64 +215,81 @@ def test_pi_budget_mic_no_presence_boost():
     assert _PROFILES["pi_budget_mic"]["presence_boost"] is None
 
 
-def test_phone_in_hand_has_high_shelf():
-    assert _PROFILES["phone_in_hand"]["high_shelf_hz"] is not None
-    assert _PROFILES["phone_in_hand"]["high_shelf_hz"] == 6_500
+def test_phone_in_hand_has_extra_lowpass():
+    assert _PROFILES["phone_in_hand"]["extra_lowpass_hz"] is not None
+    assert _PROFILES["phone_in_hand"]["extra_lowpass_hz"] == 6_500
 
 
-def test_phone_on_table_has_high_shelf():
-    assert _PROFILES["phone_on_table"]["high_shelf_hz"] is not None
+def test_phone_on_table_has_extra_lowpass():
+    assert _PROFILES["phone_on_table"]["extra_lowpass_hz"] is not None
 
 
 def test_presence_boost_increases_midband_energy():
-    """Presence boost should increase energy around 3 kHz."""
+    """Presence boost should increase energy around 3 kHz vs an identical profile without it."""
     profiler = DeviceProfiler()
     samples = _make_samples()
 
-    # Compare phone_in_hand (with boost) vs a profile without boost
-    out_hand = profiler.apply(samples, _SR, "phone_in_hand")
-
-    # Measure energy in the presence band (2.5-3.5 kHz)
-    presence_power_hand = _power_in_band(out_hand, _SR, 2500, 3500)
-    total_power_hand = _power_in_band(out_hand, _SR, 0, _SR / 2)
-
-    # The presence band should represent a meaningful fraction of energy
-    assert presence_power_hand > 0.0
-    if total_power_hand > 0:
-        assert presence_power_hand / total_power_hand > 0.01
-
-
-def test_high_shelf_attenuates_above_cutoff():
-    """High shelf at 6.5 kHz should reduce energy above 7 kHz."""
-    profiler = DeviceProfiler()
-    samples = _make_samples()
-
-    # Apply only high shelf via a custom profile
-    shelf_profile = {
+    boosted_profile = {
         "highpass_hz": 0,
         "lowpass_hz": 8_000,
-        "presence_boost": None,
-        "high_shelf_hz": 6_500,
+        "presence_boost": (3_000, 3.0, 1.5),
+        "extra_lowpass_hz": None,
         "hum_hz": None,
         "hum_dbfs": None,
         "level_db": 0.0,
     }
-    no_shelf_profile = {
+    flat_profile = {
         "highpass_hz": 0,
         "lowpass_hz": 8_000,
         "presence_boost": None,
-        "high_shelf_hz": None,
+        "extra_lowpass_hz": None,
         "hum_hz": None,
         "hum_dbfs": None,
         "level_db": 0.0,
     }
     with patch.dict(
         "synthbanshee.augment.device_profiles._PROFILES",
-        {"with_shelf": shelf_profile, "no_shelf": no_shelf_profile},
+        {"boosted": boosted_profile, "flat": flat_profile},
     ):
-        out_shelf = profiler.apply(samples, _SR, "with_shelf")
-        out_no_shelf = profiler.apply(samples, _SR, "no_shelf")
+        out_boosted = profiler.apply(samples, _SR, "boosted")
+        out_flat = profiler.apply(samples, _SR, "flat")
 
-    hi_power_shelf = _power_in_band(out_shelf, _SR, 7000, 8000)
-    hi_power_no_shelf = _power_in_band(out_no_shelf, _SR, 7000, 8000)
-    assert hi_power_shelf < hi_power_no_shelf
+    presence_boosted = _power_in_band(out_boosted, _SR, 2500, 3500)
+    presence_flat = _power_in_band(out_flat, _SR, 2500, 3500)
+    assert presence_boosted > presence_flat
+
+
+def test_extra_lowpass_attenuates_above_cutoff():
+    """Extra low-pass at 6.5 kHz should reduce energy above 7 kHz."""
+    profiler = DeviceProfiler()
+    samples = _make_samples()
+
+    # Apply only extra low-pass via a custom profile
+    with_lp_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": 6_500,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    no_lp_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": None,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    with patch.dict(
+        "synthbanshee.augment.device_profiles._PROFILES",
+        {"with_lp": with_lp_profile, "no_lp": no_lp_profile},
+    ):
+        out_with = profiler.apply(samples, _SR, "with_lp")
+        out_without = profiler.apply(samples, _SR, "no_lp")
+
+    hi_power_with = _power_in_band(out_with, _SR, 7000, 8000)
+    hi_power_without = _power_in_band(out_without, _SR, 7000, 8000)
+    assert hi_power_with < hi_power_without

@@ -8,7 +8,7 @@ from typing import Annotated, Any
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-_VALID_ROOM_TYPES = {
+VALID_ROOM_TYPES = {
     "small_bedroom",
     "apartment_kitchen",
     "living_room",
@@ -17,7 +17,7 @@ _VALID_ROOM_TYPES = {
     "open_office_corridor",
 }
 
-_VALID_DEVICES = {
+VALID_DEVICES = {
     "phone_in_hand",
     "phone_in_pocket",
     "phone_on_table",
@@ -67,15 +67,15 @@ class AcousticSceneConfig(BaseModel):
     @field_validator("room_type")
     @classmethod
     def valid_room_type(cls, v: str) -> str:
-        if v not in _VALID_ROOM_TYPES:
-            raise ValueError(f"Unknown room_type {v!r}. Valid: {sorted(_VALID_ROOM_TYPES)}")
+        if v not in VALID_ROOM_TYPES:
+            raise ValueError(f"Unknown room_type {v!r}. Valid: {sorted(VALID_ROOM_TYPES)}")
         return v
 
     @field_validator("device")
     @classmethod
     def valid_device(cls, v: str) -> str:
-        if v not in _VALID_DEVICES:
-            raise ValueError(f"Unknown device {v!r}. Valid: {sorted(_VALID_DEVICES)}")
+        if v not in VALID_DEVICES:
+            raise ValueError(f"Unknown device {v!r}. Valid: {sorted(VALID_DEVICES)}")
         return v
 
     @field_validator("rt60_range")
