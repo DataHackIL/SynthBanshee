@@ -218,9 +218,85 @@ class TestWordBoundaryBreaks:
         # All words must appear
         for word in text.split():
             assert word in ssml, f"word {word!r} missing from SSML"
-        # Word breaks: 1 (before1-before2) + 1 (phrase1-phrase2) + 1 (after1-after2) = 3
-        # Plus the trailing space before the phrase may or may not add one.
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') >= 3
+        # Exact break count: 1 (before1↔before2) + 1 (phrase1↔phrase2
+        # inside <prosody>) + 1 (after1↔after2) = 3 word-boundary breaks.
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 3
+
+    def test_hebrew_multi_word_text_has_breaks(self):
+        """Hebrew multi-word text must produce inter-word <break> elements."""
+        # Reproduces the core scenario from issue #62.
+        utt = UtteranceSpec(
+            text="\u05d4\u05d9\u05d9, \u05d7\u05e9\u05d1\u05ea\u05d9",
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt)
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
+        # Both tokens must survive serialization intact.
+        assert "\u05d4\u05d9\u05d9," in ssml
+        assert "\u05d7\u05e9\u05d1\u05ea\u05d9" in ssml
+
+    def test_hebrew_with_niqqud_preserved(self):
+        """Niqqud-bearing Hebrew words must not be corrupted by break injection."""
+        # Two words, the first with niqqud (shin + shva + lamed + dagesh).
+        text = "\u05e9\u05b0\u05dc\u05d5\u05bc\u05dd \u05e2\u05d5\u05dc\u05dd"
+        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
+        ssml = self.builder.build_single(utt)
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
+        assert "\u05e9\u05b0\u05dc\u05d5\u05bc\u05dd" in ssml
+        assert "\u05e2\u05d5\u05dc\u05dd" in ssml
+
+    def test_text_roundtrip_preserves_content(self):
+        """Serialise → parse → extract text: all content must match the input."""
+        import xml.etree.ElementTree as ET
+
+        text = "one two three four"
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt)
+        root = ET.fromstring(self._body(ssml))
+
+        # Walk the tree and collect every text/tail fragment.
+        fragments: list[str] = []
+
+        def _collect(el: ET.Element) -> None:
+            if el.text:
+                fragments.append(el.text)
+            for child in el:
+                _collect(child)
+                if child.tail:
+                    fragments.append(child.tail)
+
+        _collect(root)
+        recovered = "".join(fragments)
+        # Recovered text (ignoring break elements) must equal the original.
+        assert recovered == text
+
+    def test_hebrew_text_roundtrip(self):
+        """Hebrew content must survive the SSML serialise → parse roundtrip."""
+        import xml.etree.ElementTree as ET
+
+        text = (
+            "\u05d0\u05d2\u05d1 \u05e0\u05d9\u05e1\u05d9\u05ea\u05d9"
+            " \u05dc\u05d3\u05d1\u05e8 \u05d0\u05d9\u05ea\u05da"
+        )
+        utt = UtteranceSpec(text=text, voice_id="he-IL-HilaNeural")
+        ssml = self.builder.build_single(utt)
+        root = ET.fromstring(self._body(ssml))
+
+        fragments: list[str] = []
+
+        def _collect(el: ET.Element) -> None:
+            if el.text:
+                fragments.append(el.text)
+            for child in el:
+                _collect(child)
+                if child.tail:
+                    fragments.append(child.tail)
+
+        _collect(root)
+        assert "".join(fragments) == text
 
     def test_xml_well_formed_with_breaks(self):
         """SSML with word breaks must remain valid XML."""

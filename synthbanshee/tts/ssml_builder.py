@@ -24,8 +24,10 @@ _AZURE_XMLNS = "http://www.w3.org/2001/10/synthesis"
 _MSTTS_XMLNS = "http://www.w3.org/2001/mstts"
 _SPEAK_LANG = "he-IL"
 
-# Inter-word break duration in milliseconds.  50 ms is enough to signal a
-# word boundary to Azure / Google he-IL without introducing an audible pause.
+# Inter-word break duration in milliseconds.  50 ms is the initial estimate
+# for signalling a word boundary to Azure / Google he-IL without introducing
+# an audible pause.  This value needs empirical validation with real TTS
+# output — it may need per-provider tuning if engines respond differently.
 _WORD_BREAK_MS = 50
 
 
