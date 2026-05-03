@@ -200,6 +200,7 @@ def _run_generate_pipeline(
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
     project_profile: ProjectProfile | None = None,
+    enable_breathiness: bool = False,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
@@ -323,6 +324,38 @@ def _run_generate_pipeline(
         return None, [f"TTS render error: {exc}"]
 
     vlog(f"  [dim]scene mixed: {mixed.duration_s:.1f} s[/dim]")
+
+    # M12: Apply breathiness augmentation to VIC turns before preprocessing.
+    # Applied here (before preprocess) so that the peak limiter in preprocess()
+    # guarantees the final WAV stays ≤ −1.0 dBFS.
+    _breathiness_was_applied = False
+    if enable_breathiness:
+        from synthbanshee.augment.voice_texture import add_breathiness
+        from synthbanshee.tts.speaker_state import SpeakerState as _BrState
+
+        # Replay breathiness drift to compute per-turn levels.
+        _br_states: dict[str, _BrState] = {
+            sid: _BrState(compute_breathiness=True) for sid in speakers
+        }
+        for i, turn in enumerate(turns):
+            spk = speakers.get(turn.speaker_id)
+            role = spk.role if spk else "UNK"
+            _br_states[turn.speaker_id].update(turn.intensity, role)
+
+            level = _br_states[turn.speaker_id].breathiness_level
+            if level > 0.01 and i < len(mixed.turn_onsets_s):
+                onset_sample = int(mixed.turn_onsets_s[i] * mixed.sample_rate)
+                offset_sample = int(mixed.turn_offsets_s[i] * mixed.sample_rate)
+                offset_sample = min(offset_sample, len(mixed.samples))
+                if offset_sample > onset_sample:
+                    segment = mixed.samples[onset_sample:offset_sample]
+                    mixed.samples[onset_sample:offset_sample] = add_breathiness(
+                        segment, mixed.sample_rate, level, rng_seed=scene.random_seed + i
+                    )
+                    _breathiness_was_applied = True
+
+        if _breathiness_was_applied:
+            vlog("  [dim]M12: breathiness applied to VIC turns[/dim]")
 
     # Stage 3a — Preprocessing
     vlog("[bold]Stage 3a[/bold] — Preprocessing")
@@ -607,7 +640,7 @@ def _run_generate_pipeline(
         voice_family=_voices_map,
         mix_mode_used=_dominant_mix_mode,
         normalization_strategy="per_turn_rms_v1",
-        breathiness_applied=False,
+        breathiness_applied=_breathiness_was_applied,
         speaker_state_serialized=_speaker_states,
     )
 
@@ -952,6 +985,7 @@ def _render_one(
     verbose: bool = False,
     speaker_overrides: dict[str, str] | None = None,
     project_profile: ProjectProfile | None = None,
+    enable_breathiness: bool = False,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -978,6 +1012,7 @@ def _render_one(
             verbose=verbose,
             speaker_overrides=speaker_overrides,
             project_profile=project_profile,
+            enable_breathiness=enable_breathiness,
         )
         if wav_path is not None:
             return wav_path, messages
@@ -1193,6 +1228,7 @@ def generate_batch(
                     verbose=verbose,
                     speaker_overrides=speaker_override_map.get(scene_yaml),
                     project_profile=profile,
+                    enable_breathiness=run_cfg.enable_breathiness,
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -1226,6 +1262,7 @@ def generate_batch(
                         verbose,
                         speaker_override_map.get(scene_yaml),
                         profile,
+                        run_cfg.enable_breathiness,
                     ): scene_yaml
                     for scene_yaml in selected_paths
                 }

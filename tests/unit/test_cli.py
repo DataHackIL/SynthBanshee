@@ -1182,6 +1182,7 @@ class TestGenerateBatchAdvanced:
             verbose=False,
             speaker_overrides=None,
             project_profile=None,
+            enable_breathiness=False,
         ):
             call_count[0] += 1
             if call_count[0] == 1:
