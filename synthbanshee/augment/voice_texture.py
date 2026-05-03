@@ -1,6 +1,6 @@
 """Experimental voice texture augmentation — VIC breathiness (M12).
 
-Applies bandpass-filtered noise (3–8 kHz) to VIC speaker turns at
+Applies bandpass-filtered noise (3–7.5 kHz) to VIC speaker turns at
 intensity I3–I5, reducing HNR (harmonic-to-noise ratio) to simulate
 vocal strain / distress phonation.
 
@@ -15,16 +15,18 @@ from __future__ import annotations
 import numpy as np
 from scipy.signal import butter, sosfilt
 
-# Breathiness noise band: 2–7 kHz (aspiration noise band for breathy voice).
-# Upper edge must be below Nyquist (8 kHz at 16 kHz sample rate).
-_BAND_LO_HZ: float = 2000.0
-_BAND_HI_HZ: float = 7000.0
+# Breathiness noise band: 3–7.5 kHz (aspiration noise band for breathy voice).
+# Spec recommends 3–8 kHz; upper edge reduced to 7.5 kHz to maintain margin
+# below Nyquist at 16 kHz sample rate (Nyquist = 8 kHz).
+_BAND_LO_HZ: float = 3000.0
+_BAND_HI_HZ: float = 7500.0
 
 # Butterworth filter order for the bandpass
 _FILTER_ORDER: int = 4
 
 # Maximum noise gain (at level=1.0) relative to signal RMS.
-# Kept conservative to avoid artifact dominance.
+# Targets ~4 dB HNR reduction (12×log₁₀(1.25) ≈ 4 dB).
+# Tuning expected during listening-test gate (§8.3).
 _MAX_NOISE_GAIN: float = 0.25
 
 
@@ -37,7 +39,7 @@ def add_breathiness(
 ) -> np.ndarray:
     """Add bandpass-filtered noise to simulate breathy phonation.
 
-    Mixes white noise filtered to the 3–8 kHz aspiration band into the
+    Mixes white noise filtered to the 3–7.5 kHz aspiration band into the
     input signal.  The noise amplitude scales linearly with *level* up to
     ``_MAX_NOISE_GAIN`` × signal RMS.
 

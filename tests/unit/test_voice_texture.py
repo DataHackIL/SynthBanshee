@@ -121,17 +121,17 @@ class TestSpeakerStateIntegration:
     def test_vic_i3_sets_breathiness(self) -> None:
         from synthbanshee.tts.speaker_state import SpeakerState
 
-        state = SpeakerState()
+        state = SpeakerState(compute_breathiness=True)
         state.update(3, "VIC")
         assert state.breathiness_level > 0.0
 
     def test_vic_i5_higher_than_i3(self) -> None:
         from synthbanshee.tts.speaker_state import SpeakerState
 
-        state_i3 = SpeakerState()
+        state_i3 = SpeakerState(compute_breathiness=True)
         state_i3.update(3, "VIC")
 
-        state_i5 = SpeakerState()
+        state_i5 = SpeakerState(compute_breathiness=True)
         state_i5.update(5, "VIC")
 
         assert state_i5.breathiness_level > state_i3.breathiness_level
@@ -139,25 +139,32 @@ class TestSpeakerStateIntegration:
     def test_vic_i1_does_not_set_breathiness(self) -> None:
         from synthbanshee.tts.speaker_state import SpeakerState
 
-        state = SpeakerState()
+        state = SpeakerState(compute_breathiness=True)
         state.update(1, "VIC")
         assert state.breathiness_level == 0.0
 
     def test_agg_does_not_set_breathiness(self) -> None:
         from synthbanshee.tts.speaker_state import SpeakerState
 
-        state = SpeakerState()
+        state = SpeakerState(compute_breathiness=True)
         state.update(5, "AGG")
         assert state.breathiness_level == 0.0
 
     def test_breathiness_decays_on_deescalation(self) -> None:
         from synthbanshee.tts.speaker_state import SpeakerState
 
-        state = SpeakerState()
+        state = SpeakerState(compute_breathiness=True)
         state.update(5, "VIC")
         high_level = state.breathiness_level
         state.update(1, "VIC")
         assert state.breathiness_level < high_level
+
+    def test_breathiness_not_computed_when_disabled(self) -> None:
+        from synthbanshee.tts.speaker_state import SpeakerState
+
+        state = SpeakerState(compute_breathiness=False)
+        state.update(5, "VIC")
+        assert state.breathiness_level == 0.0
 
 
 # ---------------------------------------------------------------------------

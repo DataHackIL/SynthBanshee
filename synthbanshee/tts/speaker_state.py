@@ -52,6 +52,16 @@ _DRIFT_RATE_ESCALATE: float = 0.60
 # Fraction closed per turn when intensity drops (decay).
 _DRIFT_RATE_DECAY: float = 0.30
 
+# M12: VIC breathiness targets by intensity.  Only I3–I5 produce non-zero
+# breathiness; I1–I2 map to 0.0 (modal voice).
+_VIC_BREATHINESS_TARGETS: dict[int, float] = {
+    1: 0.0,
+    2: 0.0,
+    3: 0.33,
+    4: 0.67,
+    5: 1.0,
+}
+
 # M15: Maximum unexplained F0 drift (semitones) across a clip.
 # Research consensus (wiki/topics/research-synthesis.md line 76):
 # reject if accumulated pitch drift exceeds this bound.
@@ -87,16 +97,20 @@ class SpeakerState:
             ``StyleEntry.pitch_delta_st``.  Starts at 0.0.
         volume_offset_db: Additive dB shift on top of
             ``StyleEntry.volume_delta_db``.  Starts at 0.0.
-        breathiness_level: Reserved for M12 breathiness processing.
-            0.0 = modal voice; 1.0 = maximum breathiness.  Not applied by
-            M7 — stored here so M12 can wire it without a schema change.
+        compute_breathiness: If True, update() computes breathiness_level
+            for VIC turns at I3–I5 (M12).  Disabled by default; set True
+            when ``RunConfig.enable_breathiness`` is active.
+        breathiness_level: M12 breathiness processing level.
+            0.0 = modal voice; 1.0 = maximum breathiness.  Only computed
+            when compute_breathiness=True.
     """
 
     intensity_history: list[int] = field(default_factory=list)
     rate_offset: float = 1.0
     pitch_offset_st: float = 0.0
     volume_offset_db: float = 0.0
-    breathiness_level: float = 0.0  # reserved for M12
+    compute_breathiness: bool = False
+    breathiness_level: float = 0.0
 
     def update(self, new_intensity: int, speaker_role: str) -> None:
         """Drift state toward the target for *new_intensity* and *speaker_role*.
@@ -121,14 +135,11 @@ class SpeakerState:
         self.pitch_offset_st += drift * (t_pitch - self.pitch_offset_st)
         self.volume_offset_db += drift * (t_vol - self.volume_offset_db)
 
-        # M12: Set breathiness level for VIC at I3–I5 (scaled 0.0–1.0).
-        if speaker_role == "VIC" and new_intensity >= 3:
-            # Map I3→0.3, I4→0.6, I5→1.0
-            target_breathiness = (new_intensity - 2) / 3.0
-            self.breathiness_level += drift * (target_breathiness - self.breathiness_level)
-        else:
-            # Decay breathiness toward 0 for non-VIC or low intensity
-            self.breathiness_level += drift * (0.0 - self.breathiness_level)
+        # M12: Drift breathiness level for VIC at I3–I5.
+        # Skipped entirely when compute_breathiness=False (zero cost path).
+        if self.compute_breathiness:
+            target = _VIC_BREATHINESS_TARGETS[new_intensity] if speaker_role == "VIC" else 0.0
+            self.breathiness_level += drift * (target - self.breathiness_level)
 
     @property
     def f0_drift_exceeded(self) -> bool:
