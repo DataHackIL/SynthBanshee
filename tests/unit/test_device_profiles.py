@@ -30,7 +30,15 @@ def test_all_expected_devices_present():
 
 
 def test_profile_keys_complete():
-    required = {"highpass_hz", "lowpass_hz", "hum_hz", "hum_dbfs", "level_db"}
+    required = {
+        "highpass_hz",
+        "lowpass_hz",
+        "presence_boost",
+        "extra_lowpass_hz",
+        "hum_hz",
+        "hum_dbfs",
+        "level_db",
+    }
     for device, profile in _PROFILES.items():
         assert required.issubset(profile.keys()), f"{device} missing keys"
 
@@ -167,6 +175,8 @@ def test_highpass_skipped_when_hz_is_zero():
     fake_profile = {
         "highpass_hz": 0,
         "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": None,
         "hum_hz": None,
         "hum_dbfs": None,
         "level_db": 0.0,
@@ -175,3 +185,111 @@ def test_highpass_skipped_when_hz_is_zero():
         out = profiler.apply(_make_samples(), _SR, "zero_hp")
     assert out.shape == (_N,)
     assert out.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# M16: Presence boost and extra low-pass tests
+# ---------------------------------------------------------------------------
+
+
+def test_phone_in_hand_has_presence_boost():
+    assert _PROFILES["phone_in_hand"]["presence_boost"] is not None
+    centre_hz, gain_db, q = _PROFILES["phone_in_hand"]["presence_boost"]
+    assert 2_500 <= centre_hz <= 3_500
+    assert 2.0 <= gain_db <= 4.0
+    assert q > 0
+
+
+def test_phone_on_table_has_presence_boost():
+    assert _PROFILES["phone_on_table"]["presence_boost"] is not None
+    centre_hz, gain_db, q = _PROFILES["phone_on_table"]["presence_boost"]
+    assert 2_500 <= centre_hz <= 3_500
+    assert 2.0 <= gain_db <= 4.0
+
+
+def test_phone_in_pocket_no_presence_boost():
+    assert _PROFILES["phone_in_pocket"]["presence_boost"] is None
+
+
+def test_pi_budget_mic_no_presence_boost():
+    assert _PROFILES["pi_budget_mic"]["presence_boost"] is None
+
+
+def test_phone_in_hand_has_extra_lowpass():
+    assert _PROFILES["phone_in_hand"]["extra_lowpass_hz"] is not None
+    assert _PROFILES["phone_in_hand"]["extra_lowpass_hz"] == 6_500
+
+
+def test_phone_on_table_has_extra_lowpass():
+    assert _PROFILES["phone_on_table"]["extra_lowpass_hz"] is not None
+
+
+def test_presence_boost_increases_midband_energy():
+    """Presence boost should increase energy around 3 kHz vs an identical profile without it."""
+    profiler = DeviceProfiler()
+    samples = _make_samples()
+
+    boosted_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": (3_000, 3.0, 1.5),
+        "extra_lowpass_hz": None,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    flat_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": None,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    with patch.dict(
+        "synthbanshee.augment.device_profiles._PROFILES",
+        {"boosted": boosted_profile, "flat": flat_profile},
+    ):
+        out_boosted = profiler.apply(samples, _SR, "boosted")
+        out_flat = profiler.apply(samples, _SR, "flat")
+
+    presence_boosted = _power_in_band(out_boosted, _SR, 2500, 3500)
+    presence_flat = _power_in_band(out_flat, _SR, 2500, 3500)
+    assert presence_boosted > presence_flat
+
+
+def test_extra_lowpass_attenuates_above_cutoff():
+    """Extra low-pass at 6.5 kHz should reduce energy above 7 kHz."""
+    profiler = DeviceProfiler()
+    samples = _make_samples()
+
+    # Apply only extra low-pass via a custom profile
+    with_lp_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": 6_500,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    no_lp_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "extra_lowpass_hz": None,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    with patch.dict(
+        "synthbanshee.augment.device_profiles._PROFILES",
+        {"with_lp": with_lp_profile, "no_lp": no_lp_profile},
+    ):
+        out_with = profiler.apply(samples, _SR, "with_lp")
+        out_without = profiler.apply(samples, _SR, "no_lp")
+
+    hi_power_with = _power_in_band(out_with, _SR, 7000, 8000)
+    hi_power_without = _power_in_band(out_without, _SR, 7000, 8000)
+    assert hi_power_with < hi_power_without

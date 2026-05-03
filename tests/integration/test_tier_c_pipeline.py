@@ -75,22 +75,31 @@ def _build_aug_audio(mixed, pad_s: float = 0.5) -> np.ndarray:
 
 class TestTierCPipeline:
     def _run(self, tmp_path: Path):
+        from synthbanshee.augment.types import AugmentationResult
+
         mixed = _make_mixed_scene()
         turns = _make_dialogue_turns()
         aug_audio = _build_aug_audio(mixed)
 
+        aug_result = AugmentationResult(
+            samples=aug_audio,
+            sample_rate=16_000,
+            room_type="apartment_kitchen",
+            device="phone_on_table",
+            ir_source="pyroomacoustics_ism",
+            speaker_distance_meters=1.5,
+            snr_db_actual=17.0,
+            events=[],
+        )
+
         with (
             patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
             patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
-            patch("synthbanshee.augment.room_sim.RoomSimulator") as MockRoom,
-            patch("synthbanshee.augment.device_profiles.DeviceProfiler") as MockDevice,
-            patch("synthbanshee.augment.noise_mixer.NoiseMixer") as MockMixer,
+            patch("synthbanshee.augment.pipeline.augment_scene") as MockAugScene,
         ):
             MockGen.return_value.generate.return_value = turns
             MockRenderer.return_value.render_scene.return_value = mixed
-            MockRoom.return_value.apply.return_value = aug_audio
-            MockDevice.return_value.apply.return_value = aug_audio
-            MockMixer.return_value.mix.return_value = (aug_audio, [], 17.0)
+            MockAugScene.return_value = aug_result
 
             return _run_generate_pipeline(
                 TIER_C_SCENE,

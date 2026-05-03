@@ -384,23 +384,17 @@ def _run_generate_pipeline(
             import numpy as _np
             import soundfile as _sf
 
-            from synthbanshee.augment.device_profiles import DeviceProfiler
-            from synthbanshee.augment.noise_mixer import NoiseMixer
-            from synthbanshee.augment.room_sim import RoomSimulator
+            from synthbanshee.augment.pipeline import augment_scene
             from synthbanshee.config.taxonomy import tier2_subtype_codes
             from synthbanshee.labels.schema import ClipAcousticScene
 
             audio_data, audio_sr = _sf.read(str(clip_wav), dtype="float32", always_2d=False)
             n_orig = len(audio_data)
-            reverbed = RoomSimulator().apply(
+
+            aug_result = augment_scene(
                 audio_data, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
             )
-            device_colored = DeviceProfiler().apply(
-                reverbed, audio_sr, scene.acoustic_scene.device, rng_seed=scene.random_seed
-            )
-            aug_samples, aug_events, snr_actual = NoiseMixer().mix(
-                device_colored, audio_sr, scene.acoustic_scene, rng_seed=scene.random_seed
-            )
+            aug_samples = aug_result.samples
 
             # Enforce exact length match with the input WAV so metadata.duration_seconds
             # and transcript timings remain consistent after the write-back.
@@ -426,11 +420,11 @@ def _run_generate_pipeline(
             _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
 
             acoustic_scene_meta = ClipAcousticScene(
-                room_type=scene.acoustic_scene.room_type,
-                device=scene.acoustic_scene.device,
-                ir_source=scene.acoustic_scene.ir_source,
-                speaker_distance_meters=scene.acoustic_scene.speaker_distance_meters,
-                snr_db_actual=round(snr_actual, 2),
+                room_type=aug_result.room_type,
+                device=aug_result.device,
+                ir_source=aug_result.ir_source,
+                speaker_distance_meters=aug_result.speaker_distance_meters,
+                snr_db_actual=round(aug_result.snr_db_actual, 2),
                 background_events=[
                     {
                         "type": ev.type,
@@ -438,7 +432,7 @@ def _run_generate_pipeline(
                         "offset": round(ev.offset_s, 3),
                         "level_db": round(ev.level_db, 1),
                     }
-                    for ev in aug_events
+                    for ev in aug_result.events
                 ],
             )
             # Keep foreground ACOU_* SFX that are valid taxonomy tier2 codes.
@@ -446,7 +440,9 @@ def _run_generate_pipeline(
             # crashing label generation with a cryptic validation error.
             _valid_tier2 = tier2_subtype_codes()
             _aug_acou_events = [
-                ev for ev in aug_events if ev.type.startswith("ACOU_") and ev.type in _valid_tier2
+                ev
+                for ev in aug_result.events
+                if ev.type.startswith("ACOU_") and ev.type in _valid_tier2
             ]
         except Exception as exc:
             return None, [f"Acoustic augmentation error: {exc}"]
