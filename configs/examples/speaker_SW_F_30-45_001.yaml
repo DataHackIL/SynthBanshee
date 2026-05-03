@@ -21,7 +21,7 @@ style_map:
   1:                                # Routine intake — calm, professional
     style: "General"
     rate_multiplier: 1.0            # M15: consensus Calm [-6%,+2%]; variant: professional pace
-    pitch_delta_st: -1              # M15: female pitch -3% to +2%; variant: near neutral
+    pitch_delta_st: 0               # #64: was -1 (=-6%); capped to consensus range (-3% to +2%)
     volume_delta_db: 0
     rms_target_dbfs: -26            # M3: professional baseline level
   2:                                # Slight tension — still professional, firmer tone
@@ -45,7 +45,7 @@ style_map:
   5:                                # Attack — panic, screaming for help
     style: "General"
     rate_multiplier: 1.12           # M15: consensus Shouting [+8%,+15%]; variant: high panic
-    pitch_delta_st: +3              # #64: was +5 (=30%); reduced to ~18% (consensus 4–10%)
+    pitch_delta_st: +2              # #64: was +5 (=30%); reduced to ~12% (consensus 4–10%)
     volume_delta_db: +8
     rms_target_dbfs: -30            # M3: panic cry often perceived quieter than aggressor
 

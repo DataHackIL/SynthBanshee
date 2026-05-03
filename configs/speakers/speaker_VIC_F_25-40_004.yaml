@@ -48,7 +48,7 @@ style_map:
   5:
     style: "General"
     rate_multiplier: 1.06           # M15: consensus Shouting; variant: panic
-    pitch_delta_st: +3              # #64: was +6 (=36%); reduced to ~18% (consensus 4–10%)
+    pitch_delta_st: +2              # #64: was +6 (=36%); reduced to ~12% (consensus 4–10%)
     volume_delta_db: +7
     rms_target_dbfs: -30
 

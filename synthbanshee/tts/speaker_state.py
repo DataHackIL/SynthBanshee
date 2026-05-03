@@ -145,7 +145,7 @@ class SpeakerState:
     def f0_drift_exceeded(self) -> bool:
         """Return True if accumulated pitch drift exceeds the M15 bound.
 
-        The bound (``MAX_F0_DRIFT_ST``) limits unexplained F0 drift to 2.0
+        The bound (``MAX_F0_DRIFT_ST``) limits unexplained F0 drift to 1.5
         semitones across a clip, as recommended by the research synthesis
         (wiki/topics/research-synthesis.md line 76).
         """

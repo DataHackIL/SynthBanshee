@@ -27,7 +27,7 @@ prosody_baseline:
 
 # --- Style / emotional range ---
 # Google does not support <mstts:express-as>; style field is metadata only.
-# M2a: VIC pitch lowered to adult range (-4 → -1 st across I1 → I5).
+# #64: VIC pitch recalibrated to consensus range (0 → +2 st across I1 → I5).
 style_map:
   1:
     style: "General"
@@ -56,7 +56,7 @@ style_map:
   5:
     style: "General"
     rate_multiplier: 1.08           # M15: consensus Shouting; variant: higher panic speed
-    pitch_delta_st: +3              # #64: was +5 (=30%); reduced to ~18% (consensus 4–10%)
+    pitch_delta_st: +2              # #64: was +5 (=30%); reduced to ~12% (consensus 4–10%)
     volume_delta_db: +6
     rms_target_dbfs: -30
 
