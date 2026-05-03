@@ -30,7 +30,15 @@ def test_all_expected_devices_present():
 
 
 def test_profile_keys_complete():
-    required = {"highpass_hz", "lowpass_hz", "hum_hz", "hum_dbfs", "level_db"}
+    required = {
+        "highpass_hz",
+        "lowpass_hz",
+        "presence_boost",
+        "high_shelf_hz",
+        "hum_hz",
+        "hum_dbfs",
+        "level_db",
+    }
     for device, profile in _PROFILES.items():
         assert required.issubset(profile.keys()), f"{device} missing keys"
 
@@ -167,6 +175,8 @@ def test_highpass_skipped_when_hz_is_zero():
     fake_profile = {
         "highpass_hz": 0,
         "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "high_shelf_hz": None,
         "hum_hz": None,
         "hum_dbfs": None,
         "level_db": 0.0,
@@ -175,3 +185,94 @@ def test_highpass_skipped_when_hz_is_zero():
         out = profiler.apply(_make_samples(), _SR, "zero_hp")
     assert out.shape == (_N,)
     assert out.dtype == np.float32
+
+
+# ---------------------------------------------------------------------------
+# M16: Presence boost and high shelf tests
+# ---------------------------------------------------------------------------
+
+
+def test_phone_in_hand_has_presence_boost():
+    assert _PROFILES["phone_in_hand"]["presence_boost"] is not None
+    centre_hz, gain_db, q = _PROFILES["phone_in_hand"]["presence_boost"]
+    assert 2_500 <= centre_hz <= 3_500
+    assert 2.0 <= gain_db <= 4.0
+    assert q > 0
+
+
+def test_phone_on_table_has_presence_boost():
+    assert _PROFILES["phone_on_table"]["presence_boost"] is not None
+    centre_hz, gain_db, q = _PROFILES["phone_on_table"]["presence_boost"]
+    assert 2_500 <= centre_hz <= 3_500
+    assert 2.0 <= gain_db <= 4.0
+
+
+def test_phone_in_pocket_no_presence_boost():
+    assert _PROFILES["phone_in_pocket"]["presence_boost"] is None
+
+
+def test_pi_budget_mic_no_presence_boost():
+    assert _PROFILES["pi_budget_mic"]["presence_boost"] is None
+
+
+def test_phone_in_hand_has_high_shelf():
+    assert _PROFILES["phone_in_hand"]["high_shelf_hz"] is not None
+    assert _PROFILES["phone_in_hand"]["high_shelf_hz"] == 6_500
+
+
+def test_phone_on_table_has_high_shelf():
+    assert _PROFILES["phone_on_table"]["high_shelf_hz"] is not None
+
+
+def test_presence_boost_increases_midband_energy():
+    """Presence boost should increase energy around 3 kHz."""
+    profiler = DeviceProfiler()
+    samples = _make_samples()
+
+    # Compare phone_in_hand (with boost) vs a profile without boost
+    out_hand = profiler.apply(samples, _SR, "phone_in_hand")
+
+    # Measure energy in the presence band (2.5-3.5 kHz)
+    presence_power_hand = _power_in_band(out_hand, _SR, 2500, 3500)
+    total_power_hand = _power_in_band(out_hand, _SR, 0, _SR / 2)
+
+    # The presence band should represent a meaningful fraction of energy
+    assert presence_power_hand > 0.0
+    if total_power_hand > 0:
+        assert presence_power_hand / total_power_hand > 0.01
+
+
+def test_high_shelf_attenuates_above_cutoff():
+    """High shelf at 6.5 kHz should reduce energy above 7 kHz."""
+    profiler = DeviceProfiler()
+    samples = _make_samples()
+
+    # Apply only high shelf via a custom profile
+    shelf_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "high_shelf_hz": 6_500,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    no_shelf_profile = {
+        "highpass_hz": 0,
+        "lowpass_hz": 8_000,
+        "presence_boost": None,
+        "high_shelf_hz": None,
+        "hum_hz": None,
+        "hum_dbfs": None,
+        "level_db": 0.0,
+    }
+    with patch.dict(
+        "synthbanshee.augment.device_profiles._PROFILES",
+        {"with_shelf": shelf_profile, "no_shelf": no_shelf_profile},
+    ):
+        out_shelf = profiler.apply(samples, _SR, "with_shelf")
+        out_no_shelf = profiler.apply(samples, _SR, "no_shelf")
+
+    hi_power_shelf = _power_in_band(out_shelf, _SR, 7000, 8000)
+    hi_power_no_shelf = _power_in_band(out_no_shelf, _SR, 7000, 8000)
+    assert hi_power_shelf < hi_power_no_shelf

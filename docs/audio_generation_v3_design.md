@@ -51,7 +51,7 @@ All P0–P2 work is tracked here. Milestones that span multiple PRs are listed o
 | **M13** | P2 | ✅ Done | She-Proves / Elephant generate audio appropriate to their distinct acoustic regimes | `project_profile` field in `RunConfig`; gap, overlap probability, loudness targets, preprocessing config, and augmentation config all carry project-specific defaults; two profile YAML files in `configs/run_configs/`; new profiles addable without code changes | Small | No |
 | **M14** | P0 | ✅ Done | Fixes muffled audio, click artifacts, and voice identity shifts | Replace 7.5 kHz LPF with 80 Hz HPF in `preprocessing.py`; default `wiener_denoise=False` in `PreprocessingConfig`; add 10ms (160 sample) edge fades at turn boundaries in `mixer.py`; set `supports_style_tags=False` in `AzureProvider` capabilities (disables `express-as` for he-IL voices); update unit tests | Small | No |
 | **M15** | P1 | ✅ Done | Tunes SSML prosody to research-validated Hebrew parameters | Update `style_map` values in speaker YAMLs per research consensus table (rate, pitch, volume, F0 range by intensity); update `SpeakerState` drift bounds (max 2.0 st unexplained drift); add turn-level quality gates: sustained-vowel detection (>2.8 s reject), F0 guardrails (male [80,180] Hz, female [150,290] Hz), click detection | Medium | No |
-| **M16** | P2 | 🔲 Not started | Adds realistic acoustic environments to Tier B clips | Implement `room_sim.py` with pyroomacoustics (RT60 0.25–0.7 s, shoebox rooms, phone-on-table early reflection model); implement `device_profiles.py` (phone EQ: 80 Hz HPF, presence boost +2–4 dB @ 2.5–3.5 kHz, gentle high shelf above 6.5 kHz); implement `noise_mixer.py` (SNR distribution: 50% 18–30 dB, 30% 10–18 dB, 10% 5–10 dB, 10% 30–40 dB); optional codec simulation (Opus/AMR-NB) | Large | No |
+| **M16** | P2 | ✅ Done | Adds realistic acoustic environments to Tier B clips | Implement `room_sim.py` with pyroomacoustics (RT60 0.25–0.7 s, shoebox rooms, phone-on-table early reflection model); implement `device_profiles.py` (phone EQ: 80 Hz HPF, presence boost +2–4 dB @ 2.5–3.5 kHz, gentle high shelf above 6.5 kHz); implement `noise_mixer.py` (SNR distribution: 50% 18–30 dB, 30% 10–18 dB, 10% 5–10 dB, 10% 30–40 dB); optional codec simulation (Opus/AMR-NB) | Large | No |
 
 ---
 
@@ -72,7 +72,7 @@ The scripts, label taxonomy, pipeline stage decomposition, and cache system are 
 - **P1 (realism core):** Add stateful conversational dynamics; preserve escalation cues
 - **P2 (diversity and observability):** Widen voice diversity; harden QA; add release gates
 
-**V3.1 additions (2026-04-30, post-research):** Three new milestones (M14–M16) based on cross-referenced findings from three independent research reports on Hebrew synthetic speech naturalness (Gemini, GPT-5.2 thinking, GPT-5.5 Pro). See `wiki/topics/research-synthesis.md` for full parameter tables and citations. Original recommended order: M14 → M11 → M15 → M13 → M16 → M12. As of 2026-05-01, M14, M11, M15, and M13 are all merged; remaining: M16 (Tier B augmentation) and M12 (breathiness, gated).
+**V3.1 additions (2026-04-30, post-research):** Three new milestones (M14–M16) based on cross-referenced findings from three independent research reports on Hebrew synthetic speech naturalness (Gemini, GPT-5.2 thinking, GPT-5.5 Pro). See `wiki/topics/research-synthesis.md` for full parameter tables and citations. Original recommended order: M14 → M11 → M15 → M13 → M16 → M12. As of 2026-05-03, M14, M11, M15, M13, and M16 are all merged; remaining: M12 (breathiness, gated).
 
 ---
 
