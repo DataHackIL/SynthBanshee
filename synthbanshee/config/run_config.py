@@ -73,6 +73,7 @@ class RunConfig(BaseModel):
     max_retries: int = Field(default=3, ge=1)
     fail_fast: bool = False
     project_profile: str = "generic"
+    enable_breathiness: bool = False  # M12: experimental, gated on listening test (§8.3)
 
     @field_validator("project")
     @classmethod

@@ -6,6 +6,7 @@ from synthbanshee.augment.pipeline import augment_scene, generate_variant_config
 from synthbanshee.augment.preprocessing import PreprocessingResult, preprocess, validate_audio
 from synthbanshee.augment.room_sim import RoomSimulator
 from synthbanshee.augment.types import AugmentationResult, AugmentedEvent
+from synthbanshee.augment.voice_texture import add_breathiness
 
 __all__ = [
     "AugmentationResult",
@@ -14,6 +15,7 @@ __all__ = [
     "NoiseMixer",
     "PreprocessingResult",
     "RoomSimulator",
+    "add_breathiness",
     "augment_scene",
     "generate_variant_configs",
     "preprocess",

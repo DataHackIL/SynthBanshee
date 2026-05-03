@@ -121,6 +121,15 @@ class SpeakerState:
         self.pitch_offset_st += drift * (t_pitch - self.pitch_offset_st)
         self.volume_offset_db += drift * (t_vol - self.volume_offset_db)
 
+        # M12: Set breathiness level for VIC at I3–I5 (scaled 0.0–1.0).
+        if speaker_role == "VIC" and new_intensity >= 3:
+            # Map I3→0.3, I4→0.6, I5→1.0
+            target_breathiness = (new_intensity - 2) / 3.0
+            self.breathiness_level += drift * (target_breathiness - self.breathiness_level)
+        else:
+            # Decay breathiness toward 0 for non-VIC or low intensity
+            self.breathiness_level += drift * (0.0 - self.breathiness_level)
+
     @property
     def f0_drift_exceeded(self) -> bool:
         """Return True if accumulated pitch drift exceeds the M15 bound.
