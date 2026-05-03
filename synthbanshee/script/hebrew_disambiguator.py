@@ -5,8 +5,8 @@ unvocalized Hebrew second-person forms.  When the addressee gender is known
 from the scene config, we insert niqqud (Hebrew vowel diacritics) that force
 the TTS engine to produce the correct gendered pronunciation.
 
-Strategy: rule-based lexicon substitution keyed on **addressee gender** (for
-2nd-person forms) and **speaker gender** (for 1st-person forms).  Each lexicon
+Strategy: rule-based lexicon substitution keyed on **addressee gender** for
+2nd-person forms (pronouns, prepositions, past-tense verbs).  Each lexicon
 entry targets a surface form where the unvocalized consonant string is
 identical for masculine and feminine, and replaces it with a fully vocalized
 form that is phonetically unambiguous.
@@ -15,6 +15,12 @@ Only ``DialogueTurn.text_spoken`` is modified; the original LLM output
 (``DialogueTurn.text``) is preserved unchanged for auditing and caching.
 
 Reference: docs/audio_generation_v3_design.md §4.1, M1
+
+.. note:: Rule IDs changed in this version.
+
+   Feminine entries were renamed from ``POSS_SHEL`` to ``F2_POSS_SHEL`` (etc.)
+   to distinguish them from the new masculine ``M2_*`` entries.  Update any
+   log-analysis or dashboard filters that match on the old ID format.
 """
 
 from __future__ import annotations
@@ -36,12 +42,27 @@ class LexiconEntry(NamedTuple):
     surface: str  # unvocalized form to match in source text
     spoken_form: str  # niqqud-vocalized form for TTS; forces gendered reading
     target_gender: str  # "female" or "male" — the gender this form is correct for
-    person: str  # "2" = addressee-keyed, "1" = speaker-keyed
     description: str  # human-readable note
 
 
+class _AmbiguousForm(NamedTuple):
+    """Single source-of-truth entry for a gender-ambiguous Hebrew surface form.
+
+    Both feminine and masculine ``LexiconEntry`` objects are generated from
+    each ``_AmbiguousForm`` — eliminating duplication between the two
+    lexicons and guaranteeing that every surface form has both gendered
+    variants.
+    """
+
+    base_id: str
+    surface: str
+    female_spoken: str
+    male_spoken: str
+    description: str  # short gloss, e.g. "'yours'"
+
+
 # ---------------------------------------------------------------------------
-# Lexicon — second-person forms keyed on ADDRESSEE gender
+# Lexicon data — single source of truth
 # ---------------------------------------------------------------------------
 #
 # Sources: Shay's direct listening feedback on debug_run_1, listening test
@@ -51,439 +72,223 @@ class LexiconEntry(NamedTuple):
 #   (a) the written unvocalized text is identical for masc and fem, and
 #   (b) Azure TTS may read the wrong gendered form without niqqud.
 
-_LEXICON_2P_FEMININE: tuple[LexiconEntry, ...] = (
-    # --- Possessive / object pronouns (addressee is female) ---
-    LexiconEntry(
-        "F2_POSS_SHEL",
+_AMBIGUOUS_FORMS: tuple[_AmbiguousForm, ...] = (
+    # --- Possessive / object pronouns ---
+    #              base_id         surface   female_spoken            male_spoken              description
+    _AmbiguousForm(
+        "POSS_SHEL",
         "\u05e9\u05dc\u05da",
         "\u05e9\u05b6\u05c1\u05dc\u05b8\u05bc\u05da\u05b0",
-        "female",
-        "2",
-        "shelakh (f) \u2190 shelkha (m default); 'yours'",
+        "\u05e9\u05b6\u05c1\u05dc\u05b0\u05bc\u05da\u05b8",
+        "'yours' — shelakh (f) / shelkha (m)",
     ),
-    LexiconEntry(
-        "F2_PRON_OTKH",
+    _AmbiguousForm(
+        "PRON_OTKH",
         "\u05d0\u05d5\u05ea\u05da",
         "\u05d0\u05d5\u05b9\u05ea\u05b8\u05da\u05b0",
-        "female",
-        "2",
-        "otakh (f) \u2190 otkha (m default); 'you' (direct object)",
+        "\u05d0\u05d5\u05b9\u05ea\u05b0\u05da\u05b8",
+        "'you' (obj) — otakh (f) / otkha (m)",
     ),
-    LexiconEntry(
-        "F2_PRON_ITKH",
+    _AmbiguousForm(
+        "PRON_ITKH",
         "\u05d0\u05ea\u05da",
         "\u05d0\u05b4\u05ea\u05b8\u05bc\u05da\u05b0",
-        "female",
-        "2",
-        "itakh (f) \u2190 itkha (m default); 'with you'",
+        "\u05d0\u05b4\u05ea\u05b0\u05bc\u05da\u05b8",
+        "'with you' — itakh (f) / itkha (m)",
     ),
-    # --- Prepositional clitics (addressee is female) ---
-    LexiconEntry(
-        "F2_PREP_LAKH",
+    # --- Prepositional clitics ---
+    _AmbiguousForm(
+        "PREP_LAKH",
         "\u05dc\u05da",
         "\u05dc\u05b8\u05da\u05b0",
-        "female",
-        "2",
-        "lakh (f) \u2190 lekha (m default); 'to/for you'",
+        "\u05dc\u05b0\u05da\u05b8",
+        "'to/for you' — lakh (f) / lekha (m)",
     ),
-    LexiconEntry(
-        "F2_PREP_BAKH",
+    _AmbiguousForm(
+        "PREP_BAKH",
         "\u05d1\u05da",
         "\u05d1\u05b8\u05bc\u05da\u05b0",
-        "female",
-        "2",
-        "bakh (f) \u2190 bekha (m default); 'in/at you'",
+        "\u05d1\u05b0\u05bc\u05da\u05b8",
+        "'in/at you' — bakh (f) / bekha (m)",
     ),
-    LexiconEntry(
-        "F2_PREP_MIMEKH",
+    _AmbiguousForm(
+        "PREP_MIMEKH",
         "\u05de\u05de\u05da",
         "\u05de\u05b4\u05de\u05b5\u05bc\u05da\u05b0",
-        "female",
-        "2",
-        "mimekh (f) \u2190 mimkha (m default); 'from you'",
+        "\u05de\u05b4\u05de\u05b0\u05bc\u05da\u05b8",
+        "'from you' — mimekh (f) / mimkha (m)",
     ),
-    LexiconEntry(
-        "F2_PREP_ALAIKH",
+    _AmbiguousForm(
+        "PREP_ALAIKH",
         "\u05e2\u05dc\u05d9\u05da",
         "\u05e2\u05b8\u05dc\u05b7\u05d9\u05b4\u05da\u05b0",
-        "female",
-        "2",
-        "alaikh (f) \u2190 alekha (m default); 'on/about you'",
+        "\u05e2\u05b8\u05dc\u05b6\u05d9\u05da\u05b8",
+        "'on/about you' — alaikh (f) / alekha (m)",
     ),
-    LexiconEntry(
-        "F2_PREP_ELAIKH",
+    _AmbiguousForm(
+        "PREP_ELAIKH",
         "\u05d0\u05dc\u05d9\u05da",
         "\u05d0\u05b5\u05dc\u05b7\u05d9\u05b4\u05da\u05b0",
-        "female",
-        "2",
-        "elaikh (f) \u2190 elekha (m default); 'toward you'",
+        "\u05d0\u05b5\u05dc\u05b6\u05d9\u05da\u05b8",
+        "'toward you' — elaikh (f) / elekha (m)",
     ),
-    # --- Past-tense 2sg verbs (addressee is female) ---
+    # --- Past-tense 2sg verbs ---
     # Fem ends /-t/ (shva on tav), masc /-ta/ (kamatz on tav)
-    LexiconEntry(
-        "F2_VERB_HALAKHT",
+    _AmbiguousForm(
+        "VERB_HALAKHT",
         "\u05d4\u05dc\u05db\u05ea",
         "\u05d4\u05b8\u05dc\u05b7\u05db\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "halakht (f) \u2190 halakhta (m default); 'you went'",
+        "\u05d4\u05b8\u05dc\u05b7\u05db\u05b0\u05ea\u05b8\u05bc",
+        "'you went' — halakht (f) / halakhta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_ASIT",
+    _AmbiguousForm(
+        "VERB_ASIT",
         "\u05e2\u05e9\u05d9\u05ea",
         "\u05e2\u05b8\u05e9\u05c2\u05b4\u05d9\u05ea\u05b0",
-        "female",
-        "2",
-        "asit (f) \u2190 asita (m default); 'you did/made'",
+        "\u05e2\u05b8\u05e9\u05c2\u05b4\u05d9\u05ea\u05b8",
+        "'you did/made' — asit (f) / asita (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_KHASHAVT",
+    _AmbiguousForm(
+        "VERB_KHASHAVT",
         "\u05d7\u05e9\u05d1\u05ea",
         "\u05d7\u05b8\u05e9\u05c1\u05b7\u05d1\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "khashavt (f) \u2190 khashavta (m default); 'you thought'",
+        "\u05d7\u05b8\u05e9\u05c1\u05b7\u05d1\u05b0\u05ea\u05b8\u05bc",
+        "'you thought' — khashavt (f) / khashavta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_DIBART",
+    _AmbiguousForm(
+        "VERB_DIBART",
         "\u05d3\u05d9\u05d1\u05e8\u05ea",
         "\u05d3\u05b4\u05bc\u05d9\u05d1\u05b7\u05bc\u05e8\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "dibart (f) \u2190 dibarta (m default); 'you spoke'",
+        "\u05d3\u05b4\u05bc\u05d9\u05d1\u05b7\u05bc\u05e8\u05b0\u05ea\u05b8\u05bc",
+        "'you spoke' — dibart (f) / dibarta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_YADAT",
+    _AmbiguousForm(
+        "VERB_YADAT",
         "\u05d9\u05d3\u05e2\u05ea",
         "\u05d9\u05b8\u05d3\u05b7\u05e2\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "yadat (f) \u2190 yadata (m default); 'you knew'",
+        "\u05d9\u05b8\u05d3\u05b7\u05e2\u05b0\u05ea\u05b8\u05bc",
+        "'you knew' — yadat (f) / yadata (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_HAYIT",
+    _AmbiguousForm(
+        "VERB_HAYIT",
         "\u05d4\u05d9\u05d9\u05ea",
         "\u05d4\u05b8\u05d9\u05b4\u05d9\u05ea\u05b0",
-        "female",
-        "2",
-        "hayit (f) \u2190 hayita (m default); 'you were'",
+        "\u05d4\u05b8\u05d9\u05b4\u05d9\u05ea\u05b8",
+        "'you were' — hayit (f) / hayita (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_RATSIT",
+    _AmbiguousForm(
+        "VERB_RATSIT",
         "\u05e8\u05e6\u05d9\u05ea",
         "\u05e8\u05b8\u05e6\u05b4\u05d9\u05ea\u05b0",
-        "female",
-        "2",
-        "ratsit (f) \u2190 ratsita (m default); 'you wanted'",
+        "\u05e8\u05b8\u05e6\u05b4\u05d9\u05ea\u05b8",
+        "'you wanted' — ratsit (f) / ratsita (m)",
     ),
-    # --- Additional past-tense 2sg verbs (addressee is female) ---
-    LexiconEntry(
-        "F2_VERB_ANIT",
+    _AmbiguousForm(
+        "VERB_ANIT",
         "\u05e2\u05e0\u05d9\u05ea",
         "\u05e2\u05b8\u05e0\u05b4\u05d9\u05ea\u05b0",
-        "female",
-        "2",
-        "anit (f) \u2190 anita (m default); 'you answered'",
+        "\u05e2\u05b8\u05e0\u05b4\u05d9\u05ea\u05b8",
+        "'you answered' — anit (f) / anita (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_AMART",
+    _AmbiguousForm(
+        "VERB_AMART",
         "\u05d0\u05de\u05e8\u05ea",
         "\u05d0\u05b8\u05de\u05b7\u05e8\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "amart (f) \u2190 amarta (m default); 'you said'",
+        "\u05d0\u05b8\u05de\u05b7\u05e8\u05b0\u05ea\u05b8\u05bc",
+        "'you said' — amart (f) / amarta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_SHAMAT",
+    _AmbiguousForm(
+        "VERB_SHAMAT",
         "\u05e9\u05de\u05e2\u05ea",
         "\u05e9\u05c1\u05b8\u05de\u05b7\u05e2\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "shamat (f) \u2190 shamata (m default); 'you heard'",
+        "\u05e9\u05c1\u05b8\u05de\u05b7\u05e2\u05b0\u05ea\u05b8\u05bc",
+        "'you heard' — shamat (f) / shamata (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_RAIT",
+    _AmbiguousForm(
+        "VERB_RAIT",
         "\u05e8\u05d0\u05d9\u05ea",
         "\u05e8\u05b8\u05d0\u05b4\u05d9\u05ea\u05b0",
-        "female",
-        "2",
-        "ra'it (f) \u2190 ra'ita (m default); 'you saw'",
+        "\u05e8\u05b8\u05d0\u05b4\u05d9\u05ea\u05b8",
+        "'you saw' — ra'it (f) / ra'ita (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_LAKAKHT",
+    _AmbiguousForm(
+        "VERB_LAKAKHT",
         "\u05dc\u05e7\u05d7\u05ea",
         "\u05dc\u05b8\u05e7\u05b7\u05d7\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "lakakht (f) \u2190 lakakhta (m default); 'you took'",
+        "\u05dc\u05b8\u05e7\u05b7\u05d7\u05b0\u05ea\u05b8\u05bc",
+        "'you took' — lakakht (f) / lakakhta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_NATATT",
+    _AmbiguousForm(
+        "VERB_NATATT",
         "\u05e0\u05ea\u05ea",
         "\u05e0\u05b8\u05ea\u05b7\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "natatt (f) \u2190 natata (m default); 'you gave'",
+        "\u05e0\u05b8\u05ea\u05b7\u05ea\u05b8\u05bc",
+        "'you gave' — natatt (f) / natata (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_BAT",
+    _AmbiguousForm(
+        "VERB_BAT",
         "\u05d1\u05d0\u05ea",
         "\u05d1\u05b8\u05d0\u05ea\u05b0",
-        "female",
-        "2",
-        "bat (f) \u2190 bata (m default); 'you came'",
+        "\u05d1\u05b8\u05d0\u05ea\u05b8",
+        "'you came' — bat (f) / bata (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_YATSAT",
+    _AmbiguousForm(
+        "VERB_YATSAT",
         "\u05d9\u05e6\u05d0\u05ea",
         "\u05d9\u05b8\u05e6\u05b8\u05d0\u05ea\u05b0",
-        "female",
-        "2",
-        "yatsat (f) \u2190 yatsata (m default); 'you went out'",
+        "\u05d9\u05b8\u05e6\u05b8\u05d0\u05ea\u05b8",
+        "'you went out' — yatsat (f) / yatsata (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_SHAKHAKHT",
+    _AmbiguousForm(
+        "VERB_SHAKHAKHT",
         "\u05e9\u05db\u05d7\u05ea",
         "\u05e9\u05c1\u05b8\u05db\u05b7\u05d7\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "shakhakht (f) \u2190 shakhakhta (m default); 'you forgot'",
+        "\u05e9\u05c1\u05b8\u05db\u05b7\u05d7\u05b0\u05ea\u05b8\u05bc",
+        "'you forgot' — shakhakht (f) / shakhakhta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_HITKHALAT",
+    _AmbiguousForm(
+        "VERB_HITKHALAT",
         "\u05d4\u05ea\u05d7\u05dc\u05ea",
         "\u05d4\u05b4\u05ea\u05b0\u05d7\u05b7\u05dc\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "hitkhalat (f) \u2190 hitkhalta (m default); 'you started'",
+        "\u05d4\u05b4\u05ea\u05b0\u05d7\u05b7\u05dc\u05b0\u05ea\u05b8\u05bc",
+        "'you started' — hitkhalat (f) / hitkhalta (m)",
     ),
-    LexiconEntry(
-        "F2_VERB_HIFSAKT",
+    _AmbiguousForm(
+        "VERB_HIFSAKT",
         "\u05d4\u05e4\u05e1\u05e7\u05ea",
         "\u05d4\u05b4\u05e4\u05b0\u05e1\u05b7\u05e7\u05b0\u05ea\u05b0\u05bc",
-        "female",
-        "2",
-        "hifsakt (f) \u2190 hifsakta (m default); 'you stopped'",
-    ),
-)
-
-_LEXICON_2P_MASCULINE: tuple[LexiconEntry, ...] = (
-    # --- Possessive / object pronouns (addressee is male) ---
-    LexiconEntry(
-        "M2_POSS_SHEL",
-        "\u05e9\u05dc\u05da",
-        "\u05e9\u05b6\u05c1\u05dc\u05b0\u05bc\u05da\u05b8",
-        "male",
-        "2",
-        "shelkha (m) \u2190 shelakh (f); 'yours'",
-    ),
-    LexiconEntry(
-        "M2_PRON_OTKH",
-        "\u05d0\u05d5\u05ea\u05da",
-        "\u05d0\u05d5\u05b9\u05ea\u05b0\u05da\u05b8",
-        "male",
-        "2",
-        "otkha (m) \u2190 otakh (f); 'you' (direct object)",
-    ),
-    LexiconEntry(
-        "M2_PRON_ITKH",
-        "\u05d0\u05ea\u05da",
-        "\u05d0\u05b4\u05ea\u05b0\u05bc\u05da\u05b8",
-        "male",
-        "2",
-        "itkha (m) \u2190 itakh (f); 'with you'",
-    ),
-    # --- Prepositional clitics (addressee is male) ---
-    LexiconEntry(
-        "M2_PREP_LEKHA",
-        "\u05dc\u05da",
-        "\u05dc\u05b0\u05da\u05b8",
-        "male",
-        "2",
-        "lekha (m) \u2190 lakh (f); 'to/for you'",
-    ),
-    LexiconEntry(
-        "M2_PREP_BEKHA",
-        "\u05d1\u05da",
-        "\u05d1\u05b0\u05bc\u05da\u05b8",
-        "male",
-        "2",
-        "bekha (m) \u2190 bakh (f); 'in/at you'",
-    ),
-    LexiconEntry(
-        "M2_PREP_MIMKHA",
-        "\u05de\u05de\u05da",
-        "\u05de\u05b4\u05de\u05b0\u05bc\u05da\u05b8",
-        "male",
-        "2",
-        "mimkha (m) \u2190 mimekh (f); 'from you'",
-    ),
-    LexiconEntry(
-        "M2_PREP_ALEKHA",
-        "\u05e2\u05dc\u05d9\u05da",
-        "\u05e2\u05b8\u05dc\u05b6\u05d9\u05da\u05b8",
-        "male",
-        "2",
-        "alekha (m) \u2190 alaikh (f); 'on/about you'",
-    ),
-    LexiconEntry(
-        "M2_PREP_ELEKHA",
-        "\u05d0\u05dc\u05d9\u05da",
-        "\u05d0\u05b5\u05dc\u05b6\u05d9\u05da\u05b8",
-        "male",
-        "2",
-        "elekha (m) \u2190 elaikh (f); 'toward you'",
-    ),
-    # --- Past-tense 2sg verbs (addressee is male) ---
-    # Masc ends /-ta/ (kamatz+dagesh on tav), fem /-t/ (shva on tav)
-    LexiconEntry(
-        "M2_VERB_HALAKHTA",
-        "\u05d4\u05dc\u05db\u05ea",
-        "\u05d4\u05b8\u05dc\u05b7\u05db\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "halakhta (m) \u2190 halakht (f); 'you went'",
-    ),
-    LexiconEntry(
-        "M2_VERB_ASITA",
-        "\u05e2\u05e9\u05d9\u05ea",
-        "\u05e2\u05b8\u05e9\u05c2\u05b4\u05d9\u05ea\u05b8",
-        "male",
-        "2",
-        "asita (m) \u2190 asit (f); 'you did/made'",
-    ),
-    LexiconEntry(
-        "M2_VERB_KHASHAVTA",
-        "\u05d7\u05e9\u05d1\u05ea",
-        "\u05d7\u05b8\u05e9\u05c1\u05b7\u05d1\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "khashavta (m) \u2190 khashavt (f); 'you thought'",
-    ),
-    LexiconEntry(
-        "M2_VERB_DIBARTA",
-        "\u05d3\u05d9\u05d1\u05e8\u05ea",
-        "\u05d3\u05b4\u05bc\u05d9\u05d1\u05b7\u05bc\u05e8\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "dibarta (m) \u2190 dibart (f); 'you spoke'",
-    ),
-    LexiconEntry(
-        "M2_VERB_YADATA",
-        "\u05d9\u05d3\u05e2\u05ea",
-        "\u05d9\u05b8\u05d3\u05b7\u05e2\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "yadata (m) \u2190 yadat (f); 'you knew'",
-    ),
-    LexiconEntry(
-        "M2_VERB_HAYITA",
-        "\u05d4\u05d9\u05d9\u05ea",
-        "\u05d4\u05b8\u05d9\u05b4\u05d9\u05ea\u05b8",
-        "male",
-        "2",
-        "hayita (m) \u2190 hayit (f); 'you were'",
-    ),
-    LexiconEntry(
-        "M2_VERB_RATSITA",
-        "\u05e8\u05e6\u05d9\u05ea",
-        "\u05e8\u05b8\u05e6\u05b4\u05d9\u05ea\u05b8",
-        "male",
-        "2",
-        "ratsita (m) \u2190 ratsit (f); 'you wanted'",
-    ),
-    # --- Additional past-tense 2sg verbs (addressee is male) ---
-    LexiconEntry(
-        "M2_VERB_ANITA",
-        "\u05e2\u05e0\u05d9\u05ea",
-        "\u05e2\u05b8\u05e0\u05b4\u05d9\u05ea\u05b8",
-        "male",
-        "2",
-        "anita (m) \u2190 anit (f); 'you answered'",
-    ),
-    LexiconEntry(
-        "M2_VERB_AMARTA",
-        "\u05d0\u05de\u05e8\u05ea",
-        "\u05d0\u05b8\u05de\u05b7\u05e8\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "amarta (m) \u2190 amart (f); 'you said'",
-    ),
-    LexiconEntry(
-        "M2_VERB_SHAMATA",
-        "\u05e9\u05de\u05e2\u05ea",
-        "\u05e9\u05c1\u05b8\u05de\u05b7\u05e2\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "shamata (m) \u2190 shamat (f); 'you heard'",
-    ),
-    LexiconEntry(
-        "M2_VERB_RAITA",
-        "\u05e8\u05d0\u05d9\u05ea",
-        "\u05e8\u05b8\u05d0\u05b4\u05d9\u05ea\u05b8",
-        "male",
-        "2",
-        "ra'ita (m) \u2190 ra'it (f); 'you saw'",
-    ),
-    LexiconEntry(
-        "M2_VERB_LAKAKHTA",
-        "\u05dc\u05e7\u05d7\u05ea",
-        "\u05dc\u05b8\u05e7\u05b7\u05d7\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "lakakhta (m) \u2190 lakakht (f); 'you took'",
-    ),
-    LexiconEntry(
-        "M2_VERB_NATATA",
-        "\u05e0\u05ea\u05ea",
-        "\u05e0\u05b8\u05ea\u05b7\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "natata (m) \u2190 natatt (f); 'you gave'",
-    ),
-    LexiconEntry(
-        "M2_VERB_BATA",
-        "\u05d1\u05d0\u05ea",
-        "\u05d1\u05b8\u05d0\u05ea\u05b8",
-        "male",
-        "2",
-        "bata (m) \u2190 bat (f); 'you came'",
-    ),
-    LexiconEntry(
-        "M2_VERB_YATSATA",
-        "\u05d9\u05e6\u05d0\u05ea",
-        "\u05d9\u05b8\u05e6\u05b8\u05d0\u05ea\u05b8",
-        "male",
-        "2",
-        "yatsata (m) \u2190 yatsat (f); 'you went out'",
-    ),
-    LexiconEntry(
-        "M2_VERB_SHAKHAKHTA",
-        "\u05e9\u05db\u05d7\u05ea",
-        "\u05e9\u05c1\u05b8\u05db\u05b7\u05d7\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "shakhakhta (m) \u2190 shakhakht (f); 'you forgot'",
-    ),
-    LexiconEntry(
-        "M2_VERB_HITKHALTA",
-        "\u05d4\u05ea\u05d7\u05dc\u05ea",
-        "\u05d4\u05b4\u05ea\u05b0\u05d7\u05b7\u05dc\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "hitkhalta (m) \u2190 hitkhalat (f); 'you started'",
-    ),
-    LexiconEntry(
-        "M2_VERB_HIFSAKTA",
-        "\u05d4\u05e4\u05e1\u05e7\u05ea",
         "\u05d4\u05b4\u05e4\u05b0\u05e1\u05b7\u05e7\u05b0\u05ea\u05b8\u05bc",
-        "male",
-        "2",
-        "hifsakta (m) \u2190 hifsakt (f); 'you stopped'",
+        "'you stopped' — hifsakt (f) / hifsakta (m)",
     ),
 )
 
-# Combined lexicon for backward-compatible parametrized tests.
+# ---------------------------------------------------------------------------
+# Generated per-gender lexicons (from _AMBIGUOUS_FORMS)
+# ---------------------------------------------------------------------------
+
+_LEXICON_2P_FEMININE: tuple[LexiconEntry, ...] = tuple(
+    LexiconEntry(
+        rule_id=f"F2_{f.base_id}",
+        surface=f.surface,
+        spoken_form=f.female_spoken,
+        target_gender="female",
+        description=f.description,
+    )
+    for f in _AMBIGUOUS_FORMS
+)
+
+_LEXICON_2P_MASCULINE: tuple[LexiconEntry, ...] = tuple(
+    LexiconEntry(
+        rule_id=f"M2_{f.base_id}",
+        surface=f.surface,
+        spoken_form=f.male_spoken,
+        target_gender="male",
+        description=f.description,
+    )
+    for f in _AMBIGUOUS_FORMS
+)
+
+# Combined lexicon for parametrized tests.
 _LEXICON: tuple[LexiconEntry, ...] = _LEXICON_2P_FEMININE + _LEXICON_2P_MASCULINE
 
 # ---------------------------------------------------------------------------
@@ -493,7 +298,12 @@ _LEXICON: tuple[LexiconEntry, ...] = _LEXICON_2P_FEMININE + _LEXICON_2P_MASCULIN
 # These are common 2nd-person surface forms whose unvocalized spelling is
 # shared between masculine and feminine.  If any of these survive in
 # text_spoken without niqqud, they are suspicious.
-_AMBIGUOUS_SURFACES: frozenset[str] = frozenset(entry.surface for entry in _LEXICON)
+#
+# KNOWN LIMITATION: some surface forms overlap with unrelated Hebrew words
+# (e.g. "לך" can also be the imperative "go!", "באת" overlaps with a noun
+# form).  The gate is therefore a *heuristic* that flags candidates for
+# review, not a definitive error detector.  False positives are expected.
+_AMBIGUOUS_SURFACES: frozenset[str] = frozenset(f.surface for f in _AMBIGUOUS_FORMS)
 
 # ---------------------------------------------------------------------------
 # Regex compilation
@@ -566,10 +376,9 @@ class NormalizationResult:
 
 def disambiguate_for_speaker(
     text: str,
-    speaker_gender: str,
     addressee_gender: str,
 ) -> NormalizationResult:
-    """Apply gender corrections based on speaker and addressee genders.
+    """Apply gender corrections based on addressee gender.
 
     Second-person forms (pronouns, prepositions, verbs) are selected based
     on the *addressee* gender.  The rules insert niqqud to force the TTS
@@ -577,8 +386,6 @@ def disambiguate_for_speaker(
 
     Args:
         text: UTF-8 Hebrew source text (``DialogueTurn.text``).
-        speaker_gender: Gender of the turn's speaker (``"male"`` or
-            ``"female"``).
         addressee_gender: Gender of the primary addressee (``"male"`` or
             ``"female"``).
 
@@ -613,6 +420,13 @@ def check_gender_ambiguity(text_spoken: str) -> list[str]:
 
     Scans *text_spoken* for unvocalized tokens that appear in the lexicon
     but were not replaced (e.g. because the addressee gender was unknown).
+
+    .. note::
+
+       This is a **heuristic** gate.  Some surface forms overlap with
+       unrelated Hebrew words (e.g. "\u05dc\u05da" = imperative "go!", "\u05d1\u05d0\u05ea" can be a
+       noun).  False positives are expected — treat warnings as candidates
+       for review, not confirmed errors.
 
     Returns:
         List of warning strings, one per ambiguous token found.  Empty if
@@ -687,12 +501,10 @@ def disambiguate_turns(
     result: list[DialogueTurn] = []
     for turn in turns:
         addr_id = _addressee_id(turn.speaker_id)
-        spk_gender = _gender(turn.speaker_id)
         addr_gender = _gender(addr_id) if addr_id else ""
 
         norm = disambiguate_for_speaker(
             turn.text_spoken or turn.text,
-            spk_gender,
             addr_gender,
         )
 

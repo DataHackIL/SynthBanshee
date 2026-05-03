@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from synthbanshee.script.hebrew_disambiguator import (
+    _AMBIGUOUS_FORMS,
     _LEXICON,
     _LEXICON_2P_FEMININE,
     _LEXICON_2P_MASCULINE,
@@ -26,13 +27,13 @@ from synthbanshee.script.types import DialogueTurn
 
 
 def _addr_female(text: str) -> NormalizationResult:
-    """Disambiguate with a male speaker addressing a female."""
-    return disambiguate_for_speaker(text, speaker_gender="male", addressee_gender="female")
+    """Disambiguate addressing a female."""
+    return disambiguate_for_speaker(text, addressee_gender="female")
 
 
 def _addr_male(text: str) -> NormalizationResult:
-    """Disambiguate with a female speaker addressing a male."""
-    return disambiguate_for_speaker(text, speaker_gender="female", addressee_gender="male")
+    """Disambiguate addressing a male."""
+    return disambiguate_for_speaker(text, addressee_gender="male")
 
 
 # ---------------------------------------------------------------------------
@@ -41,25 +42,25 @@ def _addr_male(text: str) -> NormalizationResult:
 
 
 class TestGenderGuard:
-    """Substitutions must fire based on addressee gender, not role."""
+    """Substitutions must fire based on addressee gender."""
 
     def test_addressee_female_applies_feminine_rules(self):
-        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "male", "female")
+        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "female")
         assert result.text_spoken == "\u05e9\u05b6\u05c1\u05dc\u05b8\u05bc\u05da\u05b0"
         assert result.normalization_rules_triggered == ["F2_POSS_SHEL"]
 
     def test_addressee_male_applies_masculine_rules(self):
-        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "female", "male")
+        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "male")
         assert result.text_spoken == "\u05e9\u05b6\u05c1\u05dc\u05b0\u05bc\u05da\u05b8"
         assert result.normalization_rules_triggered == ["M2_POSS_SHEL"]
 
     def test_unknown_addressee_gender_no_change(self):
-        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "male", "")
+        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "")
         assert result.text_spoken == "\u05e9\u05dc\u05da"
         assert result.normalization_rules_triggered == []
 
     def test_unknown_addressee_gender_unk_no_change(self):
-        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "male", "unknown")
+        result = disambiguate_for_speaker("\u05e9\u05dc\u05da", "unknown")
         assert result.text_spoken == "\u05e9\u05dc\u05da"
         assert result.normalization_rules_triggered == []
 
@@ -209,7 +210,7 @@ class TestMultipleSubstitutions:
     def test_two_tokens_in_one_turn_male(self):
         text = "\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea \u05e2\u05dd \u05e9\u05dc\u05da?"
         result = _addr_male(text)
-        assert "M2_VERB_ASITA" in result.normalization_rules_triggered
+        assert "M2_VERB_ASIT" in result.normalization_rules_triggered
         assert "M2_POSS_SHEL" in result.normalization_rules_triggered
 
     def test_same_token_twice(self):
@@ -233,12 +234,11 @@ class TestBidirectional:
     """The same unvocalized token must produce different niqqud for M vs F addressees."""
 
     def test_lekha_vs_lakh(self):
-        """'\u05dc\u05da' must become '\u05dc\u05b0\u05da\u05b8' (lekha) for male and '\u05dc\u05b8\u05da\u05b0' (lakh) for female."""
         fem = _addr_female("\u05dc\u05da")
         masc = _addr_male("\u05dc\u05da")
         assert fem.text_spoken != masc.text_spoken
         assert "F2_PREP_LAKH" in fem.normalization_rules_triggered
-        assert "M2_PREP_LEKHA" in masc.normalization_rules_triggered
+        assert "M2_PREP_LAKH" in masc.normalization_rules_triggered
 
     def test_shelakh_vs_shelkha(self):
         fem = _addr_female("\u05e9\u05dc\u05da")
@@ -250,7 +250,7 @@ class TestBidirectional:
         masc = _addr_male("\u05e2\u05e9\u05d9\u05ea")
         assert fem.text_spoken != masc.text_spoken
         assert "F2_VERB_ASIT" in fem.normalization_rules_triggered
-        assert "M2_VERB_ASITA" in masc.normalization_rules_triggered
+        assert "M2_VERB_ASIT" in masc.normalization_rules_triggered
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +340,9 @@ class TestDisambiguateTurns:
     def _make_turns(self) -> list[DialogueTurn]:
         return [
             DialogueTurn(
-                speaker_id="AGG_001", text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?", intensity=2
+                speaker_id="AGG_001",
+                text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?",
+                intensity=2,
             ),
             DialogueTurn(
                 speaker_id="VIC_001",
@@ -365,7 +367,24 @@ class TestDisambiguateTurns:
         turns = disambiguate_turns(self._make_turns(), self._roles(), self._genders())
         vic_turn = next(t for t in turns if t.speaker_id == "VIC_001")
         # VIC (female) addressing AGG (male) — masculine 2P rules fire
-        assert "M2_PREP_LEKHA" in vic_turn.normalization_rules_triggered
+        assert "M2_PREP_LAKH" in vic_turn.normalization_rules_triggered
+
+    def test_female_agg_addressing_male_vic(self):
+        """Gender != role: a female AGG addressing a male VIC must get masculine rules."""
+        turns = [
+            DialogueTurn(
+                speaker_id="AGG_001",
+                text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?",
+                intensity=2,
+            ),
+        ]
+        roles = {"AGG_001": "AGG", "VIC_001": "VIC"}
+        # Inverted genders: female aggressor, male victim
+        genders = {"AGG_001": "female", "VIC_001": "male"}
+        result = disambiguate_turns(turns, roles, genders)
+        # AGG addresses VIC (male) — masculine rules must fire, not feminine
+        assert "M2_VERB_ASIT" in result[0].normalization_rules_triggered
+        assert not any(rid.startswith("F2_") for rid in result[0].normalization_rules_triggered)
 
     def test_original_turns_not_mutated(self):
         original = self._make_turns()
@@ -390,7 +409,9 @@ class TestDisambiguateTurns:
     def test_three_speaker_agg_prefers_vic(self):
         turns = [
             DialogueTurn(
-                speaker_id="AGG_001", text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?", intensity=2
+                speaker_id="AGG_001",
+                text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?",
+                intensity=2,
             )
         ]
         roles = {"AGG_001": "AGG", "BYS_001": "BYS", "VIC_001": "VIC"}
@@ -399,19 +420,20 @@ class TestDisambiguateTurns:
         agg_turn = result[0]
         assert "F2_VERB_ASIT" in agg_turn.normalization_rules_triggered
 
-    def test_three_speaker_bys_gets_no_disambiguation_toward_vic(self):
-        """BYS addressing AGG (male) should get masculine rules, not feminine."""
+    def test_three_speaker_bys_addresses_vic_with_feminine_rules(self):
+        """In a 3-role scene, BYS's addressee is VIC (highest-priority non-self
+        role), so feminine rules fire because VIC is female."""
         turns = [
             DialogueTurn(
-                speaker_id="BYS_001", text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?", intensity=1
+                speaker_id="BYS_001",
+                text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?",
+                intensity=1,
             )
         ]
         roles = {"AGG_001": "AGG", "VIC_001": "VIC", "BYS_001": "BYS"}
         genders = {"AGG_001": "male", "VIC_001": "female", "BYS_001": "male"}
         result = disambiguate_turns(turns, roles, genders)
-        # BYS→VIC (first non-self in priority order is VIC)
         bys_turn = result[0]
-        # BYS addresses VIC (female) per priority — feminine rules fire
         assert "F2_VERB_ASIT" in bys_turn.normalization_rules_triggered
 
     def test_unknown_role_fallback(self):
@@ -434,7 +456,9 @@ class TestLegacyFallback:
     def test_agg_assumed_male_vic_assumed_female(self):
         turns = [
             DialogueTurn(
-                speaker_id="AGG_001", text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?", intensity=2
+                speaker_id="AGG_001",
+                text="\u05de\u05d4 \u05e2\u05e9\u05d9\u05ea?",
+                intensity=2,
             ),
         ]
         roles = {"AGG_001": "AGG", "VIC_001": "VIC"}
@@ -452,7 +476,7 @@ class TestLegacyFallback:
         roles = {"AGG_001": "AGG", "VIC_001": "VIC"}
         result = disambiguate_turns(turns, roles)  # no genders
         # VIC→AGG: AGG is assumed male, so masculine rules should fire
-        assert "M2_PREP_LEKHA" in result[0].normalization_rules_triggered
+        assert "M2_PREP_LAKH" in result[0].normalization_rules_triggered
 
 
 # ---------------------------------------------------------------------------
@@ -530,9 +554,13 @@ class TestLexiconConsistency:
 
     def test_feminine_and_masculine_produce_different_spoken_forms(self):
         """For each surface, the fem and masc spoken forms must differ."""
-        fem_by_surface = {e.surface: e.spoken_form for e in _LEXICON_2P_FEMININE}
-        masc_by_surface = {e.surface: e.spoken_form for e in _LEXICON_2P_MASCULINE}
-        for surface in fem_by_surface:
-            assert fem_by_surface[surface] != masc_by_surface[surface], (
-                f"Surface '{surface}': fem and masc spoken forms are identical"
+        for form in _AMBIGUOUS_FORMS:
+            assert form.female_spoken != form.male_spoken, (
+                f"Surface '{form.surface}' ({form.base_id}): "
+                f"fem and masc spoken forms are identical"
             )
+
+    def test_generated_lexicon_count_matches_source(self):
+        """Both generated lexicons must have exactly as many entries as _AMBIGUOUS_FORMS."""
+        assert len(_LEXICON_2P_FEMININE) == len(_AMBIGUOUS_FORMS)
+        assert len(_LEXICON_2P_MASCULINE) == len(_AMBIGUOUS_FORMS)
