@@ -16,8 +16,10 @@ from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.renderer import TTSRenderer
 from synthbanshee.tts.ssml_builder import (
+    _WORD_BREAK_MS,
     SSMLBuilder,
     UtteranceSpec,
+    _inject_word_breaks,
     _rate_to_string,
     _semitones_to_percent,
 )
@@ -132,6 +134,124 @@ class TestSSMLBuilder:
         # Strip XML declaration for ElementTree
         ssml_body = ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
         ET.fromstring(ssml_body)  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# Word-boundary break tests (#62)
+# ---------------------------------------------------------------------------
+
+
+class TestWordBoundaryBreaks:
+    """Verify that multi-word Hebrew text produces inter-word <break> tags."""
+
+    def setup_method(self):
+        self.builder = SSMLBuilder()
+
+    def _body(self, ssml: str) -> str:
+        """Strip XML declaration to get parseable SSML body."""
+        return ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
+
+    def test_multi_word_text_has_breaks(self):
+        """Multi-word text must contain <break> elements between words."""
+        utt = UtteranceSpec(
+            text="word1 word2 word3",
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt)
+        # Two word boundaries → two <break> elements
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 2
+
+    def test_single_word_no_breaks(self):
+        """Single-word text must not contain any <break> elements."""
+        utt = UtteranceSpec(
+            text="hello",
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt)
+        assert f'time="{_WORD_BREAK_MS}ms"' not in ssml
+
+    def test_text_preserved_after_breaks(self):
+        """All original words must appear in the serialised SSML."""
+        utt = UtteranceSpec(
+            text="word1 word2 word3",
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt)
+        assert "word1" in ssml
+        assert "word2" in ssml
+        assert "word3" in ssml
+
+    def test_breaks_inside_prosody(self):
+        """Word breaks must also appear when a <prosody> wrapper is present."""
+        utt = UtteranceSpec(
+            text="word1 word2",
+            voice_id="he-IL-AvriNeural",
+            rate_multiplier=1.2,
+        )
+        ssml = self.builder.build_single(utt)
+        # One word boundary inside the prosody wrapper
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
+        assert "prosody" in ssml
+
+    def test_breaks_with_phrase_prosody(self):
+        """Word breaks must appear in text fragments around phrase prosody spans."""
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # "before1 before2 phrase1 phrase2 after1 after2"
+        #  0123456789...
+        # "before1"=0:7, " "=7, "before2"=8:15, " "=15,
+        # "phrase1"=16:23, " "=23, "phrase2"=24:31, " "=31,
+        # "after1"=32:38, " "=38, "after2"=39:45
+        text = "before1 before2 phrase1 phrase2 after1 after2"
+        phrase = PhraseProsody(
+            phrase_id="p0",
+            char_start=16,  # "phrase1 phrase2"
+            char_end=31,
+            rate="+10%",
+        )
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            phrase_prosody=[phrase],
+        )
+        ssml = self.builder.build_single(utt)
+        # All words must appear
+        for word in text.split():
+            assert word in ssml, f"word {word!r} missing from SSML"
+        # Word breaks: 1 (before1-before2) + 1 (phrase1-phrase2) + 1 (after1-after2) = 3
+        # Plus the trailing space before the phrase may or may not add one.
+        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') >= 3
+
+    def test_xml_well_formed_with_breaks(self):
+        """SSML with word breaks must remain valid XML."""
+        import xml.etree.ElementTree as ET
+
+        utt = UtteranceSpec(
+            text="word1 word2 word3 word4",
+            voice_id="he-IL-AvriNeural",
+            style="angry",
+            rate_multiplier=1.1,
+        )
+        ssml = self.builder.build_single(utt)
+        ET.fromstring(self._body(ssml))  # Should not raise
+
+    def test_inject_word_breaks_empty_text(self):
+        """_inject_word_breaks with empty text should not create elements."""
+        import xml.etree.ElementTree as ET
+
+        parent = ET.Element("test")
+        result = _inject_word_breaks(parent, "")
+        assert result is None
+        assert len(list(parent)) == 0
+
+    def test_inject_word_breaks_whitespace_only(self):
+        """_inject_word_breaks with whitespace-only text should preserve it."""
+        import xml.etree.ElementTree as ET
+
+        parent = ET.Element("test")
+        result = _inject_word_breaks(parent, "  ")
+        assert result is None
+        assert parent.text == "  "
 
 
 # ---------------------------------------------------------------------------
