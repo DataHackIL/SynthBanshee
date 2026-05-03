@@ -65,6 +65,8 @@ def augment_scene(
 
     Returns:
         AugmentationResult with the augmented samples and event log.
+        Event onset/offset times follow the AugmentedEvent convention:
+        relative to the un-padded MixedScene, not the padded input.
     """
     # Derive independent child seeds so the three stages don't share
     # the same random sequence (which would correlate their choices).
