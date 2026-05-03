@@ -436,8 +436,48 @@ class TestSSMLParseErrorFix67:
         adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
         assert len(adjacent_breaks) == 0, f"Adjacent breaks found in SSML: {ssml}"
 
-        # The 300ms menace break should appear (merged with the word break).
+        # The 300ms menace break should appear (replaced the 50ms word break).
         assert 'time="300ms"' in ssml
+
+    def test_semantic_break_after_then_break_before_sums(self):
+        """break_after + break_before of consecutive phrases must sum durations."""
+        import re
+
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # Two phrases with break_after on first and break_before on second.
+        # Space between them is " " (no words → no word breaks created).
+        text = "intro phrase_a end_a mid phrase_b outro"
+        phrases = [
+            PhraseProsody(
+                phrase_id="p0",
+                char_start=6,
+                char_end=20,  # "phrase_a end_a"
+                rate="-20%",
+                break_after_ms=250,
+            ),
+            PhraseProsody(
+                phrase_id="p1",
+                char_start=25,
+                char_end=33,  # "phrase_b"
+                rate="-25%",
+                break_before_ms=300,
+            ),
+        ]
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            phrase_prosody=phrases,
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # No adjacent breaks.
+        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert len(adjacent_breaks) == 0, f"Adjacent breaks found: {ssml}"
+
+        # The 250ms break_after and 300ms break_before should be summed (550ms)
+        # because the preceding break is semantic (not a word-boundary break).
+        assert 'time="550ms"' in ssml
 
     def test_text_with_invalid_xml_chars_sanitized(self):
         """Characters invalid in XML 1.0 must be stripped before SSML building."""
@@ -454,6 +494,66 @@ class TestSSMLParseErrorFix67:
         assert "world" in ssml
         assert "foo" in ssml
         assert "bar" in ssml
+
+    def test_hebrew_high_intensity_with_menace_hint(self):
+        """Regression: Hebrew I5 turn with menace hint must produce valid SSML.
+
+        Simulates the exact pattern from failing scene sp_sv_a_0001: AGG speaker
+        at intensity 5 with accumulated state drift, multi-word Hebrew text,
+        and a "menace" phrase hint with break_before=300ms.
+        """
+        import re
+        import xml.etree.ElementTree as ET
+
+        from synthbanshee.tts.ssml_types import PhraseProsody
+
+        # Hebrew text simulating an I5 assault-scene turn (3 sentences).
+        # Contains niqqud on one word to test PR #69 interaction.
+        text = (
+            "\u05d0\u05ea \u05dc\u05d0 \u05ea\u05e2\u05e9\u05d4"  # "you don't do"
+            " \u05de\u05d4 \u05e9\u05d0\u05de\u05e8\u05ea\u05d9"  # " what I said"
+            " \u05dc\u05da. "  # " to you. "
+            "\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9"  # "listen" (with niqqud)
+            " \u05d8\u05d5\u05d1!"  # " well!"
+        )
+        # "menace" hint on the imperative word (with niqqud): char_start/end
+        # covering the niqqud-bearing word.
+        imperative_start = text.index("\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9")
+        imperative_end = imperative_start + len("\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9")
+        phrase = PhraseProsody(
+            phrase_id="t5_p0",
+            char_start=imperative_start,
+            char_end=imperative_end,
+            rate="-25%",
+            pitch="-1st",
+            break_before_ms=300,
+        )
+        # AGG_M_30-45_001 at I5 with state drift: rate=1.14*1.05*~1.15=1.38,
+        # pitch=2+~1.5=3.5 st, volume=13+0+~4=17 dB.
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            rate_multiplier=1.38,
+            pitch_delta_st=3.5,
+            volume_delta_db=17.0,
+            phrase_prosody=[phrase],
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # Must be valid XML.
+        ET.fromstring(self._body(ssml))
+
+        # No adjacent breaks.
+        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert len(adjacent_breaks) == 0, f"Adjacent breaks in Hebrew SSML: {ssml}"
+
+        # Hebrew text must survive (spot-check key words).
+        assert "\u05ea\u05e2\u05e9\u05d4" in ssml  # "do"
+        assert "\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9" in ssml  # "listen" with niqqud
+        assert "\u05d8\u05d5\u05d1" in ssml  # "well"
+
+        # The 300ms menace break must appear (merged with preceding word break).
+        assert 'time="300ms"' in ssml
 
     def test_prosody_pitch_clamped_to_azure_range(self):
         """Extreme pitch values must be clamped to ±50%."""
