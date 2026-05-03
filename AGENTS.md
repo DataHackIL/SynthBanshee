@@ -7,6 +7,7 @@
 ```
 synthbanshee/       ← main package
   config/           ← Pydantic models (scene, speaker, acoustic, run)
+  data/             ← bundled data files (taxonomy.yaml)
   script/           ← LLM script generation + Jinja2 templates
   tts/              ← TTS rendering (Azure/Google) + SceneMixer
   augment/          ← preprocessing, room IR, device profiles, noise
@@ -56,7 +57,7 @@ SFX onset/offset times come **only** from the Stage 3b augmentation log. Speech-
 
 ## Label taxonomy
 
-- **Source of truth: `configs/taxonomy.yaml`** — never hardcode label strings in application code
+- **Source of truth: `synthbanshee/data/taxonomy.yaml`** — never hardcode label strings in application code
 - Three levels: `violence_typology` → `tier1_category` → `tier2_subtype`
 - `has_violence` is a **derived convenience field**; the full taxonomy columns are ground truth
 - `_TYPOLOGY_INTENSITY_MAP` in `cli.py` maps `(typology, intensity)` → `(tier1, tier2)`. If you add a typology to the taxonomy, add a row to the map — missing entries fall through to `("NONE", "NONE_AMBIENT")` silently

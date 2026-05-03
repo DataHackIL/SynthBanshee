@@ -65,7 +65,6 @@ SynthBanshee/
 │   ├── speakers/                 # Speaker persona YAMLs
 │   ├── acoustic_scenes/          # Room/device YAML configs
 │   ├── run_configs/              # Full generation run definitions (RunConfig YAML)
-│   ├── taxonomy.yaml             # Label taxonomy — single source of truth
 │   └── examples/                 # Worked examples for each config type
 ├── assets/                       # Source assets (gitignored; populated at runtime)
 │   ├── speech/                   # TTS utterance cache (SHA-256 keyed)
@@ -239,7 +238,7 @@ Each template defines:
 
 **Acceptance criteria:** 50 scripts per project generated; zero transcript redundancy violations; 10% manual spot-check passes plausibility review.
 
-**✓ Complete** — `ScriptGenerator` in `synthbanshee/script/generator.py`; SHA-256 generation cache in `assets/scripts/`; output validated as `list[DialogueTurn]`; wired end-to-end into `_run_generate_pipeline()` in `cli.py`. `_TYPOLOGY_INTENSITY_MAP` in `cli.py` maps (typology, intensity) → taxonomy codes, validated against `configs/taxonomy.yaml` at import time.
+**✓ Complete** — `ScriptGenerator` in `synthbanshee/script/generator.py`; SHA-256 generation cache in `assets/scripts/`; output validated as `list[DialogueTurn]`; wired end-to-end into `_run_generate_pipeline()` in `cli.py`. `_TYPOLOGY_INTENSITY_MAP` in `cli.py` maps (typology, intensity) → taxonomy codes, validated against `synthbanshee/data/taxonomy.yaml` at import time.
 
 ### 1.4 Tier A Dataset Generation Run
 

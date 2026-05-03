@@ -139,7 +139,7 @@ Clips are produced by a five-stage pipeline:
 
 ### Label Taxonomy
 
-Labels use a three-level hierarchy (defined in `configs/taxonomy.yaml`):
+Labels use a three-level hierarchy (defined in `synthbanshee/data/taxonomy.yaml`):
 
 - **Violence typology** (scene-level): `SV`, `IT`, `NEG`, `NEU`
 - **Tier 1 category** (event-level): `PHYS`, `VERB`, `DIST`, `ACOU`, `EMOT`, `NONE`

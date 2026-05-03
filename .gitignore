@@ -215,6 +215,8 @@ temp/*
 # Data and asset cache live in avdp-synth-corpus, not here
 assets/
 data/
+# But include bundled package data
+!synthbanshee/data/
 
 # Splendor — durable: wiki/, planning/, splendor.yaml, state/manifests/
 # Transient operational state (not tracked)

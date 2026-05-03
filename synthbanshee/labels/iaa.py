@@ -314,7 +314,7 @@ _CATEGORY_PREFIXES = ["PHYS", "VERB", "DIST", "ACOU", "EMOT"]
 
 
 # Validate prefixes against taxonomy at import time so a rename in
-# configs/taxonomy.yaml causes an immediate, loud failure here.
+# synthbanshee/data/taxonomy.yaml causes an immediate, loud failure here.
 def _validate_category_prefixes() -> None:
     from synthbanshee.config.taxonomy import tier1_category_codes
 
