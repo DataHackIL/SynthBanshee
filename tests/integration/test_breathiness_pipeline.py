@@ -12,9 +12,7 @@ Issue: #60
 
 from __future__ import annotations
 
-import io
 import json
-import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,11 +20,16 @@ import numpy as np
 import soundfile as sf
 
 from synthbanshee.cli import _run_generate_pipeline
+from synthbanshee.config.scene_config import SceneConfig
+from synthbanshee.package.validator import validate_clip
 
 # Reuse the existing Tier A test scene which has AGG + VIC speakers and
-# intensity_arc [1, 2, 3, 4, 5] — intensities 3–5 trigger breathiness
-# on VIC turns.
+# intensity_arc [1, 2, 3, 4, 5].
 SCENE_YAML = Path(__file__).parent.parent.parent / "configs" / "scenes" / "test_scene_001.yaml"
+
+# Per-turn frequencies so each segment has distinct spectral content / RMS,
+# exercising the per-segment noise amplitude calculation in add_breathiness.
+_TURN_FREQS_HZ = [440, 330, 520, 280, 600]
 
 
 # ---------------------------------------------------------------------------
@@ -34,37 +37,35 @@ SCENE_YAML = Path(__file__).parent.parent.parent / "configs" / "scenes" / "test_
 # ---------------------------------------------------------------------------
 
 
-def _make_wav_bytes(sample_rate: int = 24000, duration_s: float = 5.0) -> bytes:
-    """Return valid WAV bytes (sine wave) for mocking TTS synthesis."""
-    n = int(sample_rate * duration_s)
-    buf = io.BytesIO()
-    with wave.open(buf, "w") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate)
-        t = np.linspace(0, duration_s, n, endpoint=False)
-        samples = (0.3 * np.sin(2 * np.pi * 440 * t) * 32767).astype(np.int16)
-        w.writeframes(samples.tobytes())
-    return buf.getvalue()
-
-
 def _make_mixed_scene(duration_s: float = 5.0):
-    """Return a MixedScene with VIC + AGG turns for mocking render_scene."""
+    """Return a MixedScene with AGG and VIC turns for mocking render_scene.
+
+    Turn layout (VIC at I3, I4, I5 to exercise full breathiness range):
+      0: AGG I1  |  1: AGG I2  |  2: VIC I3  |  3: VIC I4  |  4: VIC I5
+    """
     from synthbanshee.script.types import MixedScene
 
     sr = 16_000
     n = int(sr * duration_s)
-    samples = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, duration_s, n))).astype(np.float32)
-    turn_dur = duration_s / 5  # 5 turns matching intensity_arc length
+    turn_dur = duration_s / 5
+    turn_n = int(sr * turn_dur)
+
+    # Build audio with distinct frequency per turn segment.
+    samples = np.zeros(n, dtype=np.float32)
+    for i, freq in enumerate(_TURN_FREQS_HZ):
+        start = i * turn_n
+        end = min((i + 1) * turn_n, n)
+        t = np.arange(end - start, dtype=np.float32) / sr
+        samples[start:end] = 0.3 * np.sin(2 * np.pi * freq * t)
+
     onsets = [i * turn_dur for i in range(5)]
     offsets = [(i + 1) * turn_dur - 0.05 for i in range(5)]
-    # Alternate speakers: AGG, VIC, AGG, VIC, AGG
     speaker_ids = [
         "AGG_M_30-45_001",
-        "VIC_F_25-40_002",
         "AGG_M_30-45_001",
         "VIC_F_25-40_002",
-        "AGG_M_30-45_001",
+        "VIC_F_25-40_002",
+        "VIC_F_25-40_002",
     ]
     return MixedScene(
         samples=samples,
@@ -77,15 +78,19 @@ def _make_mixed_scene(duration_s: float = 5.0):
 
 
 def _make_dialogue_turns():
-    """Return 5 DialogueTurns with escalating intensity (I1–I5)."""
+    """Return 5 DialogueTurns: AGG at I1–I2, VIC at I3–I5.
+
+    This ensures three VIC turns receive breathiness (I3, I4, I5), covering
+    the full non-zero range of _VIC_BREATHINESS_TARGETS.
+    """
     from synthbanshee.script.types import DialogueTurn
 
     return [
         DialogueTurn(speaker_id="AGG_M_30-45_001", text="מה עשית?", intensity=1),
-        DialogueTurn(speaker_id="VIC_F_25-40_002", text="לא עשיתי כלום.", intensity=2),
-        DialogueTurn(speaker_id="AGG_M_30-45_001", text="תשלם לי!", intensity=3),
+        DialogueTurn(speaker_id="AGG_M_30-45_001", text="תשלם לי!", intensity=2),
+        DialogueTurn(speaker_id="VIC_F_25-40_002", text="לא עשיתי כלום.", intensity=3),
         DialogueTurn(speaker_id="VIC_F_25-40_002", text="בבקשה, תרגע.", intensity=4),
-        DialogueTurn(speaker_id="AGG_M_30-45_001", text="אני אזהיר אותך!", intensity=5),
+        DialogueTurn(speaker_id="VIC_F_25-40_002", text="עזוב אותי.", intensity=5),
     ]
 
 
@@ -119,14 +124,22 @@ def _run_pipeline(tmp_path: Path, *, enable_breathiness: bool):
 class TestBreathinessPipeline:
     """M12 breathiness augmentation integration tests."""
 
+    def test_fixture_has_expected_shape(self) -> None:
+        """Guard: the shared scene YAML still has the shape this test expects."""
+        scene = SceneConfig.from_yaml(SCENE_YAML)
+        roles = {s.role for s in scene.speakers}
+        assert "VIC" in roles, "Fixture must include a VIC speaker"
+        assert "AGG" in roles, "Fixture must include an AGG speaker"
+        assert any(i >= 3 for i in scene.intensity_arc), "Fixture intensity_arc must include I3+"
+
     def test_pipeline_succeeds_with_breathiness(self, tmp_path: Path) -> None:
         """Pipeline completes without errors when breathiness is enabled."""
         wav, errors = _run_pipeline(tmp_path, enable_breathiness=True)
         assert wav is not None, errors
         assert errors == []
 
-    def test_output_differs_from_baseline(self, tmp_path: Path) -> None:
-        """Output WAV with breathiness differs from a baseline run without it."""
+    def test_vic_segments_differ_from_baseline(self, tmp_path: Path) -> None:
+        """VIC turn segments have measurably higher RMS with breathiness enabled."""
         wav_on, errors_on = _run_pipeline(tmp_path / "on", enable_breathiness=True)
         wav_off, errors_off = _run_pipeline(tmp_path / "off", enable_breathiness=False)
         assert wav_on is not None, errors_on
@@ -136,12 +149,27 @@ class TestBreathinessPipeline:
         audio_off, sr_off = sf.read(str(wav_off))
         assert sr_on == sr_off == 16_000
 
-        # The two arrays should differ due to breathiness noise injection.
-        # They may have different lengths due to padding, so compare overlapping
-        # region.
-        min_len = min(len(audio_on), len(audio_off))
-        assert not np.array_equal(audio_on[:min_len], audio_off[:min_len]), (
-            "Breathiness should change the audio samples"
+        # VIC turns are indices 2, 3, 4 in our 5-turn layout.
+        # preprocess() adds silence padding (≥ 0.5 s) at head, so shift onsets.
+        pad_samples = int(0.5 * sr_on)
+        turn_dur_samples = len(audio_off) // 5  # approximate
+
+        vic_rms_diffs: list[float] = []
+        for turn_idx in (2, 3, 4):
+            start = pad_samples + turn_idx * turn_dur_samples
+            end = min(start + turn_dur_samples, len(audio_on), len(audio_off))
+            if end <= start:
+                continue
+            seg_on = audio_on[start:end]
+            seg_off = audio_off[start:end]
+            rms_on = float(np.sqrt(np.mean(seg_on**2)))
+            rms_off = float(np.sqrt(np.mean(seg_off**2)))
+            if rms_off > 1e-10:
+                vic_rms_diffs.append(abs(rms_on - rms_off) / rms_off)
+
+        assert len(vic_rms_diffs) > 0, "Should have measured at least one VIC segment"
+        assert any(d > 0.001 for d in vic_rms_diffs), (
+            f"Breathiness should measurably change VIC segment RMS, got diffs: {vic_rms_diffs}"
         )
 
     def test_breathiness_applied_in_metadata(self, tmp_path: Path) -> None:
@@ -160,11 +188,9 @@ class TestBreathinessPipeline:
         gen = meta.get("generation_metadata", {})
         assert gen.get("breathiness_applied") is False
 
-    def test_wav_is_spec_compliant(self, tmp_path: Path) -> None:
-        """Output WAV is 16 kHz mono with non-zero audio."""
+    def test_clip_passes_validator(self, tmp_path: Path) -> None:
+        """Output clip with breathiness passes the full project validator."""
         wav, errors = _run_pipeline(tmp_path, enable_breathiness=True)
         assert wav is not None, errors
-        data, sr = sf.read(str(wav))
-        assert sr == 16_000
-        assert data.ndim == 1  # mono
-        assert float(np.max(np.abs(data))) > 0.0
+        result = validate_clip(wav)
+        assert result.is_valid, f"Validation errors: {result.errors}"
