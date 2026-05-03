@@ -46,7 +46,7 @@ style_map:
   5:
     style: "General"
     rate_multiplier: 1.14           # M15: consensus Shouting [+8%,+15%]; variant: mid-high
-    pitch_delta_st: +3              # M15: male pitch upper bound
+    pitch_delta_st: +2              # #64: was +3 (=18%); reduced to ~12%
     volume_delta_db: +13
     rms_target_dbfs: -15
 
