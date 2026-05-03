@@ -28,18 +28,18 @@ from dataclasses import dataclass, field
 
 _AGG_TARGETS: dict[int, tuple[float, float, float]] = {
     1: (1.00, 0.0, 0.0),
-    2: (1.03, 0.3, 1.0),
-    3: (1.08, 0.8, 2.0),
-    4: (1.12, 1.5, 3.0),
-    5: (1.15, 2.0, 4.0),
+    2: (1.03, 0.2, 1.0),
+    3: (1.08, 0.5, 2.0),
+    4: (1.12, 1.0, 3.0),  # #64: pitch 1.5→1.0 (helium fix)
+    5: (1.15, 1.5, 4.0),  # #64: pitch 2.0→1.5 (helium fix)
 }
 
 _VIC_TARGETS: dict[int, tuple[float, float, float]] = {
     1: (1.00, 0.0, 0.0),
-    2: (0.98, 0.2, -0.5),
-    3: (0.94, 0.5, -1.5),
-    4: (0.90, 0.8, -2.5),
-    5: (0.87, 1.0, -3.0),
+    2: (0.98, 0.1, -0.5),
+    3: (0.94, 0.3, -1.5),  # #64: pitch 0.5→0.3 (helium fix)
+    4: (0.90, 0.5, -2.5),  # #64: pitch 0.8→0.5 (helium fix)
+    5: (0.87, 0.7, -3.0),  # #64: pitch 1.0→0.7 (helium fix)
 }
 
 # Unknown roles (bystanders, witnesses, etc.) hold neutral state.
@@ -65,7 +65,7 @@ _VIC_BREATHINESS_TARGETS: dict[int, float] = {
 # M15: Maximum unexplained F0 drift (semitones) across a clip.
 # Research consensus (wiki/topics/research-synthesis.md line 76):
 # reject if accumulated pitch drift exceeds this bound.
-MAX_F0_DRIFT_ST: float = 2.0
+MAX_F0_DRIFT_ST: float = 1.5  # #64: was 2.0; tightened to prevent helium effect
 
 
 def _target_for(role: str, intensity: int) -> tuple[float, float, float]:
@@ -145,7 +145,7 @@ class SpeakerState:
     def f0_drift_exceeded(self) -> bool:
         """Return True if accumulated pitch drift exceeds the M15 bound.
 
-        The bound (``MAX_F0_DRIFT_ST``) limits unexplained F0 drift to 2.0
+        The bound (``MAX_F0_DRIFT_ST``) limits unexplained F0 drift to 1.5
         semitones across a clip, as recommended by the research synthesis
         (wiki/topics/research-synthesis.md line 76).
         """

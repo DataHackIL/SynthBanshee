@@ -166,6 +166,10 @@ class TTSRenderer:
             pitch += speaker_state.pitch_offset_st
             volume += speaker_state.volume_offset_db
 
+        # #64: clamp total pitch to StyleEntry bounds (±12 st) to prevent
+        # unbounded drift when speaker_state + randomization stack up.
+        pitch = max(-12.0, min(12.0, pitch))
+
         if randomize:
             import random
 

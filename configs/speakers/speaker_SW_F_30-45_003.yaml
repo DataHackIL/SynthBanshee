@@ -25,31 +25,31 @@ style_map:
   1:
     style: "General"
     rate_multiplier: 0.95           # M15: consensus Calm; variant: deliberately slow
-    pitch_delta_st: -2              # M15: female pitch -3% to +2%
+    pitch_delta_st: 0               # #64: was -2 (=-12%); capped to consensus range
     volume_delta_db: 0
     rms_target_dbfs: -26
   2:
     style: "General"
     rate_multiplier: 0.98           # M15: consensus Neutral; variant: measured
-    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    pitch_delta_st: 0               # #64: was -1; neutral baseline
     volume_delta_db: 0
     rms_target_dbfs: -27
   3:
     style: "General"
     rate_multiplier: 0.92           # M15: consensus Irritation; variant: very deliberate
-    pitch_delta_st: +2              # M15: female pitch 0% to +5%; variant: higher tension
+    pitch_delta_st: +1              # #64: was +2; reduced to ~6% (consensus 0–5%)
     volume_delta_db: +3
     rms_target_dbfs: -28
   4:
     style: "General"
     rate_multiplier: 0.95           # M15: consensus Anger; variant: slow/controlled
-    pitch_delta_st: +4              # M15: female pitch +2% to +7%
+    pitch_delta_st: +2              # #64: was +4 (=24%); reduced to ~12% (consensus 2–7%)
     volume_delta_db: +5
     rms_target_dbfs: -29
   5:
     style: "General"
     rate_multiplier: 1.10           # M15: consensus Shouting; variant: high panic
-    pitch_delta_st: +6              # M15: female pitch +4% to +10%; variant: upper
+    pitch_delta_st: +2              # #64: was +6 (=36%); reduced to ~12% (consensus 4–10%)
     volume_delta_db: +8
     rms_target_dbfs: -30
 

@@ -20,31 +20,31 @@ style_map:
   1:
     style: "General"
     rate_multiplier: 0.95           # M15: consensus Calm [-6%,+2%]; variant: hesitant
-    pitch_delta_st: -2              # M15: female pitch -3% to +2%
+    pitch_delta_st: 0               # #64: was -2 (=-12%); capped to consensus range
     volume_delta_db: 0
     rms_target_dbfs: -26            # M3: baseline level (slightly quieter than AGG)
   2:                                # Tension — careful, watchful; slight vocal strain
     style: "General"
     rate_multiplier: 0.96           # M15: consensus Neutral [0%,+4%]; variant: guarded
-    pitch_delta_st: -1              # M15: female pitch -2% to +3%
+    pitch_delta_st: 0               # #64: was -1; neutral baseline
     volume_delta_db: 0
     rms_target_dbfs: -27            # M3: voice drops slightly (guarded/hushed)
   3:                                # Conflict — defensive, shaking voice
     style: "General"
     rate_multiplier: 0.94           # M15: consensus Irritation; variant: very slow
-    pitch_delta_st: +2              # M15: female pitch 0% to +5%; tension
+    pitch_delta_st: +1              # #64: was +2; reduced to ~6% (consensus 0–5%)
     volume_delta_db: +3
     rms_target_dbfs: -28            # M3: still dropping (victim shrinks under pressure)
   4:                                # Escalated — pleading, distress
     style: "General"
     rate_multiplier: 0.93           # M15: consensus Anger; variant: slow pleading
-    pitch_delta_st: +4              # M15: female pitch +2% to +7%; distress
+    pitch_delta_st: +2              # #64: was +4 (=24%); reduced to ~12% (consensus 2–7%)
     volume_delta_db: +5
     rms_target_dbfs: -29            # M3: near-whisper pleading
   5:                                # Extreme — panic, screaming or sobbing
     style: "General"
     rate_multiplier: 1.04           # M15: consensus Shouting; variant: panic speeds up
-    pitch_delta_st: +6              # M15: female pitch +4% to +10%
+    pitch_delta_st: +2              # #64: was +6 (=36%); reduced to ~12% (consensus 4–10%)
     volume_delta_db: +7
     rms_target_dbfs: -30            # M3: sobbing/panic often sounds quieter than shouting
 
