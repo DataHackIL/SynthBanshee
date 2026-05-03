@@ -289,7 +289,8 @@ def _run_generate_pipeline(
     from synthbanshee.script.hebrew_disambiguator import disambiguate_turns
 
     speaker_roles_map = {spk_ref.speaker_id: spk_ref.role for spk_ref in scene.speakers}
-    turns = disambiguate_turns(turns, speaker_roles_map)
+    speaker_genders_map = {sid: spk.gender for sid, spk in speakers.items()}
+    turns = disambiguate_turns(turns, speaker_roles_map, speaker_genders_map)
     n_modified = sum(1 for t in turns if t.normalization_rules_triggered)
     vlog(f"  [dim]disambiguation: {n_modified}/{len(turns)} turns modified[/dim]")
 
