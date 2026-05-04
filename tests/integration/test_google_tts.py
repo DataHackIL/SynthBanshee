@@ -1,41 +1,47 @@
 """Integration test: real Google Cloud TTS round-trip (issue #40).
 
-Verifies that the SSML produced by ``SSMLBuilder(supports_style_tags=False)``
-is accepted by Google's API, and that ``GoogleProvider._pcm_to_wav``
-produces audio that round-trips through ``soundfile`` as a 24 kHz mono
-16-bit PCM WAV with non-silent content.
+The unit tests in ``tests/unit/test_google_provider.py`` cover SSML shape,
+provider dispatch, and error handling — all with a mocked client.  This
+test fills the remaining gap: that the SSML our code generates is
+actually accepted by Google's API and that synthesizing a real Hebrew
+utterance returns plausible, non-silent audio.
 
-The mocked unit tests in ``tests/unit/test_google_provider.py`` cover
-parsing, dispatch, and error handling; this test covers the contract
-between our SSML and the actual Google service.
+Skip behavior:
 
-Marked with ``@pytest.mark.live_tts`` so it can be skipped in fast loops:
+- Skipped when ``google-cloud-texttospeech`` is not installed (mirrors
+  the lazy-import guard in ``google_provider.py``).
+- Skipped when ``GOOGLE_APPLICATION_CREDENTIALS`` is unset.
 
-    pytest -m "not live_tts"      # skip live API calls
-    pytest tests/integration/test_google_tts.py   # run only this test
+Marker filter:
 
-Skipped automatically when ``GOOGLE_APPLICATION_CREDENTIALS`` is unset
-or the optional ``google-cloud-texttospeech`` extra is not installed.
+    pytest -m "not live_tts"   # skip live API calls in fast loops
 """
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
-import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
+from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.tts.google_provider import GoogleProvider
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 
-# Short Hebrew utterance — kept brief to keep the test cheap.
-_HEBREW_UTTERANCE = "שלום, זאת בדיקה."
+# A known Google-voiced speaker YAML.  Drives the test from real config so
+# that voice deprecation in YAMLs (or removal of the Google provider from
+# this speaker) breaks this test instead of silently passing against a
+# stale hard-coded voice ID.
+_GOOGLE_SPEAKER_YAML = (
+    Path(__file__).parent.parent.parent / "configs" / "speakers" / "speaker_BEN_M_40-55_004.yaml"
+)
 
-# Real Google he-IL Chirp 3 HD voice — verify with scripts/check_google_voices.py.
-_VOICE_ID = "he-IL-Chirp3-HD-Achird"
+# Short Hebrew utterance — kept brief to keep the test cheap.  ~4 words.
+_HEBREW_UTTERANCE = "שלום, זאת בדיקה."
 
 # Google TTS LINEAR16 output rate, wrapped by GoogleProvider._pcm_to_wav.
 _EXPECTED_SAMPLE_RATE_HZ = 24_000
@@ -43,77 +49,71 @@ _EXPECTED_SAMPLE_RATE_HZ = 24_000
 # Floor for "clearly non-silent" speech on a [-1, 1] float32 scale.
 _RMS_FLOOR = 0.005
 
+# Plausibility window for a ~4-word Hebrew utterance.  A degenerate response
+# (silence sliver, error fallback, partial audio) falls outside this range.
+_DURATION_MIN_S = 1.0
+_DURATION_MAX_S = 15.0
+
 
 def _credentials_available() -> bool:
     return bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
 
 
-def _google_sdk_available() -> bool:
-    try:
-        import google.cloud.texttospeech  # type: ignore[import-untyped]  # noqa: F401
-    except ImportError:
-        return False
-    return True
+def _google_sdk_installed() -> bool:
+    """True iff ``google-cloud-texttospeech`` is importable.
 
-
-_SKIP_REASON = (
-    "Live Google TTS test: requires GOOGLE_APPLICATION_CREDENTIALS and the "
-    "google-cloud-texttospeech extra (`pip install 'synthbanshee[google-tts]'`)."
-)
+    Uses ``find_spec`` so we don't trigger the SDK's import side effects
+    at pytest collection time — same reason ``GoogleProvider`` lazy-imports.
+    """
+    return importlib.util.find_spec("google.cloud.texttospeech") is not None
 
 
 @pytest.mark.live_tts
 @pytest.mark.skipif(
-    not (_credentials_available() and _google_sdk_available()),
-    reason=_SKIP_REASON,
+    not _google_sdk_installed(),
+    reason="google-cloud-texttospeech not installed (`pip install 'synthbanshee[google-tts]'`)",
 )
-def test_google_tts_round_trip_returns_valid_non_silent_wav() -> None:
-    """One short Hebrew utterance survives the SSMLBuilder → Google → WAV path."""
+@pytest.mark.skipif(
+    not _credentials_available(),
+    reason="GOOGLE_APPLICATION_CREDENTIALS is not set",
+)
+def test_google_tts_round_trip_returns_plausible_non_silent_audio() -> None:
+    """A short Hebrew utterance synthesizes to plausible, non-silent audio.
+
+    Asserts only what Google actually controls: the call succeeds, the
+    returned audio is decodable as a 24 kHz mono float waveform, its
+    duration is plausible for the input, and it is not silent.  WAV
+    container shape is owned by ``_pcm_to_wav`` and covered by unit tests
+    — not re-asserted here.
+    """
+    speaker = SpeakerConfig.from_yaml(_GOOGLE_SPEAKER_YAML)
+    assert speaker.tts_provider == "google", (
+        f"Test fixture speaker must use Google TTS, got {speaker.tts_provider!r}"
+    )
+    style_entry = speaker.style_for_intensity(2)
+
     builder = SSMLBuilder()
     ssml = builder.build_from_speaker_config(
         text=_HEBREW_UTTERANCE,
-        voice_id=_VOICE_ID,
-        style="General",
-        rate_multiplier=1.0,
+        voice_id=speaker.tts_voice_id,
+        style=style_entry.style,
+        rate_multiplier=style_entry.rate_multiplier,
+        pitch_delta_st=style_entry.pitch_delta_st,
+        volume_delta_db=style_entry.volume_delta_db,
         supports_style_tags=False,
     )
-
-    # Regression guard: SSML for Google must never carry Azure-only mstts tags.
-    assert "mstts" not in ssml
-    assert "express-as" not in ssml
 
     wav_bytes = GoogleProvider().synthesize(ssml)
-
-    assert wav_bytes[:4] == b"RIFF", "Output must start with a RIFF/WAV header"
-    with wave.open(io.BytesIO(wav_bytes), "r") as w:
-        assert w.getnchannels() == 1, "Output must be mono"
-        assert w.getsampwidth() == 2, "Output must be 16-bit (sampwidth=2)"
-        assert w.getframerate() == _EXPECTED_SAMPLE_RATE_HZ
-        assert w.getnframes() > 0
-
     audio, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+
     assert sample_rate == _EXPECTED_SAMPLE_RATE_HZ
-    assert audio.ndim == 1, "Output must be mono (single channel)"
+    assert audio.ndim == 1, "expected mono audio"
+
+    duration_s = audio.shape[0] / sample_rate
+    assert _DURATION_MIN_S < duration_s < _DURATION_MAX_S, (
+        f"audio duration {duration_s:.3f}s outside plausible window "
+        f"[{_DURATION_MIN_S}, {_DURATION_MAX_S}] for utterance {_HEBREW_UTTERANCE!r}"
+    )
 
     rms = float(np.sqrt(np.mean(audio**2)))
-    assert rms > _RMS_FLOOR, f"Audio appears silent (RMS={rms:.5f})"
-
-
-def test_ssml_builder_google_mode_emits_no_mstts() -> None:
-    """Cheap regression guard for the ``supports_style_tags=False`` path.
-
-    Runs without API access so it always executes — the round-trip test
-    is gated on credentials, but this snapshot check is not.
-    """
-    builder = SSMLBuilder()
-    ssml = builder.build_from_speaker_config(
-        text=_HEBREW_UTTERANCE,
-        voice_id=_VOICE_ID,
-        style="angry",  # non-General style still must not produce express-as
-        rate_multiplier=1.1,
-        pitch_delta_st=2.0,
-        supports_style_tags=False,
-    )
-    assert "mstts" not in ssml
-    assert "express-as" not in ssml
-    assert _VOICE_ID in ssml
+    assert rms > _RMS_FLOOR, f"audio appears silent (RMS={rms:.5f})"
