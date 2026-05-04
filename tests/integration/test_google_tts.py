@@ -6,22 +6,26 @@ test fills the remaining gap: that the SSML our code generates is
 actually accepted by Google's API and that synthesizing a real Hebrew
 utterance returns plausible, non-silent audio.
 
-Skip behavior:
+Opt-in: this test is gated by the ``--run-live-tts`` flag wired in
+``tests/conftest.py``.  Default ``pytest`` invocations skip it so that
+CI and contributors with ADC + the SDK installed are not billed on
+every test run.
 
-- Skipped when ``google-cloud-texttospeech`` is not installed (mirrors
-  the lazy-import guard in ``google_provider.py``).
-- Skipped when ``GOOGLE_APPLICATION_CREDENTIALS`` is unset.
+    pytest --run-live-tts tests/integration/test_google_tts.py
+    pytest -m "not live_tts"     # inverse: still works
 
-Marker filter:
+Additional skip conditions (when opted in):
 
-    pytest -m "not live_tts"   # skip live API calls in fast loops
+- ``google-cloud-texttospeech`` not installed.
+- No discoverable ADC credentials (env var, gcloud login, or metadata
+  server) — surfaced via ``google.auth.exceptions.DefaultCredentialsError``
+  at synthesis time.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import io
-import os
 from pathlib import Path
 
 import numpy as np
@@ -55,27 +59,25 @@ _DURATION_MIN_S = 1.0
 _DURATION_MAX_S = 15.0
 
 
-def _credentials_available() -> bool:
-    return bool(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
-
-
 def _google_sdk_installed() -> bool:
     """True iff ``google-cloud-texttospeech`` is importable.
 
-    Uses ``find_spec`` so we don't trigger the SDK's import side effects
-    at pytest collection time — same reason ``GoogleProvider`` lazy-imports.
+    Uses ``find_spec`` so the SDK is not actually loaded at collection
+    time.  ``find_spec`` raises ``ModuleNotFoundError`` (a subclass of
+    ``ImportError``) when a parent package is missing — e.g. the
+    ``google`` namespace is absent entirely on a CI machine without the
+    optional extra — so we catch that and treat it as "not installed".
     """
-    return importlib.util.find_spec("google.cloud.texttospeech") is not None
+    try:
+        return importlib.util.find_spec("google.cloud.texttospeech") is not None
+    except (ImportError, ValueError):
+        return False
 
 
 @pytest.mark.live_tts
 @pytest.mark.skipif(
     not _google_sdk_installed(),
     reason="google-cloud-texttospeech not installed (`pip install 'synthbanshee[google-tts]'`)",
-)
-@pytest.mark.skipif(
-    not _credentials_available(),
-    reason="GOOGLE_APPLICATION_CREDENTIALS is not set",
 )
 def test_google_tts_round_trip_returns_plausible_non_silent_audio() -> None:
     """A short Hebrew utterance synthesizes to plausible, non-silent audio.
@@ -103,7 +105,17 @@ def test_google_tts_round_trip_returns_plausible_non_silent_audio() -> None:
         supports_style_tags=False,
     )
 
-    wav_bytes = GoogleProvider().synthesize(ssml)
+    # Skip with a precise reason if no ADC credentials are discoverable.
+    # Covers the full chain that GoogleProvider supports — service-account
+    # JSON via env var, `gcloud auth application-default login`, and
+    # GCE / Workload Identity metadata — not just the env var.
+    from google.auth.exceptions import DefaultCredentialsError
+
+    try:
+        wav_bytes = GoogleProvider().synthesize(ssml)
+    except DefaultCredentialsError as exc:
+        pytest.skip(f"No Google ADC credentials discoverable: {exc}")
+
     audio, sample_rate = sf.read(io.BytesIO(wav_bytes), dtype="float32")
 
     assert sample_rate == _EXPECTED_SAMPLE_RATE_HZ
