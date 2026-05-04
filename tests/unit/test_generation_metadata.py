@@ -180,7 +180,7 @@ class TestMixedSceneMixModes:
         import soundfile as sf
 
         from synthbanshee.tts.mix_mode import MixMode
-        from synthbanshee.tts.mixer import SceneMixer
+        from synthbanshee.tts.mixer import SceneMixer, Segment
 
         mono = np.zeros(1600, dtype=np.float32)  # 0.1s at 16kHz
         buf = io.BytesIO()
@@ -189,9 +189,9 @@ class TestMixedSceneMixModes:
 
         mixer = SceneMixer()
         segments = [
-            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
-            (wav_bytes, 0.05, "spk_b", None, MixMode.OVERLAP),
-            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
+            Segment(wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
+            Segment(wav_bytes, 0.05, "spk_b", None, MixMode.OVERLAP),
+            Segment(wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
         ]
         scene = mixer.mix_sequential(segments)
         assert scene.mix_modes == ["sequential", "overlap", "sequential"]

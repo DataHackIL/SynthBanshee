@@ -21,7 +21,6 @@ from synthbanshee.config.speaker_config import SpeakerConfig
 if TYPE_CHECKING:
     from synthbanshee.config.project_profile import ProjectProfile
 from synthbanshee.script.types import DialogueTurn, MixedScene
-from synthbanshee.tts.mix_mode import MixMode
 from synthbanshee.tts.provider import TTSProvider
 from synthbanshee.tts.quality_gates import run_quality_gates
 from synthbanshee.tts.speaker_state import SpeakerState
@@ -264,7 +263,7 @@ class TTSRenderer:
 
         from synthbanshee.script.generator import inject_disfluency
         from synthbanshee.tts.gap_controller import TurnGapController
-        from synthbanshee.tts.mixer import SceneMixer
+        from synthbanshee.tts.mixer import SceneMixer, Segment
 
         rng = random.Random(rng_seed)
         # Separate gap RNG (same seed, isolated stream) so that enabling/
@@ -280,7 +279,7 @@ class TTSRenderer:
         # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
         states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
 
-        segments: list[tuple[bytes, float, str, float | None, MixMode]] = []
+        segments: list[Segment] = []
         prev_turn: DialogueTurn | None = None
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
@@ -375,12 +374,13 @@ class TTSRenderer:
                 elif speaker.role == "VIC":
                     rms_target = project_profile.loudness.vic_rms_dbfs
             segments.append(
-                (
-                    wav_bytes,
-                    gap_s,
-                    turn.speaker_id,
-                    rms_target,
-                    mix_mode,
+                Segment(
+                    wav_bytes=wav_bytes,
+                    amount_s=gap_s,
+                    speaker_id=turn.speaker_id,
+                    rms_target_dbfs=rms_target,
+                    mix_mode=mix_mode,
+                    intensity=turn.intensity,
                 )
             )
             prev_turn = turn
