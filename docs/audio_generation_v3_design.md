@@ -215,7 +215,7 @@ Both sources produce `PhraseProsody` objects; the SSML builder does not distingu
 
 Pure amplitude scaling at high intensity sounds like microphone proximity, not raised voice. Real shouting exhibits the Lombard effect: a high-frequency boost (≈ +2–4 dB above 2–3 kHz) caused by glottal-source flattening. Azure he-IL voices do not honour `<mstts:express-as>`, so the tilt is applied as a post-TTS DSP step.
 
-Implementation: a single RBJ high-shelf biquad (`scipy.signal.lfilter`) at 2.5 kHz with +2.0 dB gain at I4 and +3.5 dB gain at I5. I1–I3 pass through unchanged. The shelf runs in `SceneMixer.mix_sequential()` after per-turn RMS gain (§4.7) and before the edge-fade pass, driven by a 6th element in the segment tuple carrying `turn.intensity`. Peak headroom is left to the preprocessing limiter — the shelf does not perform its own clipping.
+Implementation: a single RBJ high-shelf biquad (`scipy.signal.lfilter`) at 2.5 kHz with +2.0 dB asymptotic gain at I4 and +3.5 dB at I5; at the 2.5 kHz knee the gain is half. All other intensities pass through unchanged. The shelf runs in `SceneMixer.mix_sequential()` after per-turn RMS gain (§4.7) and before the edge-fade pass; the M14 fade-in conveniently masks the filter's startup transient. Coefficients are precomputed once at module load. The mixer's input is a `Segment` dataclass (replaces the historical positional tuple) carrying `intensity` as a named field. Peak headroom is left to the preprocessing limiter — the shelf does not perform its own clipping.
 
 ---
 

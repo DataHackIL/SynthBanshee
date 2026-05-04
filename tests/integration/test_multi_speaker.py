@@ -19,7 +19,7 @@ from synthbanshee.labels.generator import LabelGenerator, ScriptEvent
 from synthbanshee.script.types import DialogueTurn, MixedScene
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.mix_mode import MixMode
-from synthbanshee.tts.mixer import SceneMixer
+from synthbanshee.tts.mixer import SceneMixer, Segment
 from synthbanshee.tts.renderer import TTSRenderer
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
@@ -229,9 +229,9 @@ class TestOverlapLabelIntegration:
         mixer = SceneMixer()
         wav = _make_wav_bytes_16k(duration_s=2.0)
         segments = [
-            (wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL, None),
-            (wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL, None),
-            (wav, 0.4, "SPK_A", None, mix_mode_third, None),
+            Segment(wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL),
+            Segment(wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL),
+            Segment(wav, 0.4, "SPK_A", None, mix_mode_third),
         ]
         return mixer.mix_sequential(segments)
 
