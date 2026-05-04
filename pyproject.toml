@@ -91,6 +91,9 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "live_tts: integration tests that hit a real TTS API (skip with -m 'not live_tts')",
+]
 
 [tool.coverage.run]
 source = ["synthbanshee"]
