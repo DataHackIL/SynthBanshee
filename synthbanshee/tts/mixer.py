@@ -7,12 +7,15 @@ gain (M3) and a Lombard spectral tilt at I4–I5 (#65), then places each turn
 in the output buffer according to its MixMode:
 
   SEQUENTIAL  — insert a silence gap of *amount_s* before this turn (existing behaviour).
-  OVERLAP     — start *amount_s* seconds before the previous turn ends; both turns are
-                audible in the overlap region.
-  BARGE_IN    — the new turn onsets inside the previous turn (anchored against the
-                previous turn's *speech* end, not file end — #66); the previous turn
-                continues through its natural speech end with a linear fade-out spanning
-                the overlap region, producing an audible crossfade between the two voices.
+  OVERLAP     — start *amount_s* seconds before the previous turn's *speech* end (#66 —
+                anchored at speech end, not file end, to skip TTS trailing-silence
+                padding).  Both turns play to their natural file end; they sum in the
+                overlap region.
+  BARGE_IN    — same speech-end-anchored onset as OVERLAP, plus the previous turn is
+                truncated at its speech end with a short (60 ms) fade-out at the cut.
+                The previous voice plays at full volume through the entire overlap
+                region, then a quick fade-out — modelling a real interruption rather
+                than a smooth crossfade.
 
 The output MixedScene carries per-turn timing metadata on three timelines (§4.6):
 
@@ -21,11 +24,16 @@ The output MixedScene carries per-turn timing metadata on three timelines (§4.6
                                           even for BARGE_IN-truncated turns.
   rendered_onsets_s / rendered_offsets_s — actual onset/offset in the output buffer;
                                           for BARGE_IN-interrupted turns, rendered_offsets_s
-                                          is updated to the truncation point (the previous
-                                          turn's speech end), which sits *after* the new
-                                          turn's rendered onset by the overlap-region length.
-  audible_onsets_s / audible_ends_s     — what is audible (same as rendered; both at the
-                                          truncation point for interrupted turns).
+                                          equals the truncation point (the previous turn's
+                                          speech end), which sits *after* the next turn's
+                                          rendered_onsets_s by the overlap-region length.
+                                          (Consumers that previously assumed
+                                          ``rendered_offsets_s[i] <= rendered_onsets_s[i+1]``
+                                          must be updated — the invariant no longer holds for
+                                          BARGE_IN.  The label generator already handles this
+                                          correctly via ``mix_modes``.)
+  audible_onsets_s / audible_ends_s     — what is audible.  Equal to the rendered timeline
+                                          for all turns including BARGE_IN-interrupted ones.
 
 For backward compatibility, turn_onsets_s and turn_offsets_s mirror the *audible* timeline
 (audible_onsets_s and audible_ends_s respectively) so that all offsets stay within the
@@ -50,14 +58,28 @@ from synthbanshee.tts.mix_mode import MixMode
 
 _TARGET_SR = 16_000
 _EDGE_FADE_SAMPLES = 160  # 10ms at 16 kHz — eliminates DC-offset clicks at turn boundaries
+# Length of the BARGE_IN truncation fade-out applied at the prev turn's speech
+# end.  Real interruptions don't span the whole overlap region with a slow ramp
+# — the previous speaker keeps talking at full volume right up until they're
+# overpowered, then stops.  60 ms is long enough to avoid clicks but short
+# enough to preserve that abruptness.
+_BARGE_IN_FADE_OUT_SAMPLES = 960  # 60 ms at 16 kHz
 
-# #66 BARGE_IN tail-trim: TTS voices pad the end of an utterance with 100–300 ms
-# of near-silence (Azure ~150 ms, Google ~200 ms).  Anchoring BARGE_IN onset to
-# file end therefore lands the overlap inside that padding — listener hears the
+# #66 BARGE_IN/OVERLAP tail-trim: TTS voices pad the end of an utterance with
+# 100–300 ms of near-silence (Azure ~150 ms, Google ~200 ms).  Anchoring the
+# overlap onset to file end lands it inside that padding — listener hears the
 # previous speaker stop, then a gap, then the new speaker start.  We measure
-# speech end via a windowed RMS scan and anchor the overlap to that instead.
-_SPEECH_END_WINDOW_MS = 30.0
-_SPEECH_END_THRESHOLD_DBFS = -40.0
+# speech end via a short-window RMS scan and anchor the overlap to that.
+#
+# Window choice: 10 ms matches _EDGE_FADE_SAMPLES; smaller windows give
+# tighter offset precision (≤ 10 ms uncertainty propagates into label offsets
+# of interrupted turns).
+_SPEECH_END_WINDOW_SAMPLES = 160  # 10 ms at 16 kHz
+# Threshold is signal-relative — 40 dB below the segment's own peak window RMS.
+# This auto-scales for whisper turns, normal turns, and Lombard-tilted turns
+# (#65) without a hardcoded dBFS knob, and avoids cutting word-final fricatives
+# (which can sit 30+ dB below the syllable nucleus).
+_SPEECH_END_DB_BELOW_PEAK = 40.0
 
 # #65 Lombard effect: post-TTS spectral tilt at high intensities.
 # Real raised voices boost high-frequency energy; pure amplitude scaling sounds
@@ -187,32 +209,46 @@ def _apply_lombard_tilt(mono: np.ndarray, intensity: int) -> np.ndarray:
 _LOMBARD_COEFFS: dict[int, tuple[np.ndarray, np.ndarray]] = _precompute_lombard_coeffs()
 
 
-def _speech_end_sample(
-    mono: np.ndarray,
-    sample_rate: int = _TARGET_SR,
-    window_ms: float = _SPEECH_END_WINDOW_MS,
-    threshold_dbfs: float = _SPEECH_END_THRESHOLD_DBFS,
-) -> int:
+def _speech_end_sample(mono: np.ndarray) -> int:
     """Return the sample index just after the last window of speech-level energy.
 
-    Walks the tail backwards in non-overlapping windows; returns the end index
-    of the first window (from the tail) whose RMS exceeds *threshold_dbfs*.
-    Returns ``len(mono)`` when the input is empty (defensive: caller already
-    handles the empty case but the contract stays safe under refactors), and
-    ``0`` when no window crosses the threshold (silent input).
+    Skips trailing silence introduced by TTS engines (#66).  The threshold is
+    *signal-relative* — 40 dB below this segment's own peak window RMS — so it
+    auto-scales for whisper, normal, and Lombard-tilted turns without a
+    hardcoded dBFS knob.
 
-    Used by BARGE_IN onset placement (#66) to skip TTS trailing-silence padding.
+    Walks all 10 ms windows once to find peak RMS, then walks the tail
+    backwards and returns the end of the first window above
+    ``peak_rms / 100`` (i.e. ‑40 dB below the loudest part of the segment).
+
+    Returns 0 for empty or fully-silent input.
     """
-    if len(mono) == 0:
+    n = len(mono)
+    if n == 0:
         return 0
-    win = max(1, int(window_ms * sample_rate / 1000.0))
-    threshold = 10.0 ** (threshold_dbfs / 20.0)
-    for end in range(len(mono), 0, -win):
-        start = max(0, end - win)
-        rms = float(np.sqrt(np.mean(mono[start:end] ** 2)))
-        if rms >= threshold:
-            return end
-    return 0
+    win = _SPEECH_END_WINDOW_SAMPLES
+    # Squared-RMS per non-overlapping tail-aligned window.  Walking from the
+    # tail keeps the boundary windows at the (interesting) end of the buffer.
+    n_windows = n // win
+    if n_windows == 0:
+        # Shorter than one window — treat the whole thing as one window.
+        rms = float(np.sqrt(np.mean(mono.astype(np.float64) ** 2)))
+        return n if rms > 0.0 else 0
+    # Trim leading samples so windows align to the tail.
+    tail = mono[n - n_windows * win :]
+    frames = tail.reshape(n_windows, win).astype(np.float64)
+    frame_rms = np.sqrt((frames * frames).mean(axis=1))
+    peak_rms = float(frame_rms.max())
+    if peak_rms <= 0.0:
+        return 0
+    threshold = peak_rms * (10.0 ** (-_SPEECH_END_DB_BELOW_PEAK / 20.0))
+    # Last frame whose RMS exceeds threshold; result is its end sample.
+    above = np.where(frame_rms >= threshold)[0]
+    if len(above) == 0:
+        return 0
+    last_idx = int(above[-1])
+    leading_skipped = n - n_windows * win
+    return leading_skipped + (last_idx + 1) * win
 
 
 def _apply_edge_fades(mono: np.ndarray, n: int = _EDGE_FADE_SAMPLES) -> np.ndarray:
@@ -304,13 +340,11 @@ class SceneMixer:
                 if placed:
                     prev_mono, prev_onset_sample = placed[-1]
                     prev_onset_s = prev_onset_sample / _TARGET_SR
-                    if seg.mix_mode == MixMode.BARGE_IN:
-                        # #66: anchor against speech end, not file end — TTS
-                        # trailing-silence padding would otherwise eat the
-                        # entire overlap and produce an audible turn-taking gap.
-                        anchor_samples = _speech_end_sample(prev_mono, _TARGET_SR)
-                    else:
-                        anchor_samples = len(prev_mono)
+                    # #66: anchor against speech end, not file end — TTS trailing
+                    # silence would otherwise eat the overlap and produce an
+                    # audible turn-taking gap.  Applies to both BARGE_IN and
+                    # OVERLAP since both intend audible co-occurrence.
+                    anchor_samples = _speech_end_sample(prev_mono)
                     anchor_duration_s = float(anchor_samples) / _TARGET_SR
                     overlap_s = min(amount_s, anchor_duration_s)
                     onset_s = max(prev_onset_s, prev_onset_s + anchor_duration_s - overlap_s)
@@ -326,18 +360,18 @@ class SceneMixer:
             onset_s = float(onset_sample) / _TARGET_SR
             offset_s = float(onset_sample + len(mono)) / _TARGET_SR
 
-            # --- BARGE_IN: continue prev through its speech end, fade out across overlap ---
-            # Old behaviour cut prev *at* the new onset, leaving zero audible overlap and
-            # (worse) a perceptual gap when the cut landed inside TTS trailing silence (#66).
-            # New behaviour: prev plays through its natural speech end (or the file end —
-            # whichever is reached first), with a linear fade-out applied across the overlap
-            # region so the two voices crossfade naturally.
+            # --- BARGE_IN: prev plays through its speech end, then fades out ---
+            # Old behaviour cut prev exactly at the new onset, leaving zero audible
+            # overlap and (worse) a perceptual gap when the cut landed inside TTS
+            # trailing silence (#66).  New behaviour: prev plays at full volume past
+            # the new onset, all the way to its natural speech end, then a short
+            # 60 ms fade-out at that boundary.  The two voices co-occur for the full
+            # overlap region; prev_mono is mutated in place because _apply_edge_fades
+            # already returned a fresh array — no other reference exists.
             if seg.mix_mode == MixMode.BARGE_IN and placed:
                 prev_mono, prev_onset_sample = placed[-1]
                 onset_offset_in_prev = onset_sample - prev_onset_sample
-                # Truncate at speech end so trailing TTS silence doesn't leak into the buffer
-                # past the new turn's onset.
-                speech_end_in_prev = _speech_end_sample(prev_mono, _TARGET_SR)
+                speech_end_in_prev = _speech_end_sample(prev_mono)
                 truncate_at = min(speech_end_in_prev, len(prev_mono))
                 if onset_offset_in_prev <= 0:
                     # Full-depth barge-in: new turn starts at or before prev's onset —
@@ -347,18 +381,18 @@ class SceneMixer:
                     rendered_offsets[-1] = prev_onset_s_f
                     audible_ends[-1] = prev_onset_s_f
                 elif truncate_at > onset_offset_in_prev:
-                    # Standard overlap path: prev extends past the new onset by the
-                    # overlap region; fade out across that region.
-                    truncated = prev_mono[:truncate_at].copy()
-                    fade_n = truncate_at - onset_offset_in_prev
-                    truncated[-fade_n:] *= np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
-                    placed[-1] = (truncated, prev_onset_sample)
+                    # Audible-overlap path: prev extends past the new onset to its
+                    # speech end; apply a short fade-out at the truncation boundary
+                    # to avoid clicks without smearing prev across the whole overlap.
+                    fade_n = min(_BARGE_IN_FADE_OUT_SAMPLES, truncate_at)
+                    fade = np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
+                    prev_mono[truncate_at - fade_n : truncate_at] *= fade
+                    placed[-1] = (prev_mono[:truncate_at], prev_onset_sample)
                     new_offset_s = float(prev_onset_sample + truncate_at) / _TARGET_SR
                     rendered_offsets[-1] = new_offset_s
                     audible_ends[-1] = new_offset_s
-                # Else (truncate_at <= onset_offset_in_prev): prev's speech already ended
-                # before the new onset.  Leave prev untouched — its trailing silence (if any)
-                # will simply sum with the new turn at low energy, producing no audible gap.
+                # Else (truncate_at <= onset_offset_in_prev): prev's speech already
+                # ended at or before the new onset; leave prev untouched.
 
             placed.append((mono, onset_sample))
 

@@ -206,19 +206,12 @@ class TestRenderScene:
 # ---------------------------------------------------------------------------
 
 
-def _make_wav_bytes_16k(duration_s: float = 2.0, trailing_silence_s: float = 0.0) -> bytes:
-    """Minimal 16 kHz mono WAV for direct use with SceneMixer.
-
-    *trailing_silence_s* appends silence after the sine (mimics TTS padding).
-    The total file duration is ``duration_s + trailing_silence_s``.
-    """
+def _make_wav_bytes_16k(duration_s: float = 2.0) -> bytes:
+    """Minimal 16 kHz mono WAV for direct use with SceneMixer."""
     sample_rate = 16_000
-    n_speech = int(sample_rate * duration_s)
-    n_silence = int(sample_rate * trailing_silence_s)
-    t = np.linspace(0, duration_s, n_speech, endpoint=False)
-    speech = (0.3 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
-    silence = np.zeros(n_silence, dtype=np.int16)
-    samples = np.concatenate([speech, silence])
+    n = int(sample_rate * duration_s)
+    t = np.linspace(0, duration_s, n, endpoint=False)
+    samples = (0.3 * np.sin(2 * np.pi * 440.0 * t) * 32767).astype(np.int16)
     buf = io.BytesIO()
     with wave.open(buf, "w") as w:
         w.setnchannels(1)
@@ -232,15 +225,9 @@ class TestOverlapLabelIntegration:
     """Integration: SceneMixer audible timeline → LabelGenerator → EventLabel timestamps."""
 
     def _three_turn_scene(self, mix_mode_third: MixMode) -> MixedScene:
-        """Mix three turns where the third uses the specified mix_mode.
-
-        Each turn carries 0.3 s of trailing silence to mimic TTS padding —
-        BARGE_IN truncates that padding, so the interrupted middle turn's
-        audible duration is shorter than its script duration (which is what
-        the LabelGenerator's ``truncated`` flag measures).
-        """
+        """Mix three turns where the third uses the specified mix_mode."""
         mixer = SceneMixer()
-        wav = _make_wav_bytes_16k(duration_s=2.0, trailing_silence_s=0.3)
+        wav = _make_wav_bytes_16k(duration_s=2.0)
         segments = [
             Segment(wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL),
             Segment(wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL),

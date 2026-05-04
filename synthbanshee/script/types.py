@@ -78,7 +78,8 @@ class MixedScene:
             always within the final waveform duration).
         turn_offsets_s: Per-turn audible end in seconds (backward-compat alias
             for ``audible_ends_s``; for BARGE_IN-interrupted turns this is the
-            truncation point, not the original TTS end).
+            truncation point at the previous turn's *speech* end, which sits
+            *after* the next turn's onset by the overlap-region length).
         duration_s: Total scene duration in seconds.
         speaker_ids: Speaker ID for each turn (parallel with onsets/offsets).
         script_onsets_s: Sequential-world onset — where the turn would start if
@@ -87,13 +88,17 @@ class MixedScene:
         rendered_onsets_s: Actual onset in the output buffer, accounting for
             overlap/barge-in positioning.
         rendered_offsets_s: Actual offset in the output buffer after any
-            barge-in truncation has been applied.  For uninterrupted turns this
-            is ``rendered_onset + TTS duration``; for turns interrupted by a
-            BARGE_IN it is the truncation point in the final mixed output.
+            barge-in truncation has been applied.  For uninterrupted turns
+            this is ``rendered_onset + TTS duration``; for turns interrupted
+            by a BARGE_IN it is the previous turn's speech end (§4.6, #66).
+            **Important: for BARGE_IN-interrupted turns,
+            ``rendered_offsets_s[i] > rendered_onsets_s[i+1]`` — consecutive
+            turns can overlap.  Consumers must not assume non-overlap.**
         audible_onsets_s: Same as ``rendered_onsets_s`` for all turns.
         audible_ends_s: End of the audible portion.  Matches
             ``rendered_offsets_s`` for all turns, including BARGE_IN-interrupted
-            turns where both fields reflect the truncation point.
+            turns; like ``rendered_offsets_s``, it can exceed the next turn's
+            ``audible_onsets_s`` for interrupted turns.
     """
 
     samples: np.ndarray
