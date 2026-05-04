@@ -16,6 +16,7 @@ from synthbanshee.tts.mixer import (
     _apply_edge_fades,
     _apply_lombard_tilt,
     _apply_rms_gain,
+    _speech_end_sample,
 )
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,29 @@ def _sine_wav_bytes(
     n = int(sample_rate * duration_s)
     t = np.linspace(0, duration_s, n, endpoint=False)
     samples = (amplitude * np.sin(2 * np.pi * freq * t) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(samples.tobytes())
+    return buf.getvalue()
+
+
+def _sine_with_trailing_silence_wav_bytes(
+    speech_s: float,
+    silence_s: float,
+    freq: float = 440.0,
+    sample_rate: int = 16000,
+    amplitude: float = 0.4,
+) -> bytes:
+    """Sine of *speech_s* followed by *silence_s* of zeros — repro for #66."""
+    n_speech = int(sample_rate * speech_s)
+    n_silence = int(sample_rate * silence_s)
+    t = np.linspace(0, speech_s, n_speech, endpoint=False)
+    speech = (amplitude * np.sin(2 * np.pi * freq * t) * 32767).astype(np.int16)
+    silence = np.zeros(n_silence, dtype=np.int16)
+    samples = np.concatenate([speech, silence])
     buf = io.BytesIO()
     with wave.open(buf, "w") as w:
         w.setnchannels(1)
@@ -336,12 +360,14 @@ class TestOverlapMixing:
         overlap_region = result.samples[overlap_start:overlap_end]
         assert float(np.max(np.abs(overlap_region))) > 0.3
 
-    def test_barge_in_previous_turn_truncated(self):
-        """BARGE_IN: the previous turn's audio must be zero after the barge-in point."""
+    def test_barge_in_previous_turn_truncated_at_speech_end(self):
+        """BARGE_IN: the previous turn extends through speech end with a fade-out
+        across the overlap region, then is silent past speech end (#66)."""
         mixer = SceneMixer()
         dur = 1.5
         barge_depth = 0.4
         wav1 = _sine_wav_bytes(freq=440, duration_s=dur, sample_rate=_TARGET_SR, amplitude=0.4)
+        # Silent wav2 so any non-zero buffer energy comes from wav1 alone.
         wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR, amplitude=0.0)
 
         result = mixer.mix_sequential(
@@ -350,18 +376,25 @@ class TestOverlapMixing:
                 Segment(wav2, barge_depth, "B", None, MixMode.BARGE_IN),
             ]
         )
-        # After COPILOT-6: rendered_offsets_s is updated to the truncation point,
-        # so audible_ends_s[0] == rendered_offsets_s[0] < script_offsets_s[0].
+        # Truncation point sits at wav1's speech end (~ file end here, no trailing
+        # silence) — i.e. AT script_offsets_s[0], not at the new onset.
         assert result.audible_ends_s[0] == pytest.approx(result.rendered_offsets_s[0], abs=1e-4)
-        assert result.audible_ends_s[0] < result.script_offsets_s[0]
-        # No audio from the first turn must remain after the barge-in point.
-        barge_sample = int(result.rendered_onsets_s[1] * _TARGET_SR)
-        # Buffer from barge-in point onward is zero (silent wav2 added, prev truncated).
-        tail = result.samples[barge_sample : int(result.script_offsets_s[0] * _TARGET_SR)]
+        assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=0.04)
+        # Prev's audible_end is now AFTER the new onset by ~ barge_depth.
+        assert result.audible_ends_s[0] > result.rendered_onsets_s[1]
+        # Buffer past the truncation point must be silent (wav2 is silent, prev truncated).
+        tail_start = int(result.audible_ends_s[0] * _TARGET_SR)
+        tail = result.samples[tail_start:]
         assert np.allclose(tail, 0.0, atol=1e-5)
+        # And the overlap region is non-zero (fade-out of wav1 still audible).
+        overlap_start = int(result.rendered_onsets_s[1] * _TARGET_SR)
+        overlap_end = int(result.audible_ends_s[0] * _TARGET_SR)
+        assert overlap_end > overlap_start
+        assert float(np.max(np.abs(result.samples[overlap_start:overlap_end]))) > 0.05
 
-    def test_barge_in_audible_end_equals_onset_of_next(self):
-        """Interrupted turn's audible_end_s == barge-in turn's rendered_onset_s."""
+    def test_barge_in_audible_end_after_onset_of_next(self):
+        """Interrupted turn's audible_end_s lands AFTER the new turn's onset by the
+        overlap-region length (#66)."""
         mixer = SceneMixer()
         wav1 = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
         wav2 = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
@@ -371,7 +404,11 @@ class TestOverlapMixing:
                 Segment(wav2, 0.3, "B", None, MixMode.BARGE_IN),
             ]
         )
-        assert result.audible_ends_s[0] == pytest.approx(result.rendered_onsets_s[1], abs=1e-4)
+        # Audible end of prev is at its speech end; new onset is barge_depth before that.
+        assert result.audible_ends_s[0] > result.rendered_onsets_s[1]
+        assert result.audible_ends_s[0] == pytest.approx(
+            result.rendered_onsets_s[1] + 0.3, abs=0.05
+        )
 
     def test_three_timeline_fields_populated(self):
         """MixedScene must expose script / rendered / audible timeline fields."""
@@ -472,6 +509,102 @@ class TestOverlapMixing:
         assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=1e-4)
         # New turn starts right where the previous one ended.
         assert result.rendered_onsets_s[1] == pytest.approx(dur, abs=0.02)
+
+    def test_barge_in_overlaps_speech_through_trailing_silence(self):
+        """#66: BARGE_IN onset must land in the speech region of the previous turn,
+        even when that turn has trailing silence padding (TTS-style)."""
+        mixer = SceneMixer()
+        speech_s = 1.0
+        silence_s = 0.3  # mimics Azure / Google trailing-silence padding
+        barge_depth_s = 0.25  # smaller than silence_s — the bug scenario
+        wav1 = _sine_with_trailing_silence_wav_bytes(
+            speech_s=speech_s,
+            silence_s=silence_s,
+            freq=440,
+            sample_rate=_TARGET_SR,
+            amplitude=0.4,
+        )
+        wav2 = _sine_wav_bytes(freq=880, duration_s=0.6, sample_rate=_TARGET_SR, amplitude=0.4)
+        result = mixer.mix_sequential(
+            [
+                Segment(wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
+                Segment(wav2, barge_depth_s, "B", None, MixMode.BARGE_IN),
+            ]
+        )
+        # The new turn must onset *before* the previous turn's speech ended,
+        # not somewhere inside its trailing silence.
+        new_onset_s = result.rendered_onsets_s[1]
+        assert new_onset_s < speech_s, (
+            f"BARGE_IN onset {new_onset_s:.3f}s landed at/after speech end "
+            f"{speech_s:.3f}s — overlap fell inside trailing silence (#66)."
+        )
+        # And there must be audible energy from BOTH speakers in the first
+        # 100 ms of the overlap region (acceptance criterion).
+        n_check = int(0.1 * _TARGET_SR)
+        onset_sample = int(new_onset_s * _TARGET_SR)
+        # Sum of both turns in the overlap window must clearly exceed wav2 alone:
+        # we check that the buffer's RMS in this window is at least ~1.4x wav2's
+        # contribution (two uncorrelated sines at the same amplitude → ~sqrt(2)x RMS).
+        overlap_window = result.samples[onset_sample : onset_sample + n_check]
+        overlap_rms = float(np.sqrt(np.mean(overlap_window**2)))
+        # wav2's contribution alone (0.4 amp sine) has RMS ≈ 0.283.
+        assert overlap_rms > 0.32, (
+            f"Overlap-region RMS {overlap_rms:.3f} is no louder than a single "
+            "speaker — previous turn was inaudible at the barge-in point."
+        )
+
+    def test_overlap_unaffected_by_speech_end_anchor(self):
+        """OVERLAP must continue to anchor against file end, not speech end —
+        regression guard for #66 to confirm the fix is BARGE_IN-only."""
+        mixer = SceneMixer()
+        speech_s = 1.0
+        silence_s = 0.3
+        overlap_s = 0.25
+        wav1 = _sine_with_trailing_silence_wav_bytes(
+            speech_s=speech_s, silence_s=silence_s, freq=440, sample_rate=_TARGET_SR
+        )
+        wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR)
+        result = mixer.mix_sequential(
+            [
+                Segment(wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
+                Segment(wav2, overlap_s, "B", None, MixMode.OVERLAP),
+            ]
+        )
+        # Anchor is file end (speech_s + silence_s) → onset is at that minus depth.
+        expected_onset_s = (speech_s + silence_s) - overlap_s
+        assert result.rendered_onsets_s[1] == pytest.approx(expected_onset_s, abs=0.02)
+
+
+class TestSpeechEndSample:
+    """Tests for _speech_end_sample (#66 — TTS trailing-silence trim)."""
+
+    def test_returns_zero_for_empty(self):
+        assert _speech_end_sample(np.zeros(0, dtype=np.float32), _TARGET_SR) == 0
+
+    def test_returns_zero_for_silent_array(self):
+        mono = np.zeros(_TARGET_SR, dtype=np.float32)
+        assert _speech_end_sample(mono, _TARGET_SR) == 0
+
+    def test_skips_trailing_silence(self):
+        """An array of speech-level energy followed by silence returns ≈ speech end."""
+        sr = _TARGET_SR
+        speech = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 1.0, sr))).astype(np.float32)
+        silence = np.zeros(int(0.3 * sr), dtype=np.float32)
+        mono = np.concatenate([speech, silence])
+        end = _speech_end_sample(mono, sr)
+        # Tolerance: one window (30 ms = 480 samples) plus quantisation slack.
+        assert abs(end - len(speech)) <= int(0.04 * sr), (
+            f"Detected speech end {end} differs from expected {len(speech)} by "
+            f"more than one window."
+        )
+
+    def test_full_array_when_no_trailing_silence(self):
+        sr = _TARGET_SR
+        mono = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5 * sr)))).astype(
+            np.float32
+        )
+        # With no trailing silence, the last window is loud → returns len(mono).
+        assert _speech_end_sample(mono, sr) == len(mono)
 
 
 # ---------------------------------------------------------------------------
