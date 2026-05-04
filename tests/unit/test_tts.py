@@ -752,6 +752,45 @@ class TestTTSRenderer:
         assert len(log_messages) >= 1
         assert any("turn" in m for m in log_messages)
 
+    def test_render_scene_forwards_turn_intensity_to_mixer(self, tmp_path):
+        """Each turn's intensity must arrive on the corresponding Segment (#65).
+
+        Without this guarantee the Lombard tilt becomes invisible from
+        ``render_scene``: the mixer-level tests would still pass even if
+        ``render_scene`` hard-coded ``intensity=1`` on every Segment.
+        """
+        from unittest.mock import patch
+
+        from synthbanshee.script.types import DialogueTurn
+        from synthbanshee.tts.mixer import SceneMixer
+
+        renderer = self._make_renderer(tmp_path)
+        speaker = SpeakerConfig.from_yaml(EXAMPLES_DIR / "speaker_AGG_M_30-45_001.yaml")
+        turns = [
+            DialogueTurn(speaker_id="AGG_M_30-45_001", text="שלום", intensity=1),
+            DialogueTurn(speaker_id="AGG_M_30-45_001", text="תפסיק", intensity=5),
+            DialogueTurn(speaker_id="AGG_M_30-45_001", text="עכשיו", intensity=4),
+        ]
+        speakers = {"AGG_M_30-45_001": speaker}
+
+        # Spy that captures the segment list and delegates to the real mixer
+        # so the function still returns a valid MixedScene.
+        captured: list[list[object]] = []
+        real_mix = SceneMixer.mix_sequential
+
+        def _spy(self, segments):
+            captured.append(list(segments))
+            return real_mix(self, segments)
+
+        with patch.object(SceneMixer, "mix_sequential", _spy):
+            renderer.render_scene(turns, speakers)
+
+        assert len(captured) == 1
+        intensities = [seg.intensity for seg in captured[0]]
+        assert intensities == [1, 5, 4], (
+            f"render_scene must forward each turn's intensity to the mixer; got {intensities!r}"
+        )
+
     def test_render_scene_disfluency_with_phrase_hints_rebases(self, tmp_path):
         """disfluency=True + phrase_hints: rebase_phrase_prosody is called when text changes."""
         from unittest.mock import patch
