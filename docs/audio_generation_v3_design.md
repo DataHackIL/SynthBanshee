@@ -52,6 +52,7 @@ All P0–P2 work is tracked here. Milestones that span multiple PRs are listed o
 | **M14** | P0 | ✅ Done | Fixes muffled audio, click artifacts, and voice identity shifts | Replace 7.5 kHz LPF with 80 Hz HPF in `preprocessing.py`; default `wiener_denoise=False` in `PreprocessingConfig`; add 10ms (160 sample) edge fades at turn boundaries in `mixer.py`; set `supports_style_tags=False` in `AzureProvider` capabilities (disables `express-as` for he-IL voices); update unit tests | Small | No |
 | **M15** | P1 | ✅ Done | Tunes SSML prosody to research-validated Hebrew parameters | Update `style_map` values in speaker YAMLs per research consensus table (rate, pitch, volume, F0 range by intensity); update `SpeakerState` drift bounds (max 2.0 st unexplained drift); add turn-level quality gates: sustained-vowel detection (>2.8 s reject), F0 guardrails (male [80,180] Hz, female [150,290] Hz), click detection | Medium | No |
 | **M16** | P2 | ✅ Done | Adds realistic acoustic environments to Tier B clips | Implement `room_sim.py` with pyroomacoustics (RT60 0.25–0.7 s, shoebox rooms, phone-on-table early reflection model); implement `device_profiles.py` (phone EQ: 80 Hz HPF, presence boost +2–4 dB @ 2.5–3.5 kHz, gentle high shelf above 6.5 kHz); implement `noise_mixer.py` (SNR distribution: 50% 18–30 dB, 30% 10–18 dB, 10% 5–10 dB, 10% 30–40 dB); optional codec simulation (Opus/AMR-NB) | Large | No |
+| **M17** | P2 | 🔲 Not started | Automated evaluation pipeline with neural speech models + multimodal LLM judge | `synthbanshee/eval/` module: `asr.py` (Whisper WER/CER), `mos.py` (UTMOS), `emotion.py` (wav2vec2 SER), `speaker.py` (ECAPA-TDNN), `llm_judge.py` (Gemini 2.5 Pro), `report.py` (EvalReport + release gate); CLI commands `eval`, `eval-batch`, `release-gate`; regression CI workflow; see `docs/automated_eval_design.md` | Large | No |
 
 ---
 
@@ -687,6 +688,19 @@ Before any dataset version is promoted from "restricted training" to "full train
 - Scored on: gender correctness (yes/no), adult-voice plausibility (1–5), distress plausibility at high intensity (1–5), conversational naturalness (1–5), TTS obviousness (1–5, lower is better)
 - Pass criteria: gender correctness ≥ 95%; distress plausibility ≥ 3.0 mean at I4–I5; no single clip scores 1 on adult-voice plausibility
 
+### 8.4 Automated Evaluation Pipeline (M17)
+
+> **Full design:** `docs/automated_eval_design.md`
+
+Human listening tests (§8.3) remain the gold standard but happen infrequently. Between human reviews, an automated evaluation layer (M17) provides continuous monitoring, regression detection, and release gating using:
+
+- **E1–E4:** Neural speech models (ASR, MOS, emotion, speaker verification) — local GPU, zero API cost
+- **E5:** Multimodal LLM judge (Gemini 2.5 Pro) — stratified 20% sample, ~$4/500-clip run
+
+Complements M10a/M10b (signal-level QA): M10 catches physical property violations (F0, RMS, LUFS); M17 catches perceptual/semantic failures (intelligibility, naturalness, emotion authenticity, speaker confusion). Both must pass for dataset release.
+
+All thresholds require empirical calibration before gating — see calibration protocol in the design doc.
+
 ---
 
 ## 9. Sequencing and Dependencies
@@ -712,6 +726,7 @@ M10b (run-level QA)       requires M10a ─────────────�
 M11 (provenance meta)     ──────────────────────────────── P2
 M12 (breathiness)         requires M7 (state), gate ──────── P2
 M13 (project profiles)    requires M6, M8b ──────────────── P2
+M17 (automated eval)      requires M10a; parallel with all ── P2
 ```
 
 Fastest path to improved audio: **M3b → M4** (P0 remaining), then **M6 → M7 → M8a → M8b**.
@@ -744,3 +759,4 @@ See **Implementation Tracker** at the top of this document for the full per-PR b
 | M11 — Provenance metadata | P2 | Ablation studies; debugging | Small | No |
 | M12 — Breathiness (experimental) | P2 | VIC distress phonation; gate required | Medium | No |
 | M13 — Project-specific profiles | P2 | She-Proves / Elephant acoustic fit | Small | No |
+| M17 — Automated evaluation | P2 | Continuous quality monitoring; regression detection; release gating | Large | No |

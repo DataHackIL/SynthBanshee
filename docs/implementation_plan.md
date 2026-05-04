@@ -438,6 +438,33 @@ This phase implements the Approach 2 scene graph concepts on top of the Approach
 
 ---
 
+## Phase 5 — Automated Evaluation (Parallel Track)
+
+**Goal:** Continuous, scalable quality assessment using neural speech models and multimodal LLMs, eliminating reliance on infrequent human listening tests for regression detection.
+
+**Full design:** `docs/automated_eval_design.md`
+
+This phase runs in parallel with Phases 2–4 and gates dataset releases. Complements (does not replace) the signal-level QA in M10a/M10b — M10a/b measures physical properties (F0, RMS, LUFS); Phase 5 measures perceptual and semantic properties (intelligibility, emotion, naturalness, coherence).
+
+### 5.1 Foundation Evaluators (E1 + E2)
+
+- ASR transcript verification (Hebrew WER/CER) + predicted MOS scoring
+- `synthbanshee/eval/` module, `eval` CLI command, EvalReport
+
+### 5.2 Emotion + Speaker Evaluators (E3 + E4)
+
+- Emotion recognition match at I3–I5 + speaker embedding consistency
+
+### 5.3 Multimodal LLM Judge (E5)
+
+- Gemini 2.5 Pro holistic audio evaluation (stratified 20% sample)
+
+### 5.4 Release Gate + CI Integration
+
+- Aggregated release gate, `eval-batch`/`release-gate` CLI commands, PR-level regression detection
+
+---
+
 ## Dependency Map
 
 ```
@@ -460,6 +487,7 @@ Phase 0.1 (env setup)
         └─→ Phase 3.1 (Tier C templates) → Phase 3.2 (scale-up)
                                          → Phase 3.3 (IAA)
 Phase 4 (scene graph) runs in parallel with Phases 2–3
+Phase 5 (automated eval) runs in parallel with Phases 2–4; gates release
 ```
 
 **AI teams can begin model development after Phase 1.5** (Tier A delivery). They do not need to wait for Tier B or Tier C.
@@ -504,6 +532,7 @@ Caching TTS outputs (same text + same voice = same file) will substantially redu
 | M3: Tier B dataset delivered | Week 11 | 1,000–1,500 clips/project, Tier B augmented | Code complete; generation run is an ops step |
 | M4: Phase 1 complete dataset | Week 16 | 4,000 clips/project, all tiers, IAA done, dataset card published | Code complete; generation run + upload are ops steps |
 | M5: Scene graph layer (Phase 4) | Month 6 | Graph-driven escalation labels available |
+| M17: Automated evaluation (Phase 5) | Month 5 | Perceptual eval pipeline (ASR + MOS + Emotion + Speaker + LLM); release gate; regression CI — see `docs/automated_eval_design.md` |
 
 ---
 
