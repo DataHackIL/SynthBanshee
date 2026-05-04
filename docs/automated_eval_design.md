@@ -229,8 +229,8 @@ Pipeline output (WAV + transcript + metadata)
 | Overall quality | "Rate the overall production quality of this audio clip" | 1–5 |
 
 **Metrics:**
-- Per-dimension scores (1–5 or binary)
-- `llm_overall_score`: weighted average across dimensions
+- Per-dimension scores (1–5 for quality dimensions; binary for artifact detection)
+- `llm_overall_score`: weighted average across 1–5 dimensions only (artifact detection is excluded from the average and tracked separately as a rate)
 - `llm_artifact_flags`: list of detected issues with timestamps
 
 **Thresholds [UNCALIBRATED — must bootstrap before gating]:**
