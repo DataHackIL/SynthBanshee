@@ -442,37 +442,26 @@ This phase implements the Approach 2 scene graph concepts on top of the Approach
 
 **Goal:** Continuous, scalable quality assessment using neural speech models and multimodal LLMs, eliminating reliance on infrequent human listening tests for regression detection.
 
-This phase implements the evaluators described in `docs/automated_eval_design.md`. It runs in parallel with Phases 2–4 and gates dataset releases.
+**Full design:** `docs/automated_eval_design.md`
+
+This phase runs in parallel with Phases 2–4 and gates dataset releases. Complements (does not replace) the signal-level QA in M10a/M10b — M10a/b measures physical properties (F0, RMS, LUFS); Phase 5 measures perceptual and semantic properties (intelligibility, emotion, naturalness, coherence).
 
 ### 5.1 Foundation Evaluators (E1 + E2)
 
-- Integrate Whisper ASR (large-v3 or ivrit-ai/whisper-v2-d3-e3) for Hebrew transcript verification (WER/CER per turn)
-- Integrate UTMOS/NISQA for predicted MOS (naturalness) scoring
-- Add `synthbanshee/eval/` module with `asr.py`, `mos.py`, `report.py`
-- Add `synthbanshee eval` CLI command
-- `EvalReport` dataclass with JSON serialization
-- Unit tests with synthetic reference clips
+- ASR transcript verification (Hebrew WER/CER) + predicted MOS scoring
+- `synthbanshee/eval/` module, `eval` CLI command, EvalReport
 
 ### 5.2 Emotion + Speaker Evaluators (E3 + E4)
 
-- Integrate wav2vec2-based SER (emotion2vec or XLSR-based) for emotion match verification at I3–I5
-- Integrate ECAPA-TDNN (SpeechBrain) for speaker embedding extraction and consistency scoring
-- Intra-speaker cosine similarity and inter-speaker distance metrics
-- Extend `EvalReport` with emotion and speaker metrics
+- Emotion recognition match at I3–I5 + speaker embedding consistency
 
 ### 5.3 Multimodal LLM Judge (E5)
 
-- Implement Gemini 2.5 Pro audio evaluation pipeline (audio-native multimodal)
-- Structured evaluation across: pronunciation clarity, prosody naturalness, emotional expression, speaker differentiation, dialogue flow, artifact detection, escalation arc, scene coherence
-- Stratified sampling (20% of clips per run), result caching, cost tracking
-- Hebrew-specific prompt calibration with anchor examples
+- Gemini 2.5 Pro holistic audio evaluation (stratified 20% sample)
 
 ### 5.4 Release Gate + CI Integration
 
-- Implement release gate logic (all-pass criteria: mean WER < 0.20, mean MOS >= 3.5, emotion match > 50%, speaker confusion < 5%, LLM overall >= 3.5, artifact rate < 10%)
-- Add `eval-batch` and `release-gate` CLI commands
-- Regression detection on PRs touching TTS/augment code (10 reference clips, fixed seeds, compare against baseline)
-- GitHub Actions workflow triggered on `needs-eval` label or file-path patterns
+- Aggregated release gate, `eval-batch`/`release-gate` CLI commands, PR-level regression detection
 
 ---
 
@@ -543,7 +532,7 @@ Caching TTS outputs (same text + same voice = same file) will substantially redu
 | M3: Tier B dataset delivered | Week 11 | 1,000–1,500 clips/project, Tier B augmented | Code complete; generation run is an ops step |
 | M4: Phase 1 complete dataset | Week 16 | 4,000 clips/project, all tiers, IAA done, dataset card published | Code complete; generation run + upload are ops steps |
 | M5: Scene graph layer (Phase 4) | Month 6 | Graph-driven escalation labels available |
-| M6: Automated evaluation (Phase 5) | Month 5 | ASR + MOS + Emotion + Speaker + LLM evaluation pipeline; release gate; regression CI |
+| M17: Automated evaluation (Phase 5) | Month 5 | Perceptual eval pipeline (ASR + MOS + Emotion + Speaker + LLM); release gate; regression CI — see `docs/automated_eval_design.md` |
 
 ---
 

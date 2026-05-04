@@ -23,6 +23,17 @@ This document proposes an automated evaluation layer using two complementary too
 
 Together they provide continuous, scalable quality assessment that runs after every generation and gates dataset releases.
 
+### Relationship to Existing QA (M10a/M10b)
+
+M10a/M10b (per-clip metrics + run-level QA aggregation) measures **signal-level physical properties**: F0 median/std, RMS/LUFS by turn, click counts. These remain in place unchanged.
+
+This document adds a **perceptual/semantic layer** on top: does the audio sound intelligible, natural, emotionally appropriate, and speaker-consistent to models trained on human perception? The two systems are complementary:
+
+- M10a/b catches: wrong F0 range, missing loudness escalation, zero overlap, emotion label corruption
+- M17 (this) catches: unintelligible pronunciation, unnatural prosody, emotion that *sounds* wrong despite correct labels, speaker identity drift, holistic dialogue incoherence
+
+Both feed into the same release gate decision. A dataset must pass M10b *and* M17 gates to ship.
+
 ---
 
 ## Architecture Overview
@@ -59,7 +70,7 @@ Pipeline output (WAV + transcript + metadata)
 - `cer_per_turn`: per-turn CER
 - `unintelligible_words`: list of words in transcript not recovered by ASR
 
-**Thresholds (proposed):**
+**Thresholds [UNCALIBRATED — must bootstrap before gating]:**
 - Turn-level: WER < 0.30 (Hebrew ASR is imperfect; allow headroom)
 - Clip-level: mean WER < 0.20
 - Run-level: < 5% of turns exceed WER 0.40
@@ -73,6 +84,10 @@ Pipeline output (WAV + transcript + metadata)
 - Segment audio per turn using `MixedScene.turn_onsets_s` / `turn_offsets_s`
 - Run ASR on individual turn segments, not the full clip (avoids cross-talk confusion)
 - Cache ASR results keyed on `(audio_hash, model_version)` for reproducibility
+
+**Hebrew validation requirement:** Before trusting E1 scores for gating, run Whisper on ≥20 existing clips with known transcripts. Compute baseline WER distribution. If baseline WER > 0.30, the model is too weak for Hebrew and ivrit-ai must be used instead.
+
+**Failure mode — Whisper hallucination:** Whisper is known to generate plausible text that isn't in the audio (especially on short segments or silence). Mitigation: reject ASR output where the decoded text length is >2x or <0.3x the expected transcript length; flag these turns as "ASR unreliable" rather than "unintelligible."
 
 ---
 
@@ -95,7 +110,7 @@ Pipeline output (WAV + transcript + metadata)
 - `mos_clip_mean`: average across all turns in a clip
 - `mos_below_threshold_count`: turns scoring < 3.0
 
-**Thresholds (proposed):**
+**Thresholds [UNCALIBRATED — must bootstrap before gating]:**
 - Turn-level: MOS >= 3.0 (below = flagged for review)
 - Clip-level: mean MOS >= 3.5
 - Run-level: < 10% of turns below 3.0
@@ -103,7 +118,10 @@ Pipeline output (WAV + transcript + metadata)
 **Implementation notes:**
 - UTMOS accepts 16 kHz mono WAV directly (matches our format)
 - Run on preprocessed audio (post Stage 3a) to measure what the downstream model sees
-- MOS prediction is language-agnostic (evaluates signal quality, not content)
+
+**Hebrew validation requirement:** UTMOS was trained primarily on English TTS (VoiceMOS Challenge). Run on ≥20 clips and verify: (a) scores produce non-trivial variance (std > 0.3), (b) known-good clips score higher than known-bad clips. If scores cluster with no discriminative power on our audio, switch to NISQA or DNSMOS.
+
+**Failure mode — score collapse:** If all Hebrew clips get uniformly high MOS (e.g., 4.2–4.5 regardless of quality), the model isn't sensitive to our failure modes. Mitigation: include deliberately degraded clips (resampled, clipped, speed-warped) in the calibration set as negative anchors.
 
 ---
 
@@ -126,7 +144,7 @@ Pipeline output (WAV + transcript + metadata)
 - `emotion_confidence`: model confidence for the predicted class
 - `emotion_confusion_matrix`: run-level confusion matrix (intended vs. predicted)
 
-**Thresholds (proposed):**
+**Thresholds [UNCALIBRATED — must bootstrap before gating]:**
 - Turn-level: match rate > 60% for I3–I5 turns (lower bar because SER models are imperfect on Hebrew)
 - Run-level: per-emotion recall > 50% (no emotion category should be systematically unrecognized)
 - Escalation correlation: for AGG turns, predicted arousal should increase with intensity
@@ -135,6 +153,10 @@ Pipeline output (WAV + transcript + metadata)
 - Map project emotion labels to SER model labels (e.g., "threatening" → "anger" bucket)
 - Focus on arousal dimension (high/low) rather than fine-grained categories for initial deployment
 - Skip I1–I2 turns (neutral) — only evaluate I3–I5 where emotion expression matters
+
+**Hebrew validation requirement:** SER models are overwhelmingly trained on English (IEMOCAP, RAVDESS). Hebrew prosodic cues for emotions differ from English. Before trusting E3: run the model on ≥10 clips spanning I1–I5, verify that predicted arousal monotonically increases with intensity level (Spearman ρ > 0.3). If not, the model can't detect emotional variation in Hebrew prosody and E3 should be informational-only (not a gate).
+
+**Failure mode — intensity-as-emotion:** Speaker state drift (louder, faster) may trigger "anger" predictions regardless of actual emotion category. Mitigation: normalize for loudness/rate before emotion classification, or accept that E3 only validates the arousal dimension (high vs. low), not discrete categories.
 
 ---
 
@@ -157,7 +179,7 @@ Pipeline output (WAV + transcript + metadata)
 - `inter_speaker_cosine_dist`: mean distance between speaker centroids
 - `speaker_confusion_rate`: % of turn pairs where wrong-speaker is closer than same-speaker
 
-**Thresholds (proposed):**
+**Thresholds [UNCALIBRATED — must bootstrap before gating]:**
 - Intra-speaker similarity > 0.75 (same voice identity despite prosody changes)
 - Inter-speaker distance > 0.30 (speakers are perceptually distinct)
 - Speaker confusion rate < 5%
@@ -166,6 +188,10 @@ Pipeline output (WAV + transcript + metadata)
 - Prosody variation (rate/pitch/volume across intensities) will reduce intra-speaker similarity; thresholds must account for this
 - Extract embeddings from the first 3 seconds of each turn (most stable region)
 - This validates that our prosody-baseline speaker differentiation (voice_family + baseline offsets) actually works
+
+**Hebrew validation requirement:** ECAPA-TDNN (trained on VoxCeleb, English speakers) should generalize to Hebrew phonation — speaker embeddings capture vocal tract shape, not language. Verify by running on ≥5 clips: same-speaker pairs should always score higher than cross-speaker pairs. If not, evaluate WavLM-based embeddings as fallback.
+
+**Failure mode — intensity clusters instead of speaker clusters:** Our prosody variation (rate 0.93–1.10x, pitch ±2 st, volume ±7 dB) might shift embeddings more than the prosody-baseline speaker differentiation does. Mitigation: if intra-speaker similarity at I5 is significantly lower than at I1, extract embeddings from the first 1s only (before prosodic peak), or use embeddings robust to prosody (e.g., WavLM fine-tuned for speaker ID).
 
 ---
 
@@ -207,7 +233,7 @@ Pipeline output (WAV + transcript + metadata)
 - `llm_overall_score`: weighted average across dimensions
 - `llm_artifact_flags`: list of detected issues with timestamps
 
-**Thresholds (proposed):**
+**Thresholds [UNCALIBRATED — must bootstrap before gating]:**
 - Per-clip overall >= 3.0 (below = review queue)
 - Run-level mean >= 3.5 (below = generation parameters need tuning)
 - Artifact rate < 10% of turns
@@ -220,17 +246,27 @@ Pipeline output (WAV + transcript + metadata)
 - Cache results keyed on `(clip_audio_hash, prompt_version, model_version)`
 - Hebrew-specific instructions: prompt must specify the language and cultural context
 
+**Content-sensitivity risk:** The prompt references domestic violence, which may trigger LLM safety refusals or bias scoring ("I can't objectively evaluate harmful content"). Mitigations:
+1. Frame as "speech quality evaluation for an interpersonal conflict detection research dataset" — neutral framing that's still accurate
+2. If Gemini refuses, fall back to GPT-4o (different safety boundary calibration)
+3. Use API-level safety settings (Gemini `HarmBlockThreshold.BLOCK_NONE` for research use)
+4. Never include actual violent *content* in text prompts — only ask about audio *quality*
+
 **Prompt template structure:**
 ```
-You are evaluating synthetic Hebrew speech generated for a domestic violence
-audio detection dataset. The clip contains a {typology} scene between
-{num_speakers} speakers at intensity levels {intensity_arc}.
+You are evaluating synthetic Hebrew speech quality for an interpersonal
+conflict detection research dataset. The clip contains a {typology} scene
+between {num_speakers} speakers at intensity levels {intensity_arc}.
 
 Listen to the audio and evaluate each dimension below. Score 1-5 where:
 1 = Unacceptable, 2 = Poor, 3 = Acceptable, 4 = Good, 5 = Excellent.
 
 Return JSON matching this schema: {schema}
 ```
+
+**Hebrew validation requirement:** Before deployment, verify that Gemini/GPT-4o can reliably distinguish Hebrew speech quality differences. Run on 5 known-good and 5 deliberately-degraded clips. If scores don't separate (mean difference < 0.5), the model's Hebrew audio comprehension is insufficient.
+
+**Failure mode — score inflation / refusal:** LLM may refuse to evaluate, or may give uniformly high scores out of uncertainty. Mitigation: include 2–3 calibration clips with known quality levels in the prompt; reject any response where all scores are identical; track refusal rate per model.
 
 ---
 
@@ -275,35 +311,28 @@ synthbanshee release-gate -d data/v0.2/ --eval-report eval_report.json
 
 ## Run-Level Aggregation: EvalReport
 
-```python
-@dataclass
-class EvalReport:
-    """Aggregated evaluation results for a generation run."""
+The EvalReport aggregates per-clip results into run-level summaries. Exact implementation shape will be determined during Phase A; the following fields are the minimum required:
 
-    # Per-evaluator summaries
-    asr_mean_wer: float
-    asr_mean_cer: float
-    asr_unintelligible_rate: float  # fraction of turns with WER > 0.40
+| Field | Type | Source | Description |
+|-------|------|--------|-------------|
+| `asr_mean_wer` | float | E1 | Mean WER across all turns |
+| `asr_mean_cer` | float | E1 | Mean CER across all turns |
+| `asr_unintelligible_rate` | float | E1 | Fraction of turns with WER > 0.40 |
+| `mos_mean` | float | E2 | Mean predicted MOS across all turns |
+| `mos_below_3_rate` | float | E2 | Fraction of turns scoring < 3.0 |
+| `emotion_match_rate` | float | E3 | Match rate for I3–I5 turns only |
+| `emotion_arousal_correlation` | float | E3 | Spearman ρ: intensity level vs. predicted arousal |
+| `speaker_intra_sim_mean` | float | E4 | Mean intra-speaker cosine similarity |
+| `speaker_inter_dist_mean` | float | E4 | Mean inter-speaker centroid distance |
+| `speaker_confusion_rate` | float | E4 | % of turn pairs with wrong-speaker closer |
+| `llm_overall_mean` | float | E5 | Mean holistic score (sampled clips only) |
+| `llm_artifact_rate` | float | E5 | Fraction of turns with detected artifacts |
+| `llm_pronunciation_mean` | float | E5 | Mean pronunciation clarity score |
+| `llm_prosody_mean` | float | E5 | Mean prosody naturalness score |
+| `passed` | bool | Gate | Overall release gate decision |
+| `gate_failures` | list[str] | Gate | Which gates failed and why |
 
-    mos_mean: float
-    mos_below_3_rate: float
-
-    emotion_match_rate: float  # I3-I5 turns only
-    emotion_arousal_correlation: float  # Spearman correlation: intensity vs. arousal
-
-    speaker_intra_sim_mean: float
-    speaker_inter_dist_mean: float
-    speaker_confusion_rate: float
-
-    llm_overall_mean: float  # sampled clips only
-    llm_artifact_rate: float
-    llm_pronunciation_mean: float
-    llm_prosody_mean: float
-
-    # Release gate decision
-    passed: bool
-    gate_failures: list[str]  # which gates failed and why
-```
+Output format: JSON, one file per run, path: `data/{run_id}/eval_report.json`.
 
 ---
 
@@ -368,17 +397,64 @@ Gates are additive — a dataset can fail on one dimension while passing others.
 
 ---
 
+## Threshold Calibration Protocol
+
+All thresholds in this document are marked `[UNCALIBRATED]`. Before any evaluator can gate a release, it must go through calibration:
+
+1. **Collect baseline distribution:** Run the evaluator on ≥50 existing clips (spanning all intensities, typologies, and speaker variants)
+2. **Compute percentiles:** Record P5, P25, P50, P75, P95 of the metric distribution
+3. **Set gate threshold:** Choose a percentile that rejects the bottom ~10% of current output (this is the quality floor, not the target)
+4. **Validate against human judgment:** Have ≥1 native Hebrew listener rate 20 clips; compute Spearman correlation between automated scores and human ratings. If ρ < 0.3, the evaluator is not predictive and should be informational-only (logged, not gating)
+5. **Re-calibrate periodically:** After any pipeline change that passes the gate, re-run calibration to prevent threshold drift
+
+Until calibration is complete for an evaluator, it runs in **informational mode** (scores logged and reported, but do not block release).
+
+---
+
+## Acceptance Criteria (Before Implementation Begins)
+
+This design is validated when the following prototyping experiments are complete:
+
+| Experiment | Pass criterion | Blocks |
+|------------|---------------|--------|
+| Run Whisper large-v3 on 10 existing clips, report WER distribution | Median WER < 0.40 (model is usable on our Hebrew) | Phase A |
+| Run ivrit-ai/whisper-v2-d3-e3 on same 10 clips | Report WER; pick whichever model has lower median | Phase A |
+| Run UTMOS on 10 clips + 5 deliberately degraded clips | Known-good mean > known-bad mean by ≥ 0.5 | Phase A |
+| Run ECAPA-TDNN on 5 clips; compute same-speaker vs cross-speaker similarity | Same-speaker always higher than cross-speaker | Phase B |
+| Run emotion model on 10 clips spanning I1–I5 | Predicted arousal increases with intensity (ρ > 0.2) | Phase B |
+| Send 3 clips to Gemini 2.5 Pro with draft prompt | No refusal; scores show variance; good > bad | Phase C |
+
+These experiments should take <1 day of effort and avoid committing to a multi-week implementation on unvalidated assumptions.
+
+---
+
 ## Cost Estimates
+
+### Local dev (GPU workstation)
 
 | Evaluator | Cost per clip | 500-clip run | Notes |
 |-----------|---------------|--------------|-------|
-| E1: Whisper ASR | ~$0 (local) | $0 | Runs on GPU locally |
-| E2: UTMOS | ~$0 (local) | $0 | Lightweight PyTorch model |
-| E3: Emotion | ~$0 (local) | $0 | wav2vec2-based, local |
-| E4: Speaker | ~$0 (local) | $0 | ECAPA-TDNN, local |
-| E5: LLM Judge | ~$0.04/clip | $4 (20% sample) | Gemini 2.5 Pro audio |
+| E1: Whisper ASR | ~$0 | $0 | ~2s/clip on RTX 3090 |
+| E2: UTMOS | ~$0 | $0 | ~0.5s/clip |
+| E3: Emotion | ~$0 | $0 | ~1s/clip |
+| E4: Speaker | ~$0 | $0 | ~0.5s/clip |
+| E5: LLM Judge | ~$0.04/clip | $4 (20% sample) | Gemini 2.5 Pro audio input |
 
-**Total per run:** ~$4 for 500-clip dataset (only LLM judge has API cost).
+**Total per full run (local):** ~$4 API cost + ~30 min compute for 500 clips.
+
+### CI (GitHub Actions — no GPU)
+
+CI regression detection uses a **10-clip reference set** (CPU-only feasible):
+
+| Evaluator | Feasibility on CPU | CI time estimate (10 clips) |
+|-----------|-------------------|----------------------------|
+| E1: Whisper (small or base) | Yes — use `faster-whisper` with `compute_type=int8` | ~60s |
+| E2: UTMOS | Yes — lightweight model | ~10s |
+| E3: Emotion | Marginal — wav2vec2 is slow on CPU | ~120s (consider skip in CI) |
+| E4: Speaker | Yes — ECAPA-TDNN is small | ~20s |
+| E5: LLM Judge | Yes — API call, no local compute | ~30s (network bound) |
+
+**CI total:** ~4 min for 10 reference clips. E3 may be skipped in CI and reserved for local/nightly runs. Alternative: use a self-hosted GPU runner for nightly full eval.
 
 ---
 

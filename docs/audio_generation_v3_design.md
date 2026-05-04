@@ -688,35 +688,18 @@ Before any dataset version is promoted from "restricted training" to "full train
 - Scored on: gender correctness (yes/no), adult-voice plausibility (1–5), distress plausibility at high intensity (1–5), conversational naturalness (1–5), TTS obviousness (1–5, lower is better)
 - Pass criteria: gender correctness ≥ 95%; distress plausibility ≥ 3.0 mean at I4–I5; no single clip scores 1 on adult-voice plausibility
 
-### 8.4 Automated Evaluation Pipeline
+### 8.4 Automated Evaluation Pipeline (M17)
 
 > **Full design:** `docs/automated_eval_design.md`
 
-Human listening tests (§8.3) remain the gold standard but happen infrequently. Between human reviews, an automated evaluation layer provides continuous monitoring, regression detection, and release gating using two complementary tool families:
+Human listening tests (§8.3) remain the gold standard but happen infrequently. Between human reviews, an automated evaluation layer (M17) provides continuous monitoring, regression detection, and release gating using:
 
-**Neural speech models (local, zero-cost):**
+- **E1–E4:** Neural speech models (ASR, MOS, emotion, speaker verification) — local GPU, zero API cost
+- **E5:** Multimodal LLM judge (Gemini 2.5 Pro) — stratified 20% sample, ~$4/500-clip run
 
-| Evaluator | Tool | What it catches |
-|-----------|------|-----------------|
-| E1 — ASR transcript verification | Whisper large-v3 / ivrit-ai Hebrew | Unintelligible words, pronunciation errors |
-| E2 — MOS prediction | UTMOS / NISQA | Robotic artifacts, processing glitches, unnatural prosody |
-| E3 — Emotion recognition | wav2vec2-based SER / emotion2vec | Emotion label ↔ audio mismatch at I3–I5 |
-| E4 — Speaker consistency | ECAPA-TDNN (SpeechBrain) | Voice identity drift, speaker confusion |
+Complements M10a/M10b (signal-level QA): M10 catches physical property violations (F0, RMS, LUFS); M17 catches perceptual/semantic failures (intelligibility, naturalness, emotion authenticity, speaker confusion). Both must pass for dataset release.
 
-**Multimodal LLM judge (API cost ~$4/500-clip run):**
-
-| Evaluator | Tool | What it catches |
-|-----------|------|-----------------|
-| E5 — Holistic quality | Gemini 2.5 Pro (audio-native) | Pronunciation clarity, prosody naturalness, emotional authenticity, dialogue coherence, escalation arc |
-
-**Integration points:**
-- E1–E4 run on every generated clip (local GPU, near-zero cost)
-- E5 runs on a stratified 20% sample (cost-controlled)
-- Results aggregate into an `EvalReport` with per-metric pass/fail
-- Release gate checks all metrics against thresholds before dataset delivery
-- PR-level regression detection: generate 10 reference clips on PR, compare against baseline scores
-
-**Relationship to §8.2 hard release gates:** The automated evaluation subsumes and extends the current hard gates. Existing gates (VIC F0, AGG RMS escalation, overlap ratio) continue as-is; automated eval adds ASR intelligibility, predicted MOS, emotion match, and LLM holistic scoring on top.
+All thresholds require empirical calibration before gating — see calibration protocol in the design doc.
 
 ---
 
