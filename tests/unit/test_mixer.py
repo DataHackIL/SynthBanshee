@@ -16,6 +16,7 @@ from synthbanshee.tts.mixer import (
     _apply_edge_fades,
     _apply_lombard_tilt,
     _apply_rms_gain,
+    _speech_end_sample,
 )
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,29 @@ def _sine_wav_bytes(
     n = int(sample_rate * duration_s)
     t = np.linspace(0, duration_s, n, endpoint=False)
     samples = (amplitude * np.sin(2 * np.pi * freq * t) * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    with wave.open(buf, "w") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sample_rate)
+        w.writeframes(samples.tobytes())
+    return buf.getvalue()
+
+
+def _sine_with_trailing_silence_wav_bytes(
+    speech_s: float,
+    silence_s: float,
+    freq: float = 440.0,
+    sample_rate: int = 16000,
+    amplitude: float = 0.4,
+) -> bytes:
+    """Sine of *speech_s* followed by *silence_s* of zeros — repro for #66."""
+    n_speech = int(sample_rate * speech_s)
+    n_silence = int(sample_rate * silence_s)
+    t = np.linspace(0, speech_s, n_speech, endpoint=False)
+    speech = (amplitude * np.sin(2 * np.pi * freq * t) * 32767).astype(np.int16)
+    silence = np.zeros(n_silence, dtype=np.int16)
+    samples = np.concatenate([speech, silence])
     buf = io.BytesIO()
     with wave.open(buf, "w") as w:
         w.setnchannels(1)
@@ -336,12 +360,14 @@ class TestOverlapMixing:
         overlap_region = result.samples[overlap_start:overlap_end]
         assert float(np.max(np.abs(overlap_region))) > 0.3
 
-    def test_barge_in_previous_turn_truncated(self):
-        """BARGE_IN: the previous turn's audio must be zero after the barge-in point."""
+    def test_barge_in_previous_turn_truncated_at_speech_end(self):
+        """BARGE_IN: the previous turn extends through speech end with a fade-out
+        across the overlap region, then is silent past speech end (#66)."""
         mixer = SceneMixer()
         dur = 1.5
         barge_depth = 0.4
         wav1 = _sine_wav_bytes(freq=440, duration_s=dur, sample_rate=_TARGET_SR, amplitude=0.4)
+        # Silent wav2 so any non-zero buffer energy comes from wav1 alone.
         wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR, amplitude=0.0)
 
         result = mixer.mix_sequential(
@@ -350,18 +376,25 @@ class TestOverlapMixing:
                 Segment(wav2, barge_depth, "B", None, MixMode.BARGE_IN),
             ]
         )
-        # After COPILOT-6: rendered_offsets_s is updated to the truncation point,
-        # so audible_ends_s[0] == rendered_offsets_s[0] < script_offsets_s[0].
+        # Truncation point sits at wav1's speech end (~ file end here, no trailing
+        # silence) — i.e. AT script_offsets_s[0], not at the new onset.
         assert result.audible_ends_s[0] == pytest.approx(result.rendered_offsets_s[0], abs=1e-4)
-        assert result.audible_ends_s[0] < result.script_offsets_s[0]
-        # No audio from the first turn must remain after the barge-in point.
-        barge_sample = int(result.rendered_onsets_s[1] * _TARGET_SR)
-        # Buffer from barge-in point onward is zero (silent wav2 added, prev truncated).
-        tail = result.samples[barge_sample : int(result.script_offsets_s[0] * _TARGET_SR)]
+        assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=0.04)
+        # Prev's audible_end is now AFTER the new onset by ~ barge_depth.
+        assert result.audible_ends_s[0] > result.rendered_onsets_s[1]
+        # Buffer past the truncation point must be silent (wav2 is silent, prev truncated).
+        tail_start = int(result.audible_ends_s[0] * _TARGET_SR)
+        tail = result.samples[tail_start:]
         assert np.allclose(tail, 0.0, atol=1e-5)
+        # And the overlap region is non-zero (fade-out of wav1 still audible).
+        overlap_start = int(result.rendered_onsets_s[1] * _TARGET_SR)
+        overlap_end = int(result.audible_ends_s[0] * _TARGET_SR)
+        assert overlap_end > overlap_start
+        assert float(np.max(np.abs(result.samples[overlap_start:overlap_end]))) > 0.05
 
-    def test_barge_in_audible_end_equals_onset_of_next(self):
-        """Interrupted turn's audible_end_s == barge-in turn's rendered_onset_s."""
+    def test_barge_in_audible_end_after_onset_of_next(self):
+        """Interrupted turn's audible_end_s lands AFTER the new turn's onset by the
+        overlap-region length (#66)."""
         mixer = SceneMixer()
         wav1 = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
         wav2 = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
@@ -371,7 +404,11 @@ class TestOverlapMixing:
                 Segment(wav2, 0.3, "B", None, MixMode.BARGE_IN),
             ]
         )
-        assert result.audible_ends_s[0] == pytest.approx(result.rendered_onsets_s[1], abs=1e-4)
+        # Audible end of prev is at its speech end; new onset is barge_depth before that.
+        assert result.audible_ends_s[0] > result.rendered_onsets_s[1]
+        assert result.audible_ends_s[0] == pytest.approx(
+            result.rendered_onsets_s[1] + 0.3, abs=0.05
+        )
 
     def test_three_timeline_fields_populated(self):
         """MixedScene must expose script / rendered / audible timeline fields."""
@@ -472,6 +509,171 @@ class TestOverlapMixing:
         assert result.audible_ends_s[0] == pytest.approx(result.script_offsets_s[0], abs=1e-4)
         # New turn starts right where the previous one ended.
         assert result.rendered_onsets_s[1] == pytest.approx(dur, abs=0.02)
+
+    def test_barge_in_both_speakers_audible_through_trailing_silence(self):
+        """#66 acceptance: BARGE_IN produces audible energy from BOTH speakers
+        through the overlap region, even when prev has TTS trailing silence.
+
+        Property-based: the overlap region's RMS must exceed the maximum of
+        either speaker's solo RMS by at least 30 % — a conservative bound
+        that holds regardless of fade shape, speaker frequencies, or window
+        length.  Two simultaneous sources of independent energy add (in RMS
+        terms) to ~sqrt(2) ≈ 1.41× a single source, so the > 1.30× check
+        passes comfortably as long as the previous voice is genuinely audible
+        and fails decisively if it falls into trailing silence.
+        """
+        mixer = SceneMixer()
+        speech_s = 1.0
+        silence_s = 0.3  # mimics Azure / Google trailing-silence padding
+        barge_depth_s = 0.25  # smaller than silence_s — the bug scenario
+        wav_a = _sine_with_trailing_silence_wav_bytes(
+            speech_s=speech_s,
+            silence_s=silence_s,
+            freq=440,
+            sample_rate=_TARGET_SR,
+            amplitude=0.4,
+        )
+        wav_b = _sine_wav_bytes(freq=880, duration_s=0.6, sample_rate=_TARGET_SR, amplitude=0.4)
+
+        # Solo references — each voice rendered alone in its own scene.
+        solo_a = mixer.mix_sequential([Segment(wav_a, 0.0, "A", None, MixMode.SEQUENTIAL)])
+        solo_b = mixer.mix_sequential([Segment(wav_b, 0.0, "B", None, MixMode.SEQUENTIAL)])
+
+        result = mixer.mix_sequential(
+            [
+                Segment(wav_a, 0.0, "A", None, MixMode.SEQUENTIAL),
+                Segment(wav_b, barge_depth_s, "B", None, MixMode.BARGE_IN),
+            ]
+        )
+
+        # The new turn must onset before prev's speech ended.
+        new_onset_s = result.rendered_onsets_s[1]
+        assert new_onset_s < speech_s, (
+            f"BARGE_IN onset {new_onset_s:.3f}s landed at/after speech end — "
+            "overlap fell inside trailing silence (#66)."
+        )
+
+        # Property: in the first 100 ms after the new onset, the mixed buffer
+        # carries energy from BOTH speakers.  Compare against either solo.
+        check_n = int(0.1 * _TARGET_SR)
+        onset_sample = int(new_onset_s * _TARGET_SR)
+        overlap_window = result.samples[onset_sample : onset_sample + check_n]
+        overlap_rms = float(np.sqrt(np.mean(overlap_window**2)))
+
+        # Solo RMS of A in the same time slice (where prev was speaking solo).
+        a_window = solo_a.samples[onset_sample : onset_sample + check_n]
+        a_rms = float(np.sqrt(np.mean(a_window**2)))
+        # Solo RMS of B in its first 100 ms (after fade-in).
+        b_rms = float(np.sqrt(np.mean(solo_b.samples[:check_n] ** 2)))
+
+        single_rms = max(a_rms, b_rms)
+        assert overlap_rms > 1.30 * single_rms, (
+            f"Overlap RMS {overlap_rms:.3f} not appreciably louder than max "
+            f"solo RMS ({single_rms:.3f}) — one speaker was inaudible during "
+            "the overlap region."
+        )
+
+    def test_overlap_anchored_on_speech_end_through_trailing_silence(self):
+        """#66: OVERLAP also anchors on speech end, not file end — same trailing-
+        silence trap applies if both speakers are meant to be heard."""
+        mixer = SceneMixer()
+        speech_s = 1.0
+        silence_s = 0.3
+        overlap_s = 0.25
+        wav1 = _sine_with_trailing_silence_wav_bytes(
+            speech_s=speech_s, silence_s=silence_s, freq=440, sample_rate=_TARGET_SR
+        )
+        wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR)
+        result = mixer.mix_sequential(
+            [
+                Segment(wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
+                Segment(wav2, overlap_s, "B", None, MixMode.OVERLAP),
+            ]
+        )
+        # Anchor is speech end (speech_s), not file end (speech_s + silence_s).
+        expected_onset_s = speech_s - overlap_s
+        assert result.rendered_onsets_s[1] == pytest.approx(expected_onset_s, abs=0.02), (
+            "OVERLAP onset should anchor against speech end (#66), not file end."
+        )
+
+
+class TestSpeechEndSample:
+    """Tests for _speech_end_sample (#66 — TTS trailing-silence trim)."""
+
+    def test_returns_zero_for_empty(self):
+        assert _speech_end_sample(np.zeros(0, dtype=np.float32)) == 0
+
+    def test_returns_zero_for_silent_array(self):
+        mono = np.zeros(_TARGET_SR, dtype=np.float32)
+        assert _speech_end_sample(mono) == 0
+
+    def test_skips_trailing_silence(self):
+        """Speech then silence: detected end ≈ end of speech, within one window."""
+        sr = _TARGET_SR
+        speech = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 1.0, sr))).astype(np.float32)
+        silence = np.zeros(int(0.3 * sr), dtype=np.float32)
+        mono = np.concatenate([speech, silence])
+        end = _speech_end_sample(mono)
+        # 10 ms window → ≤ 10 ms uncertainty (160 samples).
+        assert abs(end - len(speech)) <= 160, (
+            f"Detected speech end {end} differs from expected {len(speech)} by "
+            f"more than one 10 ms window."
+        )
+
+    def test_full_array_when_no_trailing_silence(self):
+        sr = _TARGET_SR
+        mono = (0.3 * np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5 * sr)))).astype(
+            np.float32
+        )
+        # With no trailing silence, the last window is loud → returns len(mono).
+        assert _speech_end_sample(mono) == len(mono)
+
+    def test_does_not_clip_quiet_fricative_tail(self):
+        """Hebrew word-final fricatives (e.g. /ʃ/, /χ/) sit ~25 dB below the
+        syllable nucleus.  A signal-relative threshold (40 dB below peak) must
+        keep them inside the speech region, not cut them off as silence."""
+        sr = _TARGET_SR
+        rng = np.random.default_rng(0)
+        # Loud vowel-like sustain at amp 0.4 for 500 ms.
+        vowel = (0.4 * np.sin(2 * np.pi * 220 * np.linspace(0, 0.5, int(0.5 * sr)))).astype(
+            np.float32
+        )
+        # Fricative-style noise burst at much lower amplitude (-25 dB ≈ 0.022),
+        # for 150 ms — quieter than the vowel but still genuinely "speech".
+        fricative_amp = 0.4 * (10.0 ** (-25.0 / 20.0))
+        fricative = (fricative_amp * rng.standard_normal(int(0.15 * sr))).astype(np.float32)
+        # Then 200 ms of true TTS-padding silence.
+        silence = np.zeros(int(0.2 * sr), dtype=np.float32)
+        mono = np.concatenate([vowel, fricative, silence])
+        end = _speech_end_sample(mono)
+        speech_end_expected = len(vowel) + len(fricative)
+        # Detected end must reach into the fricative region — not stop at vowel end.
+        assert end > len(vowel), (
+            f"Detected end {end} stopped at the vowel boundary ({len(vowel)}) — "
+            "quiet fricative tail was incorrectly classified as silence."
+        )
+        # And must not extend past the speech into the silence.
+        assert end <= speech_end_expected + 160, (
+            f"Detected end {end} ran past speech end ({speech_end_expected}) into silence."
+        )
+
+    def test_threshold_is_signal_relative(self):
+        """A whisper-level signal (peak −30 dBFS) should still have its
+        speech end correctly detected — the threshold scales with the signal,
+        not against an absolute dBFS floor."""
+        sr = _TARGET_SR
+        # Peak amplitude ~0.03 (≈ −30 dBFS); without signal-relative scaling an
+        # absolute −40 dBFS threshold would treat the whole thing as silence.
+        speech = (0.03 * np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5 * sr)))).astype(
+            np.float32
+        )
+        silence = np.zeros(int(0.2 * sr), dtype=np.float32)
+        mono = np.concatenate([speech, silence])
+        end = _speech_end_sample(mono)
+        assert abs(end - len(speech)) <= 160, (
+            f"Whisper-level speech end {end} not detected near {len(speech)} — "
+            "threshold may not be signal-relative."
+        )
 
 
 # ---------------------------------------------------------------------------

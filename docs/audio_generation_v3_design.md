@@ -310,9 +310,15 @@ Values are seeded-RNG draws for reproducibility. The `TurnGapController` is inst
 ```python
 class MixMode(Enum):
     SEQUENTIAL = "sequential"   # current behavior
-    OVERLAP = "overlap"         # next starts before prev ends
-    BARGE_IN = "barge_in"       # prev is cut off; next starts immediately
+    OVERLAP = "overlap"         # next starts before prev ends; both play through
+    BARGE_IN = "barge_in"       # prev plays through its speech end then is cut with a 60 ms fade
 ```
+
+**Speech-end anchoring (#66).** TTS engines pad each utterance with 100–300 ms of trailing near-silence. Anchoring overlap onset against the WAV's *file end* therefore puts the overlap inside the silence — listeners hear the previous speaker stop, then a gap, then the new speaker start, sounding like polite turn-taking instead of an interruption.
+
+The mixer measures speech end via a 10 ms sliding RMS scan with a *signal-relative* threshold (40 dB below the segment's own peak window RMS). The anchor for both `OVERLAP` and `BARGE_IN` onset is **speech end**, not file end. Trailing silence in the WAV is invisible to placement logic.
+
+**BARGE_IN crossfade behaviour.** The previous turn plays at full volume through the entire overlap region, all the way to its speech end. A short 60 ms linear fade-out is applied at the truncation boundary to avoid a click. This models a real interruption (the prior speaker keeps talking until overpowered) better than a long fade spanning the overlap region (which sounds like a console fader).
 
 **Three distinct time concepts** — once turns overlap, the label generator must track all three:
 
@@ -322,9 +328,11 @@ class MixMode(Enum):
 | Rendered interval | `rendered_onset_s` / `rendered_offset_s` | What the TTS actually produced before mixing |
 | Audible interval | `audible_onset_s` / `audible_end_s` | What is audible in the final waveform after overlap/barge-in |
 
-For `BARGE_IN`, `audible_end_s` of the interrupted turn is earlier than `rendered_offset_s`. The label generator **must use `audible_onset_s` / `audible_end_s`** for all event timestamp outputs — not the scripted or rendered values. If a speaker is cut off mid-utterance, any label for an event in the tail of that utterance must either be dropped or marked as `truncated: true`.
+For `BARGE_IN`, the interrupted turn's `audible_end_s` lies at the previous turn's *speech* end (#66). Because the next turn onsets earlier, **`audible_end_s[i]` is greater than `audible_onset_s[i+1]` for BARGE_IN-interrupted turns**: consecutive audible windows can overlap by the overlap-region length. Consumers must not assume non-overlap.
 
-`MixedScene` must expose all three sets of timestamps.
+The label generator **must use `audible_onset_s` / `audible_end_s`** for all event timestamp outputs — not the scripted or rendered values. The `truncated` flag is set when the next turn's `mix_mode == BARGE_IN` (read from `MixedScene.mix_modes`), not from an audible-vs-script-duration heuristic — the heuristic was unreliable when WAVs lacked trailing silence.
+
+`MixedScene` must expose all three sets of timestamps and the per-turn `mix_modes` list.
 
 **Asymmetric overlap probabilities (initial defaults — configurable):**
 

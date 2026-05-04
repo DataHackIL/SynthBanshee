@@ -26,6 +26,7 @@ from synthbanshee.labels.schema import (
     SpeakerInfo,
     WeakLabel,
 )
+from synthbanshee.tts.mix_mode import MixMode
 
 if TYPE_CHECKING:
     from synthbanshee.script.types import MixedScene
@@ -123,14 +124,19 @@ class LabelGenerator:
 
         Onset/offset for each label comes from ``scene.audible_onsets_s`` /
         ``scene.audible_ends_s`` rather than the ScriptEvent's own onset/offset.
-        When ``scene.script_offsets_s`` is populated and a turn's audible
-        duration (``audible_end - audible_onset``) is shorter than its script
-        duration (``script_offset - script_onset``) by more than
-        ``TRUNCATION_THRESHOLD_S`` (a two-sample tolerance to avoid sample-
-        quantization false positives), ``truncated=True`` is set on the
-        resulting label.  This captures BARGE_IN-interrupted turns without
-        falsely flagging OVERLAP turns whose absolute audible end may be
-        earlier than the script offset for reasons unrelated to truncation.
+
+        ``truncated`` is set when **either** of the following holds:
+
+        1. The next turn's mix mode is ``BARGE_IN`` (read from
+           ``scene.mix_modes[idx+1]``) — i.e. this turn was deliberately
+           interrupted by an overlapping speaker.  This is the primary signal
+           and is independent of whether the WAV happened to carry trailing
+           silence: a turn marked BARGE_IN by the script is *always*
+           interrupted in the user-meaningful sense.
+        2. As a defensive fallback, the audible duration is shorter than the
+           script duration by more than ``TRUNCATION_THRESHOLD_S`` (two
+           samples).  This catches any future case where the mixer truncates
+           a turn without the next turn being BARGE_IN.
 
         For fully-barged-in turns where the audible end equals the onset (zero
         audible duration), the label offset is floored to
@@ -163,10 +169,16 @@ class LabelGenerator:
         for idx, (evt, onset, end) in enumerate(
             zip(events, scene.audible_onsets_s, scene.audible_ends_s, strict=True)
         ):
-            # Detect truncation by comparing the *audible duration* against the
-            # *script duration* for this turn.  Using absolute onset vs. script
-            # onset would incorrectly flag OVERLAP/BARGE_IN turns that started
-            # early but spoke their full audio.
+            # Primary truncation signal: the *next* turn is a BARGE_IN, which
+            # means this turn was interrupted by design.  This is robust to
+            # whether the WAV carried trailing silence (older heuristic was
+            # "audible_duration < script_duration", which silently went False
+            # for tight TTS clips even when the script said BARGE_IN).
+            next_mix_mode = scene.mix_modes[idx + 1] if idx + 1 < len(scene.mix_modes) else None
+            interrupted_by_next = next_mix_mode == MixMode.BARGE_IN.value
+            # Defensive fallback: if the audible duration is meaningfully shorter
+            # than the script duration we still flag it, so any future mixer
+            # truncation that isn't tagged as BARGE_IN is still captured.
             script_onset = scene.script_onsets_s[idx] if idx < len(scene.script_onsets_s) else None
             script_offset = (
                 scene.script_offsets_s[idx] if idx < len(scene.script_offsets_s) else None
@@ -174,10 +186,10 @@ class LabelGenerator:
             if script_onset is not None and script_offset is not None:
                 script_duration = script_offset - script_onset
                 audible_duration = end - onset
-                scene_truncated = audible_duration < script_duration - _TRUNCATION_THRESHOLD_S
+                duration_truncated = audible_duration < script_duration - _TRUNCATION_THRESHOLD_S
             else:
-                scene_truncated = False
-            truncated = evt.truncated or scene_truncated
+                duration_truncated = False
+            truncated = evt.truncated or interrupted_by_next or duration_truncated
             # Floor zero-duration audible spans (fully-barged-in turns) to one
             # sample so the offset > onset validator is satisfied.
             safe_end = max(end, onset + _MIN_LABEL_DURATION_S)
