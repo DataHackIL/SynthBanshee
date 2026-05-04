@@ -280,7 +280,7 @@ class TTSRenderer:
         # M7: one SpeakerState per speaker; starts neutral, updated after each turn.
         states: dict[str, SpeakerState] = {sid: SpeakerState() for sid in speakers}
 
-        segments: list[tuple[bytes, float, str, float | None, MixMode]] = []
+        segments: list[tuple[bytes, float, str, float | None, MixMode, int | None]] = []
         prev_turn: DialogueTurn | None = None
         for i, turn in enumerate(turns):
             speaker = speakers[turn.speaker_id]
@@ -381,6 +381,7 @@ class TTSRenderer:
                     turn.speaker_id,
                     rms_target,
                     mix_mode,
+                    turn.intensity,
                 )
             )
             prev_turn = turn

@@ -189,9 +189,9 @@ class TestMixedSceneMixModes:
 
         mixer = SceneMixer()
         segments = [
-            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
-            (wav_bytes, 0.05, "spk_b", None, MixMode.OVERLAP),
-            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL),
+            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL, None),
+            (wav_bytes, 0.05, "spk_b", None, MixMode.OVERLAP, None),
+            (wav_bytes, 0.0, "spk_a", None, MixMode.SEQUENTIAL, None),
         ]
         scene = mixer.mix_sequential(segments)
         assert scene.mix_modes == ["sequential", "overlap", "sequential"]

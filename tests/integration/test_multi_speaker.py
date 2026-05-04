@@ -229,9 +229,9 @@ class TestOverlapLabelIntegration:
         mixer = SceneMixer()
         wav = _make_wav_bytes_16k(duration_s=2.0)
         segments = [
-            (wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL),
-            (wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL),
-            (wav, 0.4, "SPK_A", None, mix_mode_third),
+            (wav, 0.3, "SPK_A", None, MixMode.SEQUENTIAL, None),
+            (wav, 0.3, "SPK_B", None, MixMode.SEQUENTIAL, None),
+            (wav, 0.4, "SPK_A", None, mix_mode_third, None),
         ]
         return mixer.mix_sequential(segments)
 

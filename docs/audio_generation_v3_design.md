@@ -211,6 +211,12 @@ class PhraseProsody:
 
 Both sources produce `PhraseProsody` objects; the SSML builder does not distinguish their origin.
 
+**4.2c — Lombard spectral tilt at I4/I5 (#65)**
+
+Pure amplitude scaling at high intensity sounds like microphone proximity, not raised voice. Real shouting exhibits the Lombard effect: a high-frequency boost (≈ +2–4 dB above 2–3 kHz) caused by glottal-source flattening. Azure he-IL voices do not honour `<mstts:express-as>`, so the tilt is applied as a post-TTS DSP step.
+
+Implementation: a single RBJ high-shelf biquad (`scipy.signal.lfilter`) at 2.5 kHz with +2.0 dB gain at I4 and +3.5 dB gain at I5. I1–I3 pass through unchanged. The shelf runs in `SceneMixer.mix_sequential()` after per-turn RMS gain (§4.7) and before the edge-fade pass, driven by a 6th element in the segment tuple carrying `turn.intensity`. Peak headroom is left to the preprocessing limiter — the shelf does not perform its own clipping.
+
 ---
 
 ### 4.3 Stateful Cross-Turn Emotional Controller

@@ -13,6 +13,7 @@ from synthbanshee.tts.mixer import (
     MixMode,
     SceneMixer,
     _apply_edge_fades,
+    _apply_lombard_tilt,
     _apply_rms_gain,
 )
 
@@ -73,7 +74,7 @@ class TestSceneMixer:
     def test_single_segment_no_pause(self):
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
-        result = mixer.mix_sequential([(wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL, None)])
 
         assert result.sample_rate == _TARGET_SR
         assert len(result.turn_onsets_s) == 1
@@ -86,7 +87,7 @@ class TestSceneMixer:
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         pause_s = 0.3
-        result = mixer.mix_sequential([(wav, pause_s, "SPK_001", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav, pause_s, "SPK_001", None, MixMode.SEQUENTIAL, None)])
 
         assert result.turn_onsets_s[0] == pytest.approx(pause_s, abs=0.01)
         assert result.duration_s == pytest.approx(pause_s + 0.5, abs=0.05)
@@ -97,8 +98,8 @@ class TestSceneMixer:
         wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "SPK_A", None, MixMode.SEQUENTIAL),
-                (wav2, 0.2, "SPK_B", None, MixMode.SEQUENTIAL),
+                (wav1, 0.0, "SPK_A", None, MixMode.SEQUENTIAL, None),
+                (wav2, 0.2, "SPK_B", None, MixMode.SEQUENTIAL, None),
             ]
         )
 
@@ -117,6 +118,7 @@ class TestSceneMixer:
                 "S1",
                 None,
                 MixMode.SEQUENTIAL,
+                None,
             ),
             (
                 _sine_wav_bytes(duration_s=0.6, sample_rate=_TARGET_SR),
@@ -124,6 +126,7 @@ class TestSceneMixer:
                 "S2",
                 None,
                 MixMode.SEQUENTIAL,
+                None,
             ),
             (
                 _sine_wav_bytes(duration_s=0.4, sample_rate=_TARGET_SR),
@@ -131,6 +134,7 @@ class TestSceneMixer:
                 "S3",
                 None,
                 MixMode.SEQUENTIAL,
+                None,
             ),
         ]
         result = mixer.mix_sequential(segments)
@@ -141,7 +145,7 @@ class TestSceneMixer:
         """Mixer should downsample 24 kHz input to 16 kHz output."""
         mixer = SceneMixer()
         wav_24k = _sine_wav_bytes(duration_s=0.5, sample_rate=24000)
-        result = mixer.mix_sequential([(wav_24k, 0.0, "SPK_001", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav_24k, 0.0, "SPK_001", None, MixMode.SEQUENTIAL, None)])
 
         assert result.sample_rate == _TARGET_SR
         # Duration should still be approximately 0.5 s
@@ -150,7 +154,9 @@ class TestSceneMixer:
     def test_downmixes_stereo_to_mono(self):
         mixer = SceneMixer()
         stereo_wav = _stereo_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
-        result = mixer.mix_sequential([(stereo_wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential(
+            [(stereo_wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL, None)]
+        )
 
         assert result.samples.ndim == 1
         assert result.duration_s == pytest.approx(1.0, abs=0.05)
@@ -158,7 +164,7 @@ class TestSceneMixer:
     def test_output_samples_are_float32(self):
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
-        result = mixer.mix_sequential([(wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav, 0.0, "SPK_001", None, MixMode.SEQUENTIAL, None)])
         assert result.samples.dtype == np.float32
 
     def test_offsets_greater_than_onsets(self):
@@ -170,6 +176,7 @@ class TestSceneMixer:
                 "S1",
                 None,
                 MixMode.SEQUENTIAL,
+                None,
             ),
             (
                 _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR),
@@ -177,6 +184,7 @@ class TestSceneMixer:
                 "S2",
                 None,
                 MixMode.SEQUENTIAL,
+                None,
             ),
         ]
         result = mixer.mix_sequential(segments)
@@ -232,7 +240,7 @@ class TestRmsGainInMixer:
         """Passing None for rms_target_dbfs must not alter the signal level."""
         wav = _sine_wav_bytes(amplitude=0.1, duration_s=1.0, sample_rate=_TARGET_SR)
         mixer = SceneMixer()
-        result = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, None)])
         # RMS of 0.1-amplitude sine = 0.1/sqrt(2) ≈ −23 dBFS; allow ±2 dB
         assert self._rms_dbfs(result.samples) == pytest.approx(-23.0, abs=2.0)
 
@@ -241,7 +249,7 @@ class TestRmsGainInMixer:
         wav = _sine_wav_bytes(amplitude=0.02, duration_s=1.0, sample_rate=_TARGET_SR)
         mixer = SceneMixer()
         target = -20.0
-        result = mixer.mix_sequential([(wav, 0.0, "SPK", target, MixMode.SEQUENTIAL)])
+        result = mixer.mix_sequential([(wav, 0.0, "SPK", target, MixMode.SEQUENTIAL, None)])
         assert self._rms_dbfs(result.samples) == pytest.approx(target, abs=0.5)
 
     def test_escalation_across_two_segments(self):
@@ -251,8 +259,8 @@ class TestRmsGainInMixer:
         mixer = SceneMixer()
         result = mixer.mix_sequential(
             [
-                (wav_quiet, 0.0, "AGG", -28.0, MixMode.SEQUENTIAL),
-                (wav_loud, 0.0, "AGG", -15.0, MixMode.SEQUENTIAL),
+                (wav_quiet, 0.0, "AGG", -28.0, MixMode.SEQUENTIAL, None),
+                (wav_loud, 0.0, "AGG", -15.0, MixMode.SEQUENTIAL, None),
             ]
         )
         # Verify combined duration is correct
@@ -281,8 +289,8 @@ class TestOverlapMixing:
         wav2 = _sine_wav_bytes(freq=880, duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "AGG", None, MixMode.SEQUENTIAL),
-                (wav2, overlap_s, "VIC", None, MixMode.OVERLAP),
+                (wav1, 0.0, "AGG", None, MixMode.SEQUENTIAL, None),
+                (wav2, overlap_s, "VIC", None, MixMode.OVERLAP, None),
             ]
         )
         # rendered onset of turn 2 should be dur - overlap_s
@@ -298,14 +306,14 @@ class TestOverlapMixing:
 
         seq_result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, 0.0, "B", None, MixMode.SEQUENTIAL),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, 0.0, "B", None, MixMode.SEQUENTIAL, None),
             ]
         )
         olap_result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, overlap_s, "B", None, MixMode.OVERLAP),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, overlap_s, "B", None, MixMode.OVERLAP, None),
             ]
         )
         assert olap_result.duration_s < seq_result.duration_s
@@ -320,8 +328,8 @@ class TestOverlapMixing:
 
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, overlap_s, "B", None, MixMode.OVERLAP),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, overlap_s, "B", None, MixMode.OVERLAP, None),
             ]
         )
         # The overlap region lies between rendered_onsets_s[1] and rendered_offsets_s[0].
@@ -342,8 +350,8 @@ class TestOverlapMixing:
 
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, barge_depth, "B", None, MixMode.BARGE_IN),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, barge_depth, "B", None, MixMode.BARGE_IN, None),
             ]
         )
         # After COPILOT-6: rendered_offsets_s is updated to the truncation point,
@@ -363,8 +371,8 @@ class TestOverlapMixing:
         wav2 = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, 0.3, "B", None, MixMode.BARGE_IN),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, 0.3, "B", None, MixMode.BARGE_IN, None),
             ]
         )
         assert result.audible_ends_s[0] == pytest.approx(result.rendered_onsets_s[1], abs=1e-4)
@@ -375,8 +383,8 @@ class TestOverlapMixing:
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav, 0.1, "A", None, MixMode.SEQUENTIAL),
-                (wav, 0.2, "B", None, MixMode.SEQUENTIAL),
+                (wav, 0.1, "A", None, MixMode.SEQUENTIAL, None),
+                (wav, 0.2, "B", None, MixMode.SEQUENTIAL, None),
             ]
         )
         for attr in (
@@ -396,8 +404,8 @@ class TestOverlapMixing:
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav, 0.1, "A", None, MixMode.SEQUENTIAL),
-                (wav, 0.2, "B", None, MixMode.SEQUENTIAL),
+                (wav, 0.1, "A", None, MixMode.SEQUENTIAL, None),
+                (wav, 0.2, "B", None, MixMode.SEQUENTIAL, None),
             ]
         )
         for i in range(2):
@@ -413,8 +421,8 @@ class TestOverlapMixing:
         wav = _sine_wav_bytes(duration_s=0.5, sample_rate=_TARGET_SR)
         result = mixer.mix_sequential(
             [
-                (wav, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav, 0.3, "B", None, MixMode.OVERLAP),
+                (wav, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav, 0.3, "B", None, MixMode.OVERLAP, None),
             ]
         )
         assert result.turn_onsets_s == result.audible_onsets_s
@@ -425,7 +433,7 @@ class TestOverlapMixing:
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
         # amount_s would push onset to render_cursor_s(0) - 0.5 = -0.5 → clamped to 0.
-        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.OVERLAP)])
+        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.OVERLAP, None)])
         assert result.rendered_onsets_s[0] == pytest.approx(0.0, abs=1e-4)
         assert result.duration_s == pytest.approx(1.0, abs=0.05)
 
@@ -433,7 +441,7 @@ class TestOverlapMixing:
         """BARGE_IN as first segment (no previous turn in buffer) must clamp onset to ≥ 0."""
         mixer = SceneMixer()
         wav = _sine_wav_bytes(duration_s=1.0, sample_rate=_TARGET_SR)
-        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.BARGE_IN)])
+        result = mixer.mix_sequential([(wav, 0.5, "A", None, MixMode.BARGE_IN, None)])
         assert result.rendered_onsets_s[0] == pytest.approx(0.0, abs=1e-4)
 
     def test_barge_in_full_depth_truncates_entirely(self):
@@ -444,8 +452,8 @@ class TestOverlapMixing:
         # overlap depth (1.0) > prev duration (0.5): onset_sample == prev_onset_sample → max_samples == 0.
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, 1.0, "B", None, MixMode.BARGE_IN),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, 1.0, "B", None, MixMode.BARGE_IN, None),
             ]
         )
         # The interrupted turn's audible end should collapse to its onset.
@@ -460,8 +468,8 @@ class TestOverlapMixing:
         # amount_s=0 → onset is clamped to prev_offset_s → max_samples == len(prev_mono) → no truncation.
         result = mixer.mix_sequential(
             [
-                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL),
-                (wav2, 0.0, "B", None, MixMode.BARGE_IN),
+                (wav1, 0.0, "A", None, MixMode.SEQUENTIAL, None),
+                (wav2, 0.0, "B", None, MixMode.BARGE_IN, None),
             ]
         )
         # Previous turn plays its full duration (audible end == script end).
@@ -516,3 +524,121 @@ class TestApplyEdgeFades:
         result = _apply_edge_fades(mono, n=160)
         assert len(result) == 1
         assert result[0] == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# #65: Lombard tilt (high-shelf at I4/I5)
+# ---------------------------------------------------------------------------
+
+
+def _hf_lf_band_ratio(samples: np.ndarray, sr: int, split_hz: float = 2500.0) -> float:
+    """Energy in the >split_hz band divided by energy in the <split_hz band."""
+    spectrum = np.abs(np.fft.rfft(samples))
+    freqs = np.fft.rfftfreq(len(samples), d=1.0 / sr)
+    hf = float(np.sum(spectrum[freqs >= split_hz] ** 2))
+    lf = float(np.sum(spectrum[freqs < split_hz] ** 2)) + 1e-12
+    return hf / lf
+
+
+def _white_noise(n: int, seed: int = 0, amp: float = 0.1) -> np.ndarray:
+    """Reproducible band-flat test signal — the spectrum is what matters."""
+    rng = np.random.default_rng(seed)
+    return (amp * rng.standard_normal(n)).astype(np.float32)
+
+
+class TestLombardTilt:
+    """Tests for _apply_lombard_tilt (#65)."""
+
+    def test_low_intensity_passes_through(self):
+        """I1–I3 must leave the signal bit-exact."""
+        signal = _white_noise(8000)
+        for intensity in (1, 2, 3):
+            out = _apply_lombard_tilt(signal, intensity, _TARGET_SR)
+            np.testing.assert_array_equal(out, signal)
+
+    def test_none_intensity_passes_through(self):
+        """intensity=None must leave the signal unchanged."""
+        signal = _white_noise(8000)
+        out = _apply_lombard_tilt(signal, None, _TARGET_SR)
+        np.testing.assert_array_equal(out, signal)
+
+    def test_i5_boosts_high_frequencies(self):
+        """I5 must raise the >2.5 kHz / <2.5 kHz energy ratio vs. I1."""
+        signal = _white_noise(_TARGET_SR)  # 1 second of band-flat noise
+        baseline_ratio = _hf_lf_band_ratio(signal, _TARGET_SR)
+        i5 = _apply_lombard_tilt(signal, 5, _TARGET_SR)
+        i5_ratio = _hf_lf_band_ratio(i5, _TARGET_SR)
+        # +3.5 dB shelf → HF/LF ratio should rise by ≥ 50 % in linear power.
+        assert i5_ratio > 1.5 * baseline_ratio
+
+    def test_i5_boost_exceeds_i4(self):
+        """The I5 shelf must raise HF energy more than the I4 shelf."""
+        signal = _white_noise(_TARGET_SR)
+        i4 = _apply_lombard_tilt(signal, 4, _TARGET_SR)
+        i5 = _apply_lombard_tilt(signal, 5, _TARGET_SR)
+        assert _hf_lf_band_ratio(i5, _TARGET_SR) > _hf_lf_band_ratio(i4, _TARGET_SR)
+
+    def test_returns_float32(self):
+        signal = _white_noise(4000)
+        out = _apply_lombard_tilt(signal, 5, _TARGET_SR)
+        assert out.dtype == np.float32
+
+    def test_empty_array_no_crash(self):
+        empty = np.zeros(0, dtype=np.float32)
+        out = _apply_lombard_tilt(empty, 5, _TARGET_SR)
+        assert len(out) == 0
+
+    def test_low_band_largely_preserved(self):
+        """A high-shelf must leave low-frequency energy roughly intact."""
+        # 200 Hz tone — well below the 2.5 kHz shelf knee.
+        n = _TARGET_SR
+        t = np.arange(n) / _TARGET_SR
+        signal = (0.3 * np.sin(2 * np.pi * 200.0 * t)).astype(np.float32)
+        out = _apply_lombard_tilt(signal, 5, _TARGET_SR)
+        # Skip the filter's transient by trimming the first 200 samples.
+        in_rms = float(np.sqrt(np.mean(signal[200:] ** 2)))
+        out_rms = float(np.sqrt(np.mean(out[200:] ** 2)))
+        assert out_rms == pytest.approx(in_rms, rel=0.1)
+
+
+class TestLombardInMixer:
+    """Integration: intensity 6th-tuple element drives Lombard tilt in mix_sequential."""
+
+    def test_i5_segment_has_more_hf_than_i1(self):
+        """A scene rendered at I5 has a higher HF/LF ratio than the same scene at I1."""
+        wav = _sine_wav_bytes(freq=440, duration_s=1.0, sample_rate=_TARGET_SR)
+        # Replace the sine with broadband noise so the spectral change is observable.
+        noise = _white_noise(_TARGET_SR, seed=1)
+        buf = io.BytesIO()
+        with wave.open(buf, "w") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(_TARGET_SR)
+            w.writeframes((noise * 32767).astype(np.int16).tobytes())
+        wav = buf.getvalue()
+
+        mixer = SceneMixer()
+        i1_scene = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, 1)])
+        i5_scene = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, 5)])
+
+        i1_ratio = _hf_lf_band_ratio(i1_scene.samples, _TARGET_SR)
+        i5_ratio = _hf_lf_band_ratio(i5_scene.samples, _TARGET_SR)
+        assert i5_ratio > i1_ratio * 1.4
+
+    def test_intensity_none_does_not_alter_signal(self):
+        """intensity=None must leave the signal unchanged vs. an I1 baseline."""
+        wav = _sine_wav_bytes(freq=440, duration_s=0.5, sample_rate=_TARGET_SR)
+        mixer = SceneMixer()
+        none_scene = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, None)])
+        i1_scene = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, 1)])
+        np.testing.assert_allclose(none_scene.samples, i1_scene.samples, atol=1e-6)
+
+    def test_i5_does_not_clip_typical_signal(self):
+        """A typical-amplitude turn at I5 must stay within the unity-amplitude budget."""
+        wav = _sine_wav_bytes(freq=1000, duration_s=0.5, amplitude=0.3, sample_rate=_TARGET_SR)
+        mixer = SceneMixer()
+        scene = mixer.mix_sequential([(wav, 0.0, "SPK", None, MixMode.SEQUENTIAL, 5)])
+        # Lombard adds +3.5 dB above 2.5 kHz; 1 kHz is under the shelf so the
+        # peak should remain comfortably below 1.0 — preprocessing's peak
+        # limiter handles the few dB of ceiling that may be needed.
+        assert float(np.max(np.abs(scene.samples))) < 0.95

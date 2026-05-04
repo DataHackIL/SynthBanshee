@@ -1,9 +1,10 @@
 """SceneMixer: concatenate per-speaker TTS WAV segments into a single audio scene.
 
-Each segment is a (wav_bytes, amount_s, speaker_id, rms_target_dbfs, mix_mode) 5-tuple.
-The mixer decodes WAV bytes using soundfile, resamples to 16 kHz if needed, applies
-optional per-turn RMS gain (M3), then places each turn in the output buffer according
-to its MixMode:
+Each segment is a (wav_bytes, amount_s, speaker_id, rms_target_dbfs, mix_mode,
+intensity) 6-tuple. The mixer decodes WAV bytes using soundfile, resamples to
+16 kHz if needed, applies optional per-turn RMS gain (M3) and a Lombard
+spectral tilt at I4–I5 (#65), then places each turn in the output buffer
+according to its MixMode:
 
   SEQUENTIAL  — insert a silence gap of *amount_s* before this turn (existing behaviour).
   OVERLAP     — start *amount_s* seconds before the previous turn ends; both turns are
@@ -32,9 +33,11 @@ Spec reference: docs/audio_generation_v3_design.md §4.6
 from __future__ import annotations
 
 import io
+import math
 
 import numpy as np
 import soundfile as sf
+from scipy.signal import lfilter
 
 from synthbanshee.augment.preprocessing import _resample
 from synthbanshee.script.types import MixedScene
@@ -42,6 +45,13 @@ from synthbanshee.tts.mix_mode import MixMode
 
 _TARGET_SR = 16_000
 _EDGE_FADE_SAMPLES = 160  # 10ms at 16 kHz — eliminates DC-offset clicks at turn boundaries
+
+# #65 Lombard effect: post-TTS spectral tilt at high intensities.
+# Real raised voices boost high-frequency energy; pure amplitude scaling sounds
+# like mic proximity instead of shouting.  Mapping is intentionally narrow —
+# only I4 and I5 get a high-shelf boost, I1–I3 are untouched.
+_LOMBARD_GAIN_DB: dict[int, float] = {4: 2.0, 5: 3.5}
+_LOMBARD_SHELF_HZ = 2500.0
 
 
 def _apply_rms_gain(mono: np.ndarray, rms_target_dbfs: float) -> np.ndarray:
@@ -67,6 +77,62 @@ def _apply_rms_gain(mono: np.ndarray, rms_target_dbfs: float) -> np.ndarray:
     return (mono * gain_linear).astype(np.float32)
 
 
+def _highshelf_biquad(gain_db: float, f0: float, sample_rate: int) -> tuple[np.ndarray, np.ndarray]:
+    """Return (b, a) biquad coefficients for an RBJ high-shelf filter.
+
+    Uses slope S=1, which is the canonical "natural" shelf shape.
+    """
+    a_amp = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * math.pi * f0 / sample_rate
+    cos_w0 = math.cos(w0)
+    sin_w0 = math.sin(w0)
+    # alpha for slope S=1 simplifies to sin(w0)/sqrt(2)
+    alpha = sin_w0 / math.sqrt(2.0)
+    sqrt_a = math.sqrt(a_amp)
+    two_sqrt_a_alpha = 2.0 * sqrt_a * alpha
+
+    b0 = a_amp * ((a_amp + 1.0) + (a_amp - 1.0) * cos_w0 + two_sqrt_a_alpha)
+    b1 = -2.0 * a_amp * ((a_amp - 1.0) + (a_amp + 1.0) * cos_w0)
+    b2 = a_amp * ((a_amp + 1.0) + (a_amp - 1.0) * cos_w0 - two_sqrt_a_alpha)
+    a0 = (a_amp + 1.0) - (a_amp - 1.0) * cos_w0 + two_sqrt_a_alpha
+    a1 = 2.0 * ((a_amp - 1.0) - (a_amp + 1.0) * cos_w0)
+    a2 = (a_amp + 1.0) - (a_amp - 1.0) * cos_w0 - two_sqrt_a_alpha
+
+    b = np.array([b0 / a0, b1 / a0, b2 / a0], dtype=np.float64)
+    a = np.array([1.0, a1 / a0, a2 / a0], dtype=np.float64)
+    return b, a
+
+
+def _apply_lombard_tilt(
+    mono: np.ndarray,
+    intensity: int | None,
+    sample_rate: int = _TARGET_SR,
+) -> np.ndarray:
+    """Apply a Lombard-effect spectral tilt for I4/I5 turns (#65).
+
+    A high-shelf biquad above ~2.5 kHz boosts the upper formants so the turn
+    sounds like a raised voice rather than a microphone moved closer.  I1–I3
+    pass through unchanged.
+
+    Args:
+        mono: Float mono audio array.
+        intensity: 1–5 intensity level, or None for no tilt.
+        sample_rate: Sample rate in Hz.
+
+    Returns:
+        float32 array with the shelf applied (or *mono* unchanged at low
+        intensity).  No clipping is performed; downstream peak limiting handles
+        amplitude headroom.
+    """
+    if intensity is None:
+        return mono
+    gain_db = _LOMBARD_GAIN_DB.get(intensity)
+    if gain_db is None or len(mono) == 0:
+        return mono
+    b, a = _highshelf_biquad(gain_db, _LOMBARD_SHELF_HZ, sample_rate)
+    return lfilter(b, a, mono).astype(np.float32)
+
+
 def _apply_edge_fades(mono: np.ndarray, n: int = _EDGE_FADE_SAMPLES) -> np.ndarray:
     """Apply linear fade-in and fade-out of *n* samples to eliminate boundary clicks.
 
@@ -90,13 +156,13 @@ class SceneMixer:
 
     def mix_sequential(
         self,
-        segments: list[tuple[bytes, float, str, float | None, MixMode]],
+        segments: list[tuple[bytes, float, str, float | None, MixMode, int | None]],
     ) -> MixedScene:
         """Place segments in the output buffer according to their MixMode.
 
         Args:
             segments: List of (wav_bytes, amount_s, speaker_id,
-                      rms_target_dbfs, mix_mode) 5-tuples.
+                      rms_target_dbfs, mix_mode, intensity) 6-tuples.
                       wav_bytes — valid WAV data (any SR / channels).
                       amount_s — silence gap for SEQUENTIAL; overlap depth for
                         OVERLAP / BARGE_IN (how far back into the previous turn
@@ -105,6 +171,9 @@ class SceneMixer:
                       rms_target_dbfs — if not None, the segment is gain-adjusted
                         so its RMS matches this target (dBFS).
                       mix_mode — placement strategy (MixMode enum).
+                      intensity — turn intensity 1–5 (or None).  Used to drive
+                        the Lombard high-shelf tilt at I4/I5 (#65); ignored
+                        otherwise.
 
         Returns:
             MixedScene with all segments mixed at 16 kHz mono, carrying three
@@ -128,7 +197,7 @@ class SceneMixer:
         render_cursor_s: float = 0.0
         script_cursor_s: float = 0.0
 
-        for wav_bytes, amount_s, speaker_id, rms_target_dbfs, mix_mode in segments:
+        for wav_bytes, amount_s, speaker_id, rms_target_dbfs, mix_mode, intensity in segments:
             # Clamp amount_s: negative values are nonsensical for all mix modes
             # (gap for SEQUENTIAL; overlap depth for OVERLAP / BARGE_IN).
             amount_s = max(0.0, amount_s)
@@ -147,6 +216,10 @@ class SceneMixer:
             # M3: apply per-turn RMS gain before mixing
             if rms_target_dbfs is not None:
                 mono = _apply_rms_gain(mono, rms_target_dbfs)
+
+            # #65: apply Lombard high-shelf tilt at I4/I5 (no-op below I4).
+            # Runs after RMS gain so the boost shapes the already-loud signal.
+            mono = _apply_lombard_tilt(mono, intensity, _TARGET_SR)
 
             # M14: apply fade-in/fade-out to eliminate DC-offset clicks
             mono = _apply_edge_fades(mono.astype(np.float32))
