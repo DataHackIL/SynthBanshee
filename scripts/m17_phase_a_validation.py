@@ -117,6 +117,14 @@ def load_clips() -> list[Clip]:
         wav, sr = sf.read(wav_path, dtype="float32")
         if wav.ndim > 1:
             wav = wav.mean(axis=1)
+        # Repo invariant (CLAUDE.md): all WAVs are 16 kHz / mono / 16-bit PCM.
+        # Whisper's feature extractor + faster-whisper's np.ndarray path both
+        # silently treat input as already at 16 kHz — fail loudly if it isn't.
+        if sr != 16000:
+            raise ValueError(
+                f"Clip {wav_path.name} is at {sr} Hz; the spike requires 16 kHz "
+                "(repo invariant). Resample or rerender before re-running."
+            )
         clips.append(
             Clip(
                 clip_id=wav_path.stem,
@@ -198,8 +206,11 @@ def asr_hf(model_id: str, clips: list[Clip], device: str) -> dict[str, str]:
     )
     out: dict[str, str] = {}
     for c in clips:
+        # Pass dict form so the pipeline resamples if input rate ever drifts
+        # from the model's expected 16 kHz — bare np.ndarray is silently assumed
+        # to already match. (load_clips also asserts 16 kHz; this is belt+braces.)
         result = asr(
-            c.wav.copy(),
+            {"raw": c.wav.copy(), "sampling_rate": c.sr},
             generate_kwargs={
                 "language": "he",
                 "task": "transcribe",
@@ -417,7 +428,7 @@ def write_auto_report(results: dict) -> None:
     md.append("")
     md.append("Per-clip degraded scores in `results.json` under `utmos.degradations[].per_clip`.")
     md.append("")
-    AUTO_REPORT_PATH.write_text("\n".join(md))
+    AUTO_REPORT_PATH.write_text("\n".join(md), encoding="utf-8")
 
 
 def main() -> None:
@@ -602,7 +613,7 @@ def main() -> None:
         },
     }
 
-    RESULTS_PATH.write_text(json.dumps(results, indent=2, ensure_ascii=False))
+    RESULTS_PATH.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"\nWrote {RESULTS_PATH.relative_to(REPO_ROOT)}", flush=True)
     write_auto_report(results)
     print(f"Wrote {AUTO_REPORT_PATH.relative_to(REPO_ROOT)}", flush=True)
