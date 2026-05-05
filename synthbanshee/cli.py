@@ -424,7 +424,11 @@ def _run_generate_pipeline(
             import soundfile as _sf
 
             from synthbanshee.augment.pipeline import augment_scene
-            from synthbanshee.augment.preprocessing import peak_normalize_to_target
+            from synthbanshee.augment.preprocessing import (
+                _PEAK_DBFS,
+                _peak_limit,
+                peak_normalize_to_target,
+            )
             from synthbanshee.config.taxonomy import tier2_subtype_codes
             from synthbanshee.labels.schema import ClipAcousticScene
 
@@ -452,13 +456,21 @@ def _run_generate_pipeline(
             aug_samples[:pad_n] = 0.0
             aug_samples[-pad_n:] = 0.0
 
-            # #78: peak-normalize augmented signal to the same target as Tier A.
-            # Augmentation (room IR + noise mixing) reshapes the peak, so we
-            # re-normalize through the shared helper to land Tier A and Tier B/C
-            # at the same absolute loudness.  Uses the *same* PreprocessingConfig
-            # value that fed Stage 3a, so a per-project profile change reaches
-            # both stages without divergence.
+            # #78 stage 5a: peak-normalize augmented signal to the same target
+            # as Tier A.  Augmentation (room IR + noise mixing) reshapes the
+            # peak, so we re-normalize through the shared helper to land Tier A
+            # and Tier B/C at the same absolute loudness.  Uses the *same*
+            # PreprocessingConfig value that fed Stage 3a, so a per-project
+            # profile change reaches both stages without divergence.
             aug_samples = peak_normalize_to_target(aug_samples, preproc_config.target_peak_dbfs)
+            # #78 stage 5b: safety limiter.  Provably a no-op given Pydantic
+            # bounds (target_peak_dbfs ≤ −1.5, ceiling = −1.0, so peak after
+            # 5a is always ≥ 0.5 dB below ceiling and PCM_16 quantisation
+            # cannot push it across).  Applied here purely so Tier B/C mirrors
+            # Tier A's documented "5a then 5b" two-stage policy uniformly —
+            # paper-vs-reality consistency, addresses PR #82 review thread
+            # COPILOT-1.
+            aug_samples = _peak_limit(aug_samples, _PEAK_DBFS)
             _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
 
             acoustic_scene_meta = ClipAcousticScene(
