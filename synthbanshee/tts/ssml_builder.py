@@ -13,14 +13,40 @@ https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-synthe
 
 from __future__ import annotations
 
+import logging
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
 from synthbanshee.tts.ssml_types import PhraseProsody
 
+_log = logging.getLogger(__name__)
+
 _AZURE_XMLNS = "http://www.w3.org/2001/10/synthesis"
 _MSTTS_XMLNS = "http://www.w3.org/2001/mstts"
 _SPEAK_LANG = "he-IL"
+
+# Azure prosody attribute limits (documented ranges).
+_AZURE_RATE_MIN_PCT = -50  # rate="-50%" → 0.5x
+_AZURE_RATE_MAX_PCT = 200  # rate="+200%" → 3.0x
+_AZURE_PITCH_MIN_PCT = -50
+_AZURE_PITCH_MAX_PCT = 50
+_AZURE_VOLUME_MIN_PCT = -50
+_AZURE_VOLUME_MAX_PCT = 50
+
+# Characters invalid in XML 1.0: U+0000–U+0008, U+000B, U+000C, U+000E–U+001F.
+# These must be stripped before embedding text in SSML.
+_XML_INVALID_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _sanitize_text(text: str) -> str:
+    """Remove characters that are invalid in XML 1.0 from *text*.
+
+    Defense-in-depth: ideally invalid chars should be rejected at the LLM
+    response parsing boundary (script/generator.py).  This guard ensures the
+    SSML builder never produces unparseable XML regardless of upstream bugs.
+    """
+    return _XML_INVALID_CHARS_RE.sub("", text)
 
 
 @dataclass
@@ -37,23 +63,44 @@ class UtteranceSpec:
 
 
 def _semitones_to_percent(st: float) -> str:
-    """Convert a semitone shift to the Azure pitch % format (e.g. '+5%' / '-10%')."""
+    """Convert a semitone shift to the Azure pitch % format (e.g. '+5%' / '-10%').
+
+    Values are clamped to Azure's documented ±50% range.  A warning is logged
+    when clamping activates — this indicates a speaker config or state-drift bug.
+    """
     # Approximation: 1 semitone ≈ 5.946% pitch change
     pct = round(st * 5.946)
-    return f"+{pct}%" if pct >= 0 else f"{pct}%"
+    clamped = max(_AZURE_PITCH_MIN_PCT, min(_AZURE_PITCH_MAX_PCT, pct))
+    if clamped != pct:
+        _log.warning("Pitch %+d%% exceeds Azure range; clamped to %+d%%", pct, clamped)
+    return f"+{clamped}%" if clamped >= 0 else f"{clamped}%"
 
 
 def _rate_to_string(rate: float) -> str:
-    """Format a rate multiplier as a percentage string for <prosody rate=...>."""
+    """Format a rate multiplier as a percentage string for <prosody rate=...>.
+
+    Values are clamped to Azure's documented -50% to +200% range.  A warning is
+    logged when clamping activates.
+    """
     pct = round((rate - 1.0) * 100)
-    return f"+{pct}%" if pct >= 0 else f"{pct}%"
+    clamped = max(_AZURE_RATE_MIN_PCT, min(_AZURE_RATE_MAX_PCT, pct))
+    if clamped != pct:
+        _log.warning("Rate %+d%% exceeds Azure range; clamped to %+d%%", pct, clamped)
+    return f"+{clamped}%" if clamped >= 0 else f"{clamped}%"
 
 
 def _volume_to_string(db: float) -> str:
-    """Format a dB volume offset as a percentage for <prosody volume=...>."""
+    """Format a dB volume offset as a percentage for <prosody volume=...>.
+
+    Values are clamped to Azure's documented ±50% range.  A warning is logged
+    when clamping activates.
+    """
     # Azure volume is 0–100; default is 100. Map dB linearly (rough).
     pct = round(db * 1.0)
-    return f"+{pct}%" if pct >= 0 else f"{pct}%"
+    clamped = max(_AZURE_VOLUME_MIN_PCT, min(_AZURE_VOLUME_MAX_PCT, pct))
+    if clamped != pct:
+        _log.warning("Volume %+d%% exceeds Azure range; clamped to %+d%%", pct, clamped)
+    return f"+{clamped}%" if clamped >= 0 else f"{clamped}%"
 
 
 def _apply_phrase_prosody(
@@ -65,9 +112,13 @@ def _apply_phrase_prosody(
 
     Splits *text* around phrase spans and wraps each phrase in a nested
     ``<prosody>`` element with optional ``<break time="…"/>`` elements
-    inserted before and/or after.  Overlapping spans are skipped (the span
-    whose ``char_start`` falls before the previous span's ``char_end`` is
-    silently dropped).
+    inserted before and/or after.  Adjacent ``<break>`` elements are merged
+    (durations summed) to avoid Azure SSML parser error 0x80045003 (#67):
+    when a phrase carries ``break_after_ms`` and the next phrase carries
+    ``break_before_ms``, two ``<break>`` siblings would otherwise appear
+    back-to-back.  Overlapping spans are skipped (the span whose
+    ``char_start`` falls before the previous span's ``char_end`` is silently
+    dropped).
 
     Args:
         parent: The XML element that will receive the mixed text/element content.
@@ -87,7 +138,17 @@ def _apply_phrase_prosody(
             prev.tail = (prev.tail or "") + s
 
     def _append_break(ms: int) -> ET.Element:
+        """Add a ``<break time="{ms}ms"/>`` or merge into the preceding break.
+
+        Azure rejects adjacent ``<break>`` siblings (#67); when the most
+        recently appended element is itself a ``<break>``, we sum the
+        durations into the existing element instead of creating a new one.
+        """
         nonlocal prev
+        if prev is not None and prev.tag == "break":
+            prev_ms = int(prev.attrib.get("time", "0ms").replace("ms", ""))
+            prev.attrib["time"] = f"{prev_ms + ms}ms"
+            return prev
         el = ET.SubElement(parent, "break", attrib={"time": f"{ms}ms"})
         prev = el
         return el
@@ -179,6 +240,8 @@ class SSMLBuilder:
         speak = ET.Element("speak", attrib=speak_attribs)
 
         for utt in utterances:
+            # Sanitize text: strip characters invalid in XML 1.0 (#67).
+            utt_text = _sanitize_text(utt.text)
             voice = ET.SubElement(speak, "voice", attrib={"name": utt.voice_id})
 
             # Add express-as only when a non-default style is requested AND
@@ -208,9 +271,9 @@ class SSMLBuilder:
                 inner = parent
 
             if utt.phrase_prosody:
-                _apply_phrase_prosody(inner, utt.text, utt.phrase_prosody)
+                _apply_phrase_prosody(inner, utt_text, utt.phrase_prosody)
             else:
-                inner.text = utt.text
+                inner.text = utt_text
 
         raw = ET.tostring(speak, encoding="unicode", xml_declaration=False)
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + raw

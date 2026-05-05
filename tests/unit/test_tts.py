@@ -9,6 +9,7 @@ import io
 import struct
 import sys
 import wave
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -20,7 +21,9 @@ from synthbanshee.tts.ssml_builder import (
     UtteranceSpec,
     _rate_to_string,
     _semitones_to_percent,
+    _volume_to_string,
 )
+from synthbanshee.tts.ssml_types import PhraseProsody
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 
@@ -132,6 +135,121 @@ class TestSSMLBuilder:
         # Strip XML declaration for ElementTree
         ssml_body = ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
         ET.fromstring(ssml_body)  # Should not raise
+
+
+# ---------------------------------------------------------------------------
+# SSML invariants — sanitization, clamping, regression guard for #83
+# ---------------------------------------------------------------------------
+
+
+class TestSSMLInvariants:
+    """Defense-in-depth invariants the SSML builder must hold.
+
+    These assertions catch regressions in three orthogonal hardenings that
+    were lost when PR #70 + #71 were initially reverted as a bundle for
+    #83, then restored individually:
+
+      - XML 1.0 control-character sanitization (originally from #71).
+      - Azure-range prosody clamping (originally from #71).
+      - Adjacent ``<break>`` merging in ``_apply_phrase_prosody`` to avoid
+        Azure error 0x80045003 (originally from #71, narrowed to the
+        phrase-after / phrase-before case after #70 was reverted).
+      - The ``no per-word <break> tags`` rule pinned to #83.
+    """
+
+    def setup_method(self):
+        self.builder = SSMLBuilder()
+
+    def _body(self, ssml: str) -> str:
+        return ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
+
+    def test_text_with_invalid_xml_chars_sanitized(self):
+        # Simulate LLM output with control characters (#67 root cause).
+        text = "hello\x00world\x0bfoo\x1fbar"
+        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+        for ch in ("\x00", "\x0b", "\x1f"):
+            assert ch not in ssml
+        for word in ("hello", "world", "foo", "bar"):
+            assert word in ssml
+
+    def test_prosody_pitch_clamped_to_azure_range(self):
+        # 12 st → +71% unclamped; clamps to +50%.
+        assert _semitones_to_percent(12.0) == "+50%"
+        assert _semitones_to_percent(-12.0) == "-50%"
+        # In-range values pass through.
+        assert _semitones_to_percent(3.0) == "+18%"
+        assert _semitones_to_percent(-2.0) == "-12%"
+
+    def test_prosody_rate_clamped_to_azure_range(self):
+        # rate=4.0 → +300% unclamped; clamps to +200%.
+        assert _rate_to_string(4.0) == "+200%"
+        # rate=0.3 → -70% unclamped; clamps to -50%.
+        assert _rate_to_string(0.3) == "-50%"
+        assert _rate_to_string(1.1) == "+10%"
+
+    def test_prosody_volume_clamped_to_azure_range(self):
+        assert _volume_to_string(80.0) == "+50%"
+        assert _volume_to_string(-80.0) == "-50%"
+        assert _volume_to_string(5.0) == "+5%"
+
+    def test_no_per_word_breaks_in_default_ssml(self):
+        """Default multi-word SSML must not contain per-word ``<break>`` tags.
+
+        Pinned to #83: per-word ``<break time="50ms"/>`` insertion (PR #70)
+        tripped Whisper's silence-detection / segmentation heuristic and
+        produced a 6× WER regression on Tier A clips.  Any future Hebrew
+        word-merge mitigation (#62) must not re-introduce per-word breaks.
+        """
+        utt = UtteranceSpec(
+            text="one two three four five six seven eight",
+            voice_id="he-IL-AvriNeural",
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+        assert "<break" not in ssml, "Default SSML must not emit per-word <break> tags — see #83."
+
+    def test_adjacent_phrase_breaks_are_merged(self):
+        """break_after of one phrase + break_before of the next must merge.
+
+        Without merging, Azure rejects the SSML with parse error
+        0x80045003 (#67).  With #70 reverted, the only remaining adjacent-
+        break risk is between two consecutive phrases.
+        """
+        text = "intro phrase_a end_a mid phrase_b outro"
+        phrases = [
+            PhraseProsody(
+                phrase_id="p0",
+                char_start=6,
+                char_end=20,  # "phrase_a end_a"
+                rate="-20%",
+                break_after_ms=250,
+            ),
+            PhraseProsody(
+                phrase_id="p1",
+                char_start=25,
+                char_end=33,  # "phrase_b"
+                rate="-25%",
+                break_before_ms=300,
+            ),
+        ]
+        utt = UtteranceSpec(
+            text=text,
+            voice_id="he-IL-AvriNeural",
+            phrase_prosody=phrases,
+        )
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+
+        # Must remain valid XML.
+        ET.fromstring(self._body(ssml))
+
+        # No two <break .../> elements separated only by whitespace.
+        import re
+
+        adjacent = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert adjacent == [], f"Adjacent breaks found in SSML: {ssml}"
+
+        # The two break durations must be summed into the surviving element.
+        assert 'time="550ms"' in ssml
 
 
 # ---------------------------------------------------------------------------
