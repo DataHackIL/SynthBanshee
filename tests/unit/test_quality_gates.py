@@ -128,33 +128,72 @@ class TestClickDetectionGate:
         result = check_clicks(samples, SR)
         assert result.passed
 
-    def test_isolated_dc_jumps_fail(self) -> None:
-        # Low-amplitude signal with isolated DC jumps (simulating SSML boundary clicks)
+    def test_dc_offset_steps_fail(self) -> None:
+        # Three sustained baseline shifts — the failure mode the gate targets.
+        # Each shift holds for 50 ms (>> the 20 ms detector window) so both
+        # the rising and falling edge register as step events.
         samples = np.zeros(16000, dtype=np.float32)
-        # Insert isolated spikes well-separated (>CLICK_ISOLATION_RADIUS apart)
-        for pos in [1000, 3000, 5000, 7000]:
-            samples[pos] = 0.8  # Isolated single-sample spike
+        for start, amp in [(2000, 0.20), (6000, -0.18), (10000, 0.25)]:
+            samples[start : start + 800] = amp
         result = check_clicks(samples, SR)
         assert not result.passed
         assert result.gate_name == "click_detection"
 
-    def test_plosive_burst_passes(self) -> None:
-        # A plosive burst spans many consecutive high-diff samples — not isolated
+    def test_isolated_single_sample_spikes_pass(self) -> None:
+        # Single-sample spikes are NOT DC clicks — they're impulse noise that
+        # leaves the running mean unchanged.  Pre-#80 the gate caught these
+        # but also caught any high-frequency content (Hebrew sibilants); the
+        # step-shift detector correctly ignores both.
         samples = np.zeros(16000, dtype=np.float32)
-        # Simulate a plosive: multiple consecutive high-amplitude samples
-        samples[5000:5020] = 0.5  # 20-sample burst — NOT an isolated click
+        for pos in [1000, 3000, 5000, 7000]:
+            samples[pos] = 0.8
         result = check_clicks(samples, SR)
         assert result.passed
 
-    def test_few_clicks_passes(self) -> None:
-        # Only 1-2 isolated clicks — below count threshold of 3
+    def test_plosive_burst_passes(self) -> None:
+        # A 20-sample plosive burst at 0.5 leaves running mean ~0 either side
+        # of the burst; not a baseline shift.
         samples = np.zeros(16000, dtype=np.float32)
-        samples[5000] = 0.8
+        samples[5000:5020] = 0.5
+        result = check_clicks(samples, SR)
+        assert result.passed
+
+    def test_sibilant_like_noise_passes(self) -> None:
+        # Regression for #80: zero-mean high-frequency noise with an
+        # envelope (mimicking Hebrew /ʃ/ /s/ fricatives) used to flood the
+        # old per-sample-diff detector with thousands of isolated "clicks".
+        # The step-shift detector must pass it because the baseline mean is
+        # unchanged on either side of any single sample.
+        rng = np.random.default_rng(42)
+        # 1.5 s signal at -18 dBFS RMS, comparable to in-clip speech level.
+        n = int(1.5 * SR)
+        envelope = np.zeros(n, dtype=np.float32)
+        # Two sibilant-like bursts of 200 ms each
+        for start_s in (0.3, 0.9):
+            i = int(start_s * SR)
+            burst_n = int(0.2 * SR)
+            ramp = np.hanning(burst_n).astype(np.float32)
+            envelope[i : i + burst_n] = ramp
+        noise = rng.standard_normal(n).astype(np.float32)
+        samples = (noise * envelope * 0.30).astype(np.float32)
+        result = check_clicks(samples, SR)
+        assert result.passed, f"sibilant-like noise wrongly flagged: {result.detail}"
+
+    def test_few_steps_pass(self) -> None:
+        # Only 1 sustained step — below count threshold of 3.
+        samples = np.zeros(16000, dtype=np.float32)
+        samples[5000:5800] = 0.20  # one shift, two edges (rising + falling) = 2 events
         result = check_clicks(samples, SR)
         assert result.passed
 
     def test_empty_passes(self) -> None:
         result = check_clicks(np.array([], dtype=np.float32), SR)
+        assert result.passed
+
+    def test_short_audio_passes(self) -> None:
+        # Audio shorter than 2 * window — no detection window, pass by default.
+        samples = np.zeros(100, dtype=np.float32)
+        result = check_clicks(samples, SR)
         assert result.passed
 
 
