@@ -9,7 +9,9 @@ Research reference: wiki/topics/research-synthesis.md §Quality Gates (lines 159
 Three gates implemented:
 1. Sustained-vowel detection — reject turns with >2.8 s single sustained voiced segment.
 2. F0 guardrails — reject if median F0 outside gender-specific range.
-3. Click detection — flag DC-offset jumps between SSML blocks.
+3. Click detection — flag DC-offset baseline shifts (#80: targets sustained
+   step shifts, not per-sample amplitude jumps, so it does not fire on
+   Hebrew sibilants).
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from scipy.signal import find_peaks
 
 # ---------------------------------------------------------------------------
 # Thresholds (from research-synthesis.md §Quality Gates)
@@ -32,18 +35,28 @@ MALE_F0_MAX_HZ: float = 180.0
 FEMALE_F0_MIN_HZ: float = 150.0
 FEMALE_F0_MAX_HZ: float = 290.0
 
-# Click detection: minimum absolute sample-to-sample jump (normalized to [-1,1])
-# that qualifies as a DC-offset click.  Set at 0.15 to avoid false positives on
-# legitimate plosive transients (/p/, /t/, /k/) which typically peak around 0.1.
-# True DC-offset jumps from SSML block boundaries are typically 0.2+.
-CLICK_THRESHOLD: float = 0.15
+# Click detection: a real DC-offset click manifests as a *sustained* baseline
+# shift across the click sample — the running mean before and after differs
+# by CLICK_STEP_THRESHOLD or more.  Using a baseline-shift criterion (rather
+# than a per-sample diff) is what distinguishes a true DC click from
+# zero-mean high-frequency content like Hebrew sibilants (/ʃ/ /s/), which
+# produce large per-sample diffs but no shift in the running mean.  See #80
+# for the diagnosis that motivated this change.
+CLICK_STEP_THRESHOLD: float = 0.08
 
-# Minimum number of *isolated* click events to flag a turn.
-CLICK_COUNT_THRESHOLD: int = 3
+# Window width (each side, in milliseconds) over which the pre/post running
+# mean is computed for the step-shift comparison.  40 ms covers ≥3 F0 cycles
+# even at the male low end (80 Hz → 12.5 ms period), so the running mean
+# averages out the AC swing of a voiced segment and the step shift reflects
+# an actual DC change.
+CLICK_STEP_WINDOW_MS: int = 40
 
-# Number of neighboring samples that must be below threshold for a spike to
-# qualify as an isolated click (vs. a plosive burst which spans many samples).
-CLICK_ISOLATION_RADIUS: int = 3
+# Minimum number of distinct step events (after non-maximum suppression) to
+# flag a turn.  A single sustained DC offset produces 2 events (rising +
+# falling edge), so this threshold is in *edges*, not in clicks: ≥3 events
+# corresponds to ≥2 sustained offsets (or ≥3 ramp-shaped artifacts), which
+# we treat as a systematic stitching problem.
+CLICK_STEP_EVENT_THRESHOLD: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -206,13 +219,25 @@ def check_f0_guardrails(
 
 
 def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
-    """Detect DC-offset jump clicks in the audio.
+    """Detect DC-offset clicks via running-mean step shifts.
 
-    Clicks manifest as sudden large sample-to-sample amplitude changes,
-    typically at SSML block boundaries.  To distinguish from legitimate
-    plosive transients (which span many consecutive high-diff samples),
-    only *isolated* spikes are counted — a diff event is a click only if
-    the surrounding ±CLICK_ISOLATION_RADIUS samples are all below threshold.
+    A DC-offset click is a sustained baseline shift: the audio level steps
+    from one value to another and stays there for many samples.  This is
+    distinct from the per-sample amplitude swings produced by zero-mean
+    high-frequency content like fricatives, which also produce large
+    sample-to-sample diffs but leave the running mean unchanged.
+
+    For each candidate sample i, we compare the running mean of the
+    ``CLICK_STEP_WINDOW_MS`` ms window ending at i to the running mean of
+    the equally-sized window starting after i.  A baseline shift larger
+    than ``CLICK_STEP_THRESHOLD`` is a step event.  Adjacent positions are
+    collapsed into single events via non-maximum suppression at distance
+    ``win`` so each step transition is counted once.
+
+    The signal is virtually zero-padded by ``win`` samples on each side
+    so the detector covers every original sample, including the first
+    and last 40 ms — a DC offset present from sample 0 (or sustained
+    through the final sample) compares against silence and is flagged.
 
     Args:
         samples: Float32 audio samples, mono, normalized to [-1, 1].
@@ -221,35 +246,53 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     Returns:
         GateResult indicating pass/fail.
     """
-    if len(samples) < 2:
+    win = max(1, int(CLICK_STEP_WINDOW_MS * sr / 1000))
+    n = len(samples)
+    if n == 0:
         return GateResult(passed=True)
 
-    # Compute absolute sample-to-sample differences
-    diffs = np.abs(np.diff(samples))
-    candidates = np.where(diffs > CLICK_THRESHOLD)[0]
+    # Zero-pad by win on each side so original sample i gets a valid pre and
+    # post window, even at the boundaries.  Cumulative sum then lets us
+    # compute window means in O(1) per index.  Promote to float64: at 24 kHz
+    # × 30 s = 720k samples, plain float32 cumsum can accumulate ~0.085 of
+    # drift, on the same order as the 0.08 step threshold; float64 keeps
+    # rounding error well below the threshold.
+    pad = np.zeros(win, dtype=np.float64)
+    padded = np.concatenate((pad, samples.astype(np.float64), pad))
+    cs = np.concatenate(([0.0], np.cumsum(padded)))
+    # idx indexes original samples [0, n).  In padded coordinates each
+    # original sample i lives at position i + win, with pre window
+    # padded[i:i+win] and post window padded[i+1+win:i+1+2*win].
+    idx = np.arange(n)
+    pre_mean = (cs[idx + win] - cs[idx]) / win
+    post_mean = (cs[idx + 1 + 2 * win] - cs[idx + 1 + win]) / win
+    step = np.abs(post_mean - pre_mean)
 
-    if len(candidates) < CLICK_COUNT_THRESHOLD:
-        return GateResult(passed=True)
+    # Pad step with zero sentinels so step[0] and step[n-1] can be reported
+    # as peaks — find_peaks requires both neighbours, so without padding it
+    # silently drops boundary events.  The sentinels are below threshold,
+    # so they're never selected themselves; we shift indices back by 1.
+    peaks_padded, _ = find_peaks(
+        np.concatenate(([0.0], step, [0.0])),
+        height=CLICK_STEP_THRESHOLD,
+        distance=win,
+    )
+    peaks = peaks_padded - 1
+    click_count = int(len(peaks))
 
-    # Filter to isolated spikes: surrounding samples must be below threshold
-    radius = CLICK_ISOLATION_RADIUS
-    click_count = 0
-    for idx in candidates:
-        lo = max(0, idx - radius)
-        hi = min(len(diffs), idx + radius + 1)
-        # Count how many neighbors (excluding self) are above threshold
-        neighborhood = diffs[lo:hi]
-        n_above = int(np.sum(neighborhood > CLICK_THRESHOLD))
-        # An isolated click has only 1-2 samples above threshold (the jump itself
-        # and possibly the immediate return)
-        if n_above <= 2:
-            click_count += 1
-
-    if click_count >= CLICK_COUNT_THRESHOLD:
+    if click_count >= CLICK_STEP_EVENT_THRESHOLD:
+        # Surface the first three peak times in the detail so an operator
+        # can seek directly to the alleged click in the rendered turn.
+        # peaks are indices into step (= indices into the original signal).
+        first_times_s = [(int(p) + 0.5) / sr for p in peaks[:3]]
+        times_str = ", ".join(f"{t:.2f}" for t in first_times_s)
         return GateResult(
             passed=False,
             gate_name="click_detection",
-            detail=f"Detected {click_count} isolated click events (threshold: {CLICK_COUNT_THRESHOLD})",
+            detail=(
+                f"Detected {click_count} DC-offset step events "
+                f"(threshold: {CLICK_STEP_EVENT_THRESHOLD}); first at t=[{times_str}]s"
+            ),
         )
     return GateResult(passed=True)
 
