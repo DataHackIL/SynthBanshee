@@ -135,10 +135,10 @@ class TestClickDetectionGate:
     @pytest.mark.parametrize("sr", [16_000, 24_000])
     def test_dc_offset_steps_fail(self, sr: int) -> None:
         # Three sustained baseline shifts — the failure mode the gate targets.
-        # Each shift holds 50 ms (>> the 40 ms detector window) so the rising
-        # and falling edge of every shift register as separate step events.
-        # Six events expected (3 shifts × 2 edges); we accept 5–8 to allow
-        # for find_peaks dropping a single boundary edge.
+        # Each shift holds 50 ms (longer than the 40 ms detector window) so
+        # the rising and falling edge of every shift register as separate
+        # step events.  Six events expected (3 shifts × 2 edges); we accept
+        # 5–8 to allow for find_peaks dropping a single boundary edge.
         samples = np.zeros(sr, dtype=np.float32)
         shift_n = int(0.05 * sr)  # 50 ms
         for start_s, amp in [(0.10, 0.20), (0.35, -0.18), (0.60, 0.25)]:
@@ -197,17 +197,22 @@ class TestClickDetectionGate:
     @pytest.mark.parametrize(
         "fixture_name",
         [
+            # 16 kHz pair (post-mixer rate)
             "sp_neu_a_0001_turn_03_female_2s_16k.wav",
             "sp_neu_a_0001_turn_08_male_2s_16k.wav",
+            # 24 kHz pair (Azure provider native rate — what the gate sees in production)
+            "sp_neu_a_0001_turn_03_female_2s_24k.wav",
+            "sp_neu_a_0001_turn_08_male_2s_24k.wav",
         ],
     )
     def test_real_tts_turn_passes(self, fixture_name: str) -> None:
         # Regression guard for #80: 2 s segments captured from real Azure
         # he-IL output for sp_neu_a_0001 (one VIC/F, one AGG/M) at the
-        # window with the highest pre-fix click density.  The pre-#80
-        # detector flagged 337 / 232 events on these segments respectively;
-        # the step-shift detector must report passed=True.  If a future
-        # tweak re-introduces the false-positive failure mode, this fires.
+        # window with the highest pre-fix click density.  Both the 24 kHz
+        # native (gate-time) rate and the 16 kHz post-mixer rate are
+        # exercised because behaviour depends on win = win_ms * sr / 1000.
+        # Pre-#80 the per-sample-diff detector logged 100s of false events
+        # on these segments; the step-shift detector must report passed=True.
         fixture_path = FIXTURES_DIR / fixture_name
         samples, sr = sf.read(fixture_path, dtype="float32")
         if samples.ndim > 1:
@@ -228,10 +233,34 @@ class TestClickDetectionGate:
         assert result.passed
 
     def test_short_audio_passes(self) -> None:
-        # Audio shorter than 2 * window — no detection window, pass by default.
+        # All-zero short audio — virtual zero padding gives step ≈ 0 everywhere.
         samples = np.zeros(100, dtype=np.float32)
         result = check_clicks(samples, SR)
         assert result.passed
+
+    def test_dc_offset_at_signal_start_caught(self) -> None:
+        # A real DC offset present from sample 0 (e.g. SSML stitching that
+        # introduces a baseline shift right at turn onset) must register —
+        # virtual zero padding compares the offset against silence and the
+        # step is ≥ threshold.  Need ≥3 events; rising edge at sample 0,
+        # falling edge at the end of the offset, and another shift to push
+        # us over the count threshold.
+        samples = np.zeros(int(0.5 * SR), dtype=np.float32)
+        samples[: int(0.08 * SR)] = 0.20  # offset from t=0 to t=80 ms
+        samples[int(0.20 * SR) : int(0.28 * SR)] = -0.18  # second shift later
+        result = check_clicks(samples, SR)
+        assert not result.passed
+        assert result.gate_name == "click_detection"
+
+    def test_dc_offset_at_signal_end_caught(self) -> None:
+        # Symmetric case: a DC offset that stays through the final sample.
+        # Without zero-padding the detector would have been blind to this.
+        samples = np.zeros(int(0.5 * SR), dtype=np.float32)
+        samples[int(0.10 * SR) : int(0.18 * SR)] = 0.22  # earlier shift
+        samples[int(0.42 * SR) :] = -0.20  # offset that persists to end
+        result = check_clicks(samples, SR)
+        assert not result.passed
+        assert result.gate_name == "click_detection"
 
 
 # ---------------------------------------------------------------------------

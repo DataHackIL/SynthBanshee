@@ -234,6 +234,11 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     collapsed into single events via non-maximum suppression at distance
     ``win`` so each step transition is counted once.
 
+    The signal is virtually zero-padded by ``win`` samples on each side
+    so the detector covers every original sample, including the first
+    and last 40 ms — a DC offset present from sample 0 (or sustained
+    through the final sample) compares against silence and is flagged.
+
     Args:
         samples: Float32 audio samples, mono, normalized to [-1, 1].
         sr: Sample rate (Hz).
@@ -243,18 +248,24 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     """
     win = max(1, int(CLICK_STEP_WINDOW_MS * sr / 1000))
     n = len(samples)
-    if n < 2 * win + 1:
+    if n == 0:
         return GateResult(passed=True)
 
-    # Cumulative sum lets us compute window means in O(1) per index.  Promote
-    # to float64: at 24 kHz × 30 s = 720k samples, plain float32 cumsum can
-    # accumulate ~0.085 of drift, on the same order as the 0.08 step
-    # threshold.  float64 keeps the rounding error well below the threshold.
-    cs = np.concatenate(([0.0], np.cumsum(samples.astype(np.float64))))
-    # Last valid candidate i must satisfy i + 1 + win <= n, i.e. i <= n - 1 - win.
-    idx = np.arange(win, n - win)
-    pre_mean = (cs[idx] - cs[idx - win]) / win
-    post_mean = (cs[idx + 1 + win] - cs[idx + 1]) / win
+    # Zero-pad by win on each side so original sample i gets a valid pre and
+    # post window, even at the boundaries.  Cumulative sum then lets us
+    # compute window means in O(1) per index.  Promote to float64: at 24 kHz
+    # × 30 s = 720k samples, plain float32 cumsum can accumulate ~0.085 of
+    # drift, on the same order as the 0.08 step threshold; float64 keeps
+    # rounding error well below the threshold.
+    pad = np.zeros(win, dtype=np.float64)
+    padded = np.concatenate((pad, samples.astype(np.float64), pad))
+    cs = np.concatenate(([0.0], np.cumsum(padded)))
+    # idx indexes original samples [0, n).  In padded coordinates each
+    # original sample i lives at position i + win, with pre window
+    # padded[i:i+win] and post window padded[i+1+win:i+1+2*win].
+    idx = np.arange(n)
+    pre_mean = (cs[idx + win] - cs[idx]) / win
+    post_mean = (cs[idx + 1 + 2 * win] - cs[idx + 1 + win]) / win
     step = np.abs(post_mean - pre_mean)
 
     peaks, _ = find_peaks(step, height=CLICK_STEP_THRESHOLD, distance=win)
@@ -263,7 +274,8 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     if click_count >= CLICK_STEP_EVENT_THRESHOLD:
         # Surface the first three peak times in the detail so an operator
         # can seek directly to the alleged click in the rendered turn.
-        first_times_s = [(idx[p] + 0.5) / sr for p in peaks[:3]]
+        # peaks are indices into step (= indices into the original signal).
+        first_times_s = [(int(p) + 0.5) / sr for p in peaks[:3]]
         times_str = ", ".join(f"{t:.2f}" for t in first_times_s)
         return GateResult(
             passed=False,
