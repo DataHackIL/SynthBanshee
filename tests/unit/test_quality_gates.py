@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import numpy as np
+import pytest
 import soundfile as sf
 
 from synthbanshee.tts.quality_gates import (
@@ -16,6 +18,8 @@ from synthbanshee.tts.quality_gates import (
 )
 
 SR = 16_000
+
+FIXTURES_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "clicks"
 
 
 # ---------------------------------------------------------------------------
@@ -128,22 +132,34 @@ class TestClickDetectionGate:
         result = check_clicks(samples, SR)
         assert result.passed
 
-    def test_dc_offset_steps_fail(self) -> None:
+    @pytest.mark.parametrize("sr", [16_000, 24_000])
+    def test_dc_offset_steps_fail(self, sr: int) -> None:
         # Three sustained baseline shifts — the failure mode the gate targets.
-        # Each shift holds for 50 ms (>> the 20 ms detector window) so both
-        # the rising and falling edge register as step events.
-        samples = np.zeros(16000, dtype=np.float32)
-        for start, amp in [(2000, 0.20), (6000, -0.18), (10000, 0.25)]:
-            samples[start : start + 800] = amp
-        result = check_clicks(samples, SR)
+        # Each shift holds 50 ms (>> the 40 ms detector window) so the rising
+        # and falling edge of every shift register as separate step events.
+        # Six events expected (3 shifts × 2 edges); we accept 5–8 to allow
+        # for find_peaks dropping a single boundary edge.
+        samples = np.zeros(sr, dtype=np.float32)
+        shift_n = int(0.05 * sr)  # 50 ms
+        for start_s, amp in [(0.10, 0.20), (0.35, -0.18), (0.60, 0.25)]:
+            i = int(start_s * sr)
+            samples[i : i + shift_n] = amp
+        result = check_clicks(samples, sr)
         assert not result.passed
         assert result.gate_name == "click_detection"
+        # Tight bound on the count locks in detector behaviour, not just outcome.
+        # The detail string is "...step events (threshold: 3); first at t=[...]s".
+        assert result.detail is not None
+        n = int(result.detail.split()[1])
+        assert 5 <= n <= 8, f"expected 5-8 step events, got {n}: {result.detail}"
 
     def test_isolated_single_sample_spikes_pass(self) -> None:
         # Single-sample spikes are NOT DC clicks — they're impulse noise that
         # leaves the running mean unchanged.  Pre-#80 the gate caught these
-        # but also caught any high-frequency content (Hebrew sibilants); the
-        # step-shift detector correctly ignores both.
+        # alongside any high-frequency content (Hebrew sibilants).  This is
+        # an intentional capability change: the new detector targets only
+        # sustained baseline shifts, since Azure he-IL output does not
+        # produce isolated impulse noise in practice (see #80 diagnosis).
         samples = np.zeros(16000, dtype=np.float32)
         for pos in [1000, 3000, 5000, 7000]:
             samples[pos] = 0.8
@@ -158,31 +174,52 @@ class TestClickDetectionGate:
         result = check_clicks(samples, SR)
         assert result.passed
 
-    def test_sibilant_like_noise_passes(self) -> None:
-        # Regression for #80: zero-mean high-frequency noise with an
-        # envelope (mimicking Hebrew /ʃ/ /s/ fricatives) used to flood the
-        # old per-sample-diff detector with thousands of isolated "clicks".
-        # The step-shift detector must pass it because the baseline mean is
-        # unchanged on either side of any single sample.
+    @pytest.mark.parametrize("sr", [16_000, 24_000])
+    def test_sibilant_like_noise_passes(self, sr: int) -> None:
+        # Synthetic sibilant proxy: envelope-shaped white Gaussian noise.
+        # Real /ʃ/ /s/ have spectral peaks at 5–8 kHz; this fixture is
+        # weaker than that but exercises the zero-mean property the
+        # step detector relies on.  The real regression coverage lives
+        # in test_real_tts_turn_passes (Azure-rendered fixture).
         rng = np.random.default_rng(42)
-        # 1.5 s signal at -18 dBFS RMS, comparable to in-clip speech level.
-        n = int(1.5 * SR)
+        n = int(1.5 * sr)
         envelope = np.zeros(n, dtype=np.float32)
-        # Two sibilant-like bursts of 200 ms each
         for start_s in (0.3, 0.9):
-            i = int(start_s * SR)
-            burst_n = int(0.2 * SR)
+            i = int(start_s * sr)
+            burst_n = int(0.2 * sr)
             ramp = np.hanning(burst_n).astype(np.float32)
             envelope[i : i + burst_n] = ramp
         noise = rng.standard_normal(n).astype(np.float32)
         samples = (noise * envelope * 0.30).astype(np.float32)
-        result = check_clicks(samples, SR)
+        result = check_clicks(samples, sr)
         assert result.passed, f"sibilant-like noise wrongly flagged: {result.detail}"
 
+    @pytest.mark.parametrize(
+        "fixture_name",
+        [
+            "sp_neu_a_0001_turn_03_female_2s_16k.wav",
+            "sp_neu_a_0001_turn_08_male_2s_16k.wav",
+        ],
+    )
+    def test_real_tts_turn_passes(self, fixture_name: str) -> None:
+        # Regression guard for #80: 2 s segments captured from real Azure
+        # he-IL output for sp_neu_a_0001 (one VIC/F, one AGG/M) at the
+        # window with the highest pre-fix click density.  The pre-#80
+        # detector flagged 337 / 232 events on these segments respectively;
+        # the step-shift detector must report passed=True.  If a future
+        # tweak re-introduces the false-positive failure mode, this fires.
+        fixture_path = FIXTURES_DIR / fixture_name
+        samples, sr = sf.read(fixture_path, dtype="float32")
+        if samples.ndim > 1:
+            samples = samples[:, 0]
+        result = check_clicks(samples, sr)
+        assert result.passed, f"real Hebrew TTS turn wrongly flagged: {result.detail}"
+
     def test_few_steps_pass(self) -> None:
-        # Only 1 sustained step — below count threshold of 3.
+        # One sustained shift produces 2 edge events (rising + falling) —
+        # below the threshold of 3.
         samples = np.zeros(16000, dtype=np.float32)
-        samples[5000:5800] = 0.20  # one shift, two edges (rising + falling) = 2 events
+        samples[5000:5800] = 0.20
         result = check_clicks(samples, SR)
         assert result.passed
 

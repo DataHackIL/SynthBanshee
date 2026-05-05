@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from scipy.signal import find_peaks
 
 # ---------------------------------------------------------------------------
 # Thresholds (from research-synthesis.md §Quality Gates)
@@ -43,16 +44,19 @@ FEMALE_F0_MAX_HZ: float = 290.0
 # for the diagnosis that motivated this change.
 CLICK_STEP_THRESHOLD: float = 0.08
 
-# Window width (each side) over which the pre/post running mean is computed
-# for the step-shift comparison.  40 ms covers ≥3 F0 cycles even at the male
-# low end (80 Hz → 12.5 ms period), so the running mean averages out the AC
-# swing of a voiced segment and the step shift reflects an actual DC change.
-CLICK_STEP_WINDOW_MS: float = 40.0
+# Window width (each side, in milliseconds) over which the pre/post running
+# mean is computed for the step-shift comparison.  40 ms covers ≥3 F0 cycles
+# even at the male low end (80 Hz → 12.5 ms period), so the running mean
+# averages out the AC swing of a voiced segment and the step shift reflects
+# an actual DC change.
+CLICK_STEP_WINDOW_MS: int = 40
 
 # Minimum number of distinct step events (after non-maximum suppression) to
-# flag a turn.  Real DC clicks come in pairs (rising + falling edge of the
-# offset); 3+ events suggests a systematic stitching problem.
-CLICK_COUNT_THRESHOLD: int = 3
+# flag a turn.  A single sustained DC offset produces 2 events (rising +
+# falling edge), so this threshold is in *edges*, not in clicks: ≥3 events
+# corresponds to ≥2 sustained offsets (or ≥3 ramp-shaped artifacts), which
+# we treat as a systematic stitching problem.
+CLICK_STEP_EVENT_THRESHOLD: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -237,16 +241,18 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     Returns:
         GateResult indicating pass/fail.
     """
-    from scipy.signal import find_peaks
-
     win = max(1, int(CLICK_STEP_WINDOW_MS * sr / 1000))
     n = len(samples)
     if n < 2 * win + 1:
         return GateResult(passed=True)
 
-    # Cumulative sum lets us compute window means in O(1) per index.
+    # Cumulative sum lets us compute window means in O(1) per index.  Promote
+    # to float64: at 24 kHz × 30 s = 720k samples, plain float32 cumsum can
+    # accumulate ~0.085 of drift, on the same order as the 0.08 step
+    # threshold.  float64 keeps the rounding error well below the threshold.
     cs = np.concatenate(([0.0], np.cumsum(samples.astype(np.float64))))
-    idx = np.arange(win, n - win - 1)
+    # Last valid candidate i must satisfy i + 1 + win <= n, i.e. i <= n - 1 - win.
+    idx = np.arange(win, n - win)
     pre_mean = (cs[idx] - cs[idx - win]) / win
     post_mean = (cs[idx + 1 + win] - cs[idx + 1]) / win
     step = np.abs(post_mean - pre_mean)
@@ -254,12 +260,17 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     peaks, _ = find_peaks(step, height=CLICK_STEP_THRESHOLD, distance=win)
     click_count = int(len(peaks))
 
-    if click_count >= CLICK_COUNT_THRESHOLD:
+    if click_count >= CLICK_STEP_EVENT_THRESHOLD:
+        # Surface the first three peak times in the detail so an operator
+        # can seek directly to the alleged click in the rendered turn.
+        first_times_s = [(idx[p] + 0.5) / sr for p in peaks[:3]]
+        times_str = ", ".join(f"{t:.2f}" for t in first_times_s)
         return GateResult(
             passed=False,
             gate_name="click_detection",
             detail=(
-                f"Detected {click_count} DC-offset step events (threshold: {CLICK_COUNT_THRESHOLD})"
+                f"Detected {click_count} DC-offset step events "
+                f"(threshold: {CLICK_STEP_EVENT_THRESHOLD}); first at t=[{times_str}]s"
             ),
         )
     return GateResult(passed=True)
