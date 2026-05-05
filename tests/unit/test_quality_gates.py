@@ -239,28 +239,45 @@ class TestClickDetectionGate:
         assert result.passed
 
     def test_dc_offset_at_signal_start_caught(self) -> None:
-        # A real DC offset present from sample 0 (e.g. SSML stitching that
-        # introduces a baseline shift right at turn onset) must register —
-        # virtual zero padding compares the offset against silence and the
-        # step is ≥ threshold.  Need ≥3 events; rising edge at sample 0,
-        # falling edge at the end of the offset, and another shift to push
-        # us over the count threshold.
+        # Three sustained offsets; the first starts at sample 0.  Without
+        # the boundary fix the t=0 rising edge is silently dropped and we
+        # see 5 events; with the fix we see 6.  Asserting count ≥ 6 and
+        # that the first detected peak is at t≈0 actually proves the
+        # boundary edge was counted.
         samples = np.zeros(int(0.5 * SR), dtype=np.float32)
-        samples[: int(0.08 * SR)] = 0.20  # offset from t=0 to t=80 ms
-        samples[int(0.20 * SR) : int(0.28 * SR)] = -0.18  # second shift later
+        samples[: int(0.06 * SR)] = 0.20  # offset starts AT sample 0
+        samples[int(0.15 * SR) : int(0.20 * SR)] = -0.18
+        samples[int(0.30 * SR) : int(0.35 * SR)] = 0.22
         result = check_clicks(samples, SR)
         assert not result.passed
         assert result.gate_name == "click_detection"
+        assert result.detail is not None
+        n = int(result.detail.split()[1])
+        assert n >= 6, f"sample-0 edge dropped: only {n} events; expected ≥6"
+        # Detail format: "...; first at t=[0.00, 0.06, 0.15]s" — the boundary
+        # edge must appear as the first detected peak (within one sample of t=0).
+        first_t_str = result.detail.split("[")[1].split(",")[0]
+        assert float(first_t_str) < 1.0 / SR, f"sample-0 edge not the first peak: {result.detail}"
 
     def test_dc_offset_at_signal_end_caught(self) -> None:
-        # Symmetric case: a DC offset that stays through the final sample.
-        # Without zero-padding the detector would have been blind to this.
-        samples = np.zeros(int(0.5 * SR), dtype=np.float32)
-        samples[int(0.10 * SR) : int(0.18 * SR)] = 0.22  # earlier shift
-        samples[int(0.42 * SR) :] = -0.20  # offset that persists to end
+        # Symmetric: a DC offset that persists through the final sample.
+        # Without the boundary fix the trailing edge at sample n-1 is
+        # dropped (5 events); with the fix it's caught (6 events) and the
+        # last detected peak time lands within one sample of the final.
+        n_samples = int(0.5 * SR)
+        samples = np.zeros(n_samples, dtype=np.float32)
+        samples[int(0.10 * SR) : int(0.15 * SR)] = 0.20
+        samples[int(0.25 * SR) : int(0.30 * SR)] = -0.18
+        samples[int(0.44 * SR) :] = 0.22  # offset persists to last sample
         result = check_clicks(samples, SR)
         assert not result.passed
         assert result.gate_name == "click_detection"
+        assert result.detail is not None
+        n = int(result.detail.split()[1])
+        assert n >= 6, f"sample-(n-1) edge dropped: only {n} events; expected ≥6"
+        # The detail surfaces the FIRST 3 peak timestamps, not the last —
+        # so we re-run with the same rationale and check the count alone
+        # proves the boundary edge was counted (5 events without fix, 6 with).
 
 
 # ---------------------------------------------------------------------------

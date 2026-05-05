@@ -268,7 +268,16 @@ def check_clicks(samples: np.ndarray, sr: int) -> GateResult:
     post_mean = (cs[idx + 1 + 2 * win] - cs[idx + 1 + win]) / win
     step = np.abs(post_mean - pre_mean)
 
-    peaks, _ = find_peaks(step, height=CLICK_STEP_THRESHOLD, distance=win)
+    # Pad step with zero sentinels so step[0] and step[n-1] can be reported
+    # as peaks — find_peaks requires both neighbours, so without padding it
+    # silently drops boundary events.  The sentinels are below threshold,
+    # so they're never selected themselves; we shift indices back by 1.
+    peaks_padded, _ = find_peaks(
+        np.concatenate(([0.0], step, [0.0])),
+        height=CLICK_STEP_THRESHOLD,
+        distance=win,
+    )
+    peaks = peaks_padded - 1
     click_count = int(len(peaks))
 
     if click_count >= CLICK_STEP_EVENT_THRESHOLD:
