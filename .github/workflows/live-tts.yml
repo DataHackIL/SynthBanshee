@@ -1,0 +1,64 @@
+name: Live TTS regression
+
+# Runs the live_tts-marked integration tests (real Google / Azure TTS API
+# calls) on a schedule and on manual dispatch.  These are gated out of the
+# default CI matrix because they bill real money — see tests/conftest.py
+# (the --run-live-tts flag) and tests/integration/test_google_tts.py.
+#
+# Required secrets:
+#   GOOGLE_APPLICATION_CREDENTIALS_JSON  — full contents of a GCP service
+#     account JSON with `roles/cloudtexttospeech.user`.  Written to a temp
+#     file at runtime; GOOGLE_APPLICATION_CREDENTIALS is pointed at it.
+
+on:
+  schedule:
+    # Weekly, Sunday 04:00 UTC.  Catches Google API / voice deprecation
+    # drift within ~7 days without per-PR billing.
+    - cron: "0 4 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  live-tts:
+    name: "Live TTS (Python 3.12)"
+    runs-on: ubuntu-latest
+    # Gate: only run when the GCP creds secret is configured.  Forks and
+    # PRs from contributors who don't have the secret won't fail noisily.
+    if: ${{ github.repository == 'DataHackIL/SynthBanshee' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Install dependencies (incl. google-tts extra)
+        run: |
+          uv pip install \
+            pydantic pyyaml jinja2 soundfile numpy scipy \
+            click rich jsonlines \
+            pyroomacoustics \
+            librosa pyloudnorm \
+            pytest pytest-asyncio pytest-cov \
+            google-cloud-texttospeech
+
+      - name: Install package
+        run: uv pip install --no-deps -e .
+
+      - name: Write GCP service account JSON
+        env:
+          GCP_SA_JSON: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
+        run: |
+          if [ -z "$GCP_SA_JSON" ]; then
+            echo "::error::GOOGLE_APPLICATION_CREDENTIALS_JSON secret is not set"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/gcp"
+          printf '%s' "$GCP_SA_JSON" > "$RUNNER_TEMP/gcp/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gcp/sa.json" >> "$GITHUB_ENV"
+
+      - name: Run live TTS tests
+        run: .venv/bin/pytest -v --tb=short --run-live-tts -m live_tts
