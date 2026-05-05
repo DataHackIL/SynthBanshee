@@ -97,7 +97,7 @@ Project codes: `SP` (She-Proves) · `EL` (Elephant in the Room)
 | Sample rate | 16,000 Hz | Resample before delivery; retain originals at native rate |
 | Bit depth | 16-bit PCM | |
 | Channels | Mono | Downmix to mono before delivery |
-| Amplitude normalization | Peak-normalize to target (−2.0 dBFS default) via single global gain, then peak-limit at ≤ −1.0 dBFS | Single-gain normalization preserves per-turn RMS contrast (M3a); the limiter is a safety ceiling only (#78) |
+| Amplitude normalization | Peak-normalize to target (−2.0 dBFS default, range `[−12.0, −1.5]`) via single global gain, then peak-limit at ≤ −1.0 dBFS | Single-gain normalization preserves per-turn RMS contrast (M3a); the 0.5 dB margin between target upper bound and limiter ceiling guarantees the limiter is a no-op in normal flow (#78) |
 | Silence padding | ≥ 0.5 s of ambient baseline before and after target speech | |
 | SNR at acquisition | ≥ 15 dB (Tier A) | Tier B/C may degrade controllably below 15 dB; log actual SNR in metadata |
 | Max clip duration | 300 s (5 min) | Longer source scenes must be segmented |
@@ -112,8 +112,8 @@ All clips must pass through this pipeline before delivery. The "dirty" pre-pipel
 3. **Spectral filter** — low-pass at 7,500 Hz to remove irrelevant high-frequency noise from budget sensors (Butterworth order 4)
 4. **Denoising** — spectral subtraction (Wiener filtering) to remove electrical hum; parameterize noise profile from silent leading segment
 5. **Loudness normalization** (#78) — two stages:
-   - **5a. Peak-normalize to target.** Apply a single global gain so the absolute peak lands at `PreprocessingConfig.target_peak_dbfs` (default −2.0 dBFS). A *single* gain preserves per-turn RMS *ratios* exactly, so the within-scene loudness trajectory established by per-turn RMS gain (M3a) survives — only the absolute level shifts. This step replaces the M3b "limiter only, never scale up" behaviour, which left M3a-shaped clips peaking ~6 dB below the −1 dBFS ceiling and degraded downstream Whisper / UTMOS scoring.
-   - **5b. Safety limiter.** Attenuate any sample exceeding −1.0 dBFS. For in-spec target values (`target_peak_dbfs ∈ [−12.0, −1.0]`) this is a no-op; it remains as defence-in-depth against upstream over-range samples.
+   - **5a. Peak-normalize to target.** Apply a single global gain so the absolute peak lands at `PreprocessingConfig.target_peak_dbfs` (default −2.0 dBFS). A *single* gain preserves per-turn RMS *ratios* exactly, so the within-scene loudness trajectory established by per-turn RMS gain (M3a) survives — only the absolute level shifts. This step replaces the M3b "limiter only, never scale up" behaviour: pre-#78 the spec had only an upper bound on peak, leaving the absolute level unspecified; two clips could legitimately sit 6 dB apart and both be in-spec.
+   - **5b. Safety limiter.** Attenuate any sample exceeding −1.0 dBFS. For in-spec target values (`target_peak_dbfs ∈ [−12.0, −1.5]`) this is a guaranteed no-op (0.5 dB margin); it remains as defence-in-depth against upstream over-range samples.
 6. **Silence pad** — verify ≥ 0.5 s ambient baseline at head and tail; add if absent
 7. **Validate** — assert: sample rate == 16000, channels == 1, no NaN/Inf samples, no UTF-8 above U+00A1 in metadata strings
 

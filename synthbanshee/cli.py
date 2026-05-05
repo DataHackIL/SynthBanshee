@@ -648,7 +648,12 @@ def _run_generate_pipeline(
         tts_backend=_backends_map,
         voice_family=_voices_map,
         mix_mode_used=_dominant_mix_mode,
-        normalization_strategy="per_turn_rms_v1",
+        # #78: bumped from per_turn_rms_v1 — clips now go through a post-mix
+        # peak-normalize step before the safety limiter, so absolute peak is
+        # determined by config rather than per-turn RMS landing wherever it
+        # happened to land.  Future-bug-hunting reads policy off this string.
+        normalization_strategy="per_turn_rms_v2_target_peak",
+        loudness_target_peak_dbfs=preproc_config.target_peak_dbfs,
         breathiness_applied=_breathiness_was_applied,
         speaker_state_serialized=_speaker_states,
     )

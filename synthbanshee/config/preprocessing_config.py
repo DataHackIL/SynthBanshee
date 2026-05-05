@@ -31,15 +31,27 @@ class PreprocessingConfig(BaseModel):
     independent research reports).  Enable only for clips with real
     added noise (Tier B/C after acoustic augmentation)."""
 
-    target_peak_dbfs: float = Field(default=-2.0, ge=-12.0, le=-1.0)
+    target_peak_dbfs: float = Field(default=-2.0, ge=-12.0, le=-1.5)
     """Target peak level for clip-level loudness normalization (#78).
 
     The mixed scene is scaled by a single global gain so its absolute peak
     lands at this dBFS value, preserving per-turn RMS contrast (M3a) while
-    ensuring the clip reaches a useful absolute loudness for downstream
-    ASR / MOS evaluation.  The −1.0 dBFS safety limiter still runs after
-    this step; values closer to the ceiling leave less headroom for
-    downstream room-IR / device augmentation.  Range is bounded
-    [−12.0, −1.0] dBFS — louder than −1.0 would clip past the spec
-    ceiling, quieter than −12.0 reproduces the very deficiency this
-    setting exists to fix."""
+    pinning absolute loudness to a configured value rather than letting it
+    float wherever per-turn RMS happens to land.
+
+    Range is bounded ``[−12.0, −1.5]`` dBFS:
+
+    - **Upper bound −1.5, not −1.0.**  The −1.0 dBFS safety limiter runs
+      after this step.  Allowing target = −1.0 would put the two stages in
+      direct collision — float-arithmetic noise tips a sample past the
+      ceiling and the limiter clips it.  0.5 dB margin is the smallest
+      headroom that guarantees the safety stage remains a no-op in normal
+      flow.
+    - **Lower bound −12.0** to prevent reproducing the very deficiency this
+      setting exists to fix (post-M3a clips peaking ~−6 dBFS by accident).
+
+    Note (#78 follow-up): peak normalization at this level does *not*
+    materially change Whisper WER — the M17 spike's ASR regression has a
+    different root cause being tracked in the prosody-bisect issue.  This
+    config is about loudness-contract clarity and downstream consumer
+    ergonomics, not ASR recovery."""
