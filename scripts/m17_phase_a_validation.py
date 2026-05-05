@@ -19,8 +19,14 @@ at ``docs/m17_phase_a_validation_report.md`` is **not** touched by this script
 
 Setup:
 
-    uv pip install --python .venv/bin/python torch torchaudio transformers \\
-        jiwer speechmos accelerate faster-whisper
+    uv pip install --python .venv/bin/python \\
+        torch transformers accelerate faster-whisper \\
+        jiwer numpy scipy soundfile
+
+(``torchaudio`` and the ``speechmos`` PyPI package are NOT required: the repo
+forbids torchaudio in preprocessing, and UTMOS22 strong is loaded via
+``torch.hub`` from the pinned ``tarepan/SpeechMOS`` commit below — the
+``speechmos`` PyPI package only ships DNSMOS/AECMOS/PLCMOS, not UTMOS.)
 
 Run:
 
@@ -98,8 +104,15 @@ def load_clips() -> list[Clip]:
     clips: list[Clip] = []
     for wav_path in sorted(CLIP_DIR.glob("*.wav")):
         txt_path = wav_path.with_suffix(".txt")
+        if not txt_path.exists():
+            raise FileNotFoundError(
+                f"Clip {wav_path.name} is missing its transcript sidecar at {txt_path}. "
+                "Every .wav must be paired with a .txt reference for WER scoring."
+            )
         ref = "\n".join(
-            line for line in txt_path.read_text().splitlines() if line and not line.startswith("[")
+            line
+            for line in txt_path.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("[")
         ).strip()
         wav, sr = sf.read(wav_path, dtype="float32")
         if wav.ndim > 1:
@@ -124,11 +137,16 @@ PUNCT_RE = re.compile(r"[\.,!?;:\"'\(\)\[\]\-–—…״׳]")
 WS_RE = re.compile(r"\s+")
 # RTL embedding / override marks that surface in some hallucination loops.
 RTL_MARKS_RE = re.compile(r"[‫‮‎‏‪‬‭]")
+# Hebrew final-form letters — design doc spec line 66: normalize before WER.
+# Final and non-final forms are orthographic variants of the same letter; LLM
+# output and Whisper output may disagree on form choice without semantic loss.
+FINAL_FORMS_MAP = str.maketrans({"ך": "כ", "ם": "מ", "ן": "נ", "ף": "פ", "ץ": "צ"})
 
 
 def normalize_for_wer(text: str) -> str:
     text = NIQQUD_RE.sub("", text)
     text = RTL_MARKS_RE.sub("", text)
+    text = text.translate(FINAL_FORMS_MAP)
     text = PUNCT_RE.sub(" ", text)
     text = WS_RE.sub(" ", text)
     return text.strip()
@@ -173,7 +191,7 @@ def asr_hf(model_id: str, clips: list[Clip], device: str) -> dict[str, str]:
     asr = pipeline(
         "automatic-speech-recognition",
         model=model_id,
-        device=device,
+        device=torch.device(device),  # torch.device works across all transformers versions
         torch_dtype=torch.float32,
         chunk_length_s=30,
         return_timestamps=False,
@@ -438,7 +456,10 @@ def main() -> None:
         try:
             hyps = asr_hf(model_id, clips, device)
         except Exception as e:
-            print(f"  HF/{device} failed ({e!r}); retry on CPU", flush=True)
+            if device == "cpu":
+                # Already on CPU — no fallback to attempt; fail loudly.
+                raise
+            print(f"  HF/{device} failed ({e!r}); retrying on CPU", flush=True)
             hyps = asr_hf(model_id, clips, "cpu")
         run = score_asr_run(label, hyps, clips)
         run["backend"] = "transformers"
@@ -481,7 +502,15 @@ def main() -> None:
         asr_runs.append(fw_run)
 
     print("\n=== UTMOS ===", flush=True)
-    utmos_model = torch.hub.load("tarepan/SpeechMOS:v1.2.0", "utmos22_strong", trust_repo=True)
+    # Pinned to immutable commit (= tarepan/SpeechMOS v1.2.0) to avoid the supply-chain
+    # risk of a moving tag. trust_repo=True is required by torch.hub when loading from
+    # GitHub; for spike scope we accept this — a production E2 implementation should
+    # vendor or hash-lock the model artifacts. See report Limitations §8.
+    utmos_model = torch.hub.load(
+        "tarepan/SpeechMOS:ed25eacbfa42b99156c36ebec67a733b5dbb9b79",
+        "utmos22_strong",
+        trust_repo=True,
+    )
     rng = np.random.default_rng(RNG_SEED)
 
     clean_scores = {c.clip_id: utmos_score(utmos_model, c.wav, c.sr) for c in clips}

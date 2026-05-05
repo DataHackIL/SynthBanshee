@@ -26,10 +26,13 @@ Other findings worth surfacing inline:
 ## Reproduce
 
 ```bash
-uv pip install --python .venv/bin/python torch torchaudio transformers \
-    jiwer speechmos accelerate faster-whisper
+uv pip install --python .venv/bin/python \
+    torch transformers accelerate faster-whisper \
+    jiwer numpy scipy soundfile
 .venv/bin/python scripts/m17_phase_a_validation.py
 ```
+
+`torchaudio` is not used (CLAUDE.md forbids it in preprocessing). The `speechmos` PyPI package only ships DNSMOS/AECMOS/PLCMOS — UTMOS22 strong is loaded via `torch.hub` from a pinned `tarepan/SpeechMOS` commit instead (see Limitations §8).
 
 Inputs: 10 clips at `data/m2a_wettest/agg_m_30-45_001/` — see Manifest below for SHA-256s. Device: MPS (Apple Silicon M4 Max). All decoders are greedy (`num_beams=1`, `do_sample=False`, `temperature=0`); `numpy` and `torch` seeded to 42. Degraded variants are RMS-normalized to match each clip's clean RMS before scoring (see `rms_normalize_to_match` in the script).
 
@@ -264,6 +267,7 @@ WERs are byte-stable run-to-run when `num_beams=1`, `do_sample=False`, `temperat
 5. **TTS pipeline drift dominates between-clip UTMOS variance.** Until the loudness regression is fixed, any UTMOS-based regression detection over time is unreliable.
 6. **Long-form chunking is HF's "experimental" path** (`pipeline(chunk_length_s=30)`). Switching E1 to the native long-form `WhisperForConditionalGeneration.generate(...)` is a recommended follow-up but doesn't change the gate result.
 7. **No CI cost measurement** — wall-time captured in the JSON but not reported (laptop sleep makes the numbers meaningless).
+8. **UTMOS loader uses `torch.hub` with `trust_repo=True`** — this downloads and executes code from `tarepan/SpeechMOS` at runtime. We pin the source to an immutable commit hash (`ed25eacb...`) to avoid moving-tag risk, but a production E2 implementation should vendor or hash-lock the model artifact rather than fetching it at run time.
 
 ## Recommendation
 
