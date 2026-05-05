@@ -141,6 +141,23 @@ class GenerationMetadata(BaseModel):
     timing_controller_version: str | None = None
     mix_mode_used: str = "sequential"
     normalization_strategy: str = "per_turn_rms_v1"
+    """Tag identifying the clip-level loudness policy.  Bumped whenever the
+    policy changes so two clips with different absolute loudness can be
+    distinguished post-hoc by metadata alone — without this field, #78's
+    regression hid for three weeks behind unchanged metadata.  Known values:
+    ``per_turn_rms_v1`` (M3a + M3b limiter only — peak floats wherever per-turn
+    RMS lands); ``per_turn_rms_v2_target_peak`` (M3a + post-mix peak-normalize
+    to ``loudness_target_peak_dbfs``, then safety limiter — see #78)."""
+
+    loudness_target_peak_dbfs: float | None = None
+    """Target peak the post-mix normalization step aimed for, in dBFS.  ``None``
+    when ``normalization_strategy`` is ``per_turn_rms_v1`` (no target).  For
+    ``per_turn_rms_v2_target_peak``, this is the configured
+    ``PreprocessingConfig.target_peak_dbfs`` at render time, so a future
+    investigator can read the policy off metadata directly rather than
+    correlating against ``preprocessing_applied.normalized_dbfs`` (which is
+    *measured*, not *targeted*)."""
+
     breathiness_applied: bool = False
     speaker_state_serialized: dict[str, dict[str, float]] = Field(default_factory=dict)
 

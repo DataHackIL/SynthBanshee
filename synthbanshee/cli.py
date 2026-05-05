@@ -214,6 +214,7 @@ def _run_generate_pipeline(
     import soundfile as sf
 
     from synthbanshee.augment.preprocessing import preprocess
+    from synthbanshee.config.preprocessing_config import PreprocessingConfig
     from synthbanshee.config.scene_config import SceneConfig
     from synthbanshee.config.speaker_config import SpeakerConfig
     from synthbanshee.labels.generator import (
@@ -379,6 +380,10 @@ def _run_generate_pipeline(
             preproc_config = scene.preprocessing
             if preproc_config is None and project_profile is not None:
                 preproc_config = getattr(project_profile, "preprocessing", None)
+            # #78: ensure a concrete config so Stage 3b can read target_peak_dbfs
+            # from the same instance that fed Stage 3a.
+            if preproc_config is None:
+                preproc_config = PreprocessingConfig()
             result = preprocess(raw_wav, clip_wav, dirty_dir=dirty_dir, config=preproc_config)
     except Exception as exc:
         return None, [f"Pipeline error: {exc}"]
@@ -419,6 +424,11 @@ def _run_generate_pipeline(
             import soundfile as _sf
 
             from synthbanshee.augment.pipeline import augment_scene
+            from synthbanshee.augment.preprocessing import (
+                _PEAK_DBFS,
+                _peak_limit,
+                peak_normalize_to_target,
+            )
             from synthbanshee.config.taxonomy import tier2_subtype_codes
             from synthbanshee.labels.schema import ClipAcousticScene
 
@@ -446,11 +456,21 @@ def _run_generate_pipeline(
             aug_samples[:pad_n] = 0.0
             aug_samples[-pad_n:] = 0.0
 
-            # Peak-normalize augmented signal to −1.0 dBFS
-            peak = float(_np.max(_np.abs(aug_samples)))
-            if peak > 0.0:
-                target_peak = 10.0 ** (-1.0 / 20.0)
-                aug_samples = (aug_samples * (target_peak / peak)).astype(_np.float32)
+            # #78 stage 5a: peak-normalize augmented signal to the same target
+            # as Tier A.  Augmentation (room IR + noise mixing) reshapes the
+            # peak, so we re-normalize through the shared helper to land Tier A
+            # and Tier B/C at the same absolute loudness.  Uses the *same*
+            # PreprocessingConfig value that fed Stage 3a, so a per-project
+            # profile change reaches both stages without divergence.
+            aug_samples = peak_normalize_to_target(aug_samples, preproc_config.target_peak_dbfs)
+            # #78 stage 5b: safety limiter.  Provably a no-op given Pydantic
+            # bounds (target_peak_dbfs ≤ −1.5, ceiling = −1.0, so peak after
+            # 5a is always ≥ 0.5 dB below ceiling and PCM_16 quantisation
+            # cannot push it across).  Applied here purely so Tier B/C mirrors
+            # Tier A's documented "5a then 5b" two-stage policy uniformly —
+            # paper-vs-reality consistency, addresses PR #82 review thread
+            # COPILOT-1.
+            aug_samples = _peak_limit(aug_samples, _PEAK_DBFS)
             _sf.write(str(clip_wav), aug_samples, audio_sr, subtype="PCM_16")
 
             acoustic_scene_meta = ClipAcousticScene(
@@ -640,7 +660,12 @@ def _run_generate_pipeline(
         tts_backend=_backends_map,
         voice_family=_voices_map,
         mix_mode_used=_dominant_mix_mode,
-        normalization_strategy="per_turn_rms_v1",
+        # #78: bumped from per_turn_rms_v1 — clips now go through a post-mix
+        # peak-normalize step before the safety limiter, so absolute peak is
+        # determined by config rather than per-turn RMS landing wherever it
+        # happened to land.  Future-bug-hunting reads policy off this string.
+        normalization_strategy="per_turn_rms_v2_target_peak",
+        loudness_target_peak_dbfs=preproc_config.target_peak_dbfs,
         breathiness_applied=_breathiness_was_applied,
         speaker_state_serialized=_speaker_states,
     )

@@ -33,7 +33,7 @@ from synthbanshee.config.preprocessing_config import PreprocessingConfig
 
 _TARGET_SR = 16_000
 _TARGET_CHANNELS = 1
-_PEAK_DBFS = -1.0  # −1.0 dBFS
+_PEAK_DBFS = -1.0  # −1.0 dBFS — safety ceiling enforced by validate_audio()
 _HP_CUTOFF_HZ = 80  # high-pass cutoff for DC/rumble removal
 _HP_ORDER = 2  # Butterworth order (gentle slope)
 _SILENCE_PAD_S = 0.5  # minimum silence padding (seconds)
@@ -41,7 +41,13 @@ _MIN_DURATION_S = 3.0  # clips below this are invalid (spec §3)
 _MAX_DURATION_S = 300.0  # clips above this must be segmented (spec §3)
 
 # Re-export so callers can do: from synthbanshee.augment.preprocessing import PreprocessingConfig
-__all__ = ["PreprocessingConfig", "PreprocessingResult", "preprocess", "validate_audio"]
+__all__ = [
+    "PreprocessingConfig",
+    "PreprocessingResult",
+    "peak_normalize_to_target",
+    "preprocess",
+    "validate_audio",
+]
 
 
 @dataclass
@@ -52,8 +58,21 @@ class PreprocessingResult:
     channels: int
     duration_seconds: float
     peak_dbfs: float
+    """Measured peak in the written PCM_16 file."""
+
+    target_peak_dbfs: float | None = None
+    """Target peak the loudness step aimed for (#78), in dBFS.  Pair this
+    with ``peak_dbfs`` to compute deviation; QA tooling consumes this as
+    structured data instead of regexing a step-name string."""
+
     silence_pad_applied_s: float = _SILENCE_PAD_S
     steps_applied: list[str] = field(default_factory=list)
+    """Ordered list of step *names* (literal tokens like ``peak_normalize``
+    and ``peak_limit``).  Numeric parameters are *not* embedded in the
+    step name — they live in dedicated fields like ``target_peak_dbfs``
+    and ``peak_dbfs`` so QA grep contracts don't break under config
+    overrides."""
+
     warnings: list[str] = field(default_factory=list)
 
 
@@ -69,9 +88,10 @@ def _peak_limit(samples: np.ndarray, ceiling_dbfs: float = _PEAK_DBFS) -> np.nda
     """Attenuate samples so peak ≤ ceiling_dbfs; never scale up.
 
     Unlike peak normalization, this only applies gain when the signal
-    exceeds the ceiling.  Quieter signals are returned unchanged so that
-    the within-scene loudness trajectory established by per-turn RMS gain
-    (M3a) is preserved across the full clip.
+    exceeds the ceiling.  Quieter signals are returned unchanged.  After
+    #78 this is a safety net behind ``peak_normalize_to_target``; on its
+    own it would let M3a-shaped clips sit ~6 dB below useful ASR / MOS
+    operating range.
     """
     peak = float(np.max(np.abs(samples)))
     if peak == 0.0:
@@ -80,6 +100,40 @@ def _peak_limit(samples: np.ndarray, ceiling_dbfs: float = _PEAK_DBFS) -> np.nda
     if peak <= ceiling_linear:
         return samples  # already within limit — do not scale up
     return (samples * (ceiling_linear / peak)).astype(np.float32)
+
+
+def peak_normalize_to_target(samples: np.ndarray, target_dbfs: float) -> np.ndarray:
+    """Scale *samples* by a single global gain so their peak equals *target_dbfs*.
+
+    Used in two places that must stay consistent:
+
+    - ``preprocess()`` (Stage 3a) — Tier A clip-level loudness target.
+    - ``cli.py`` (Stage 3b post-augment) — Tier B/C re-normalization after
+      room IR + noise mixing reshapes the peak.  Both call sites read
+      ``target_dbfs`` from the same ``PreprocessingConfig.target_peak_dbfs``
+      so all tiers exit at the same absolute peak.
+
+    Why a single global gain (#78): per-turn RMS targeting (M3a) creates
+    the within-clip loudness trajectory.  We must not collapse it back
+    into a flat shape, which is what the M3b commit (PR #27) deliberately
+    avoided.  A single multiplicative factor preserves all per-turn RMS
+    *ratios* exactly while pinning the absolute peak to a configured value.
+
+    Silent or near-silent input (**peak** below ~−80 dBFS, the 1e-4
+    threshold below) is returned unchanged.  This is a *peak* guard —
+    distinct from ``_apply_rms_gain``'s identical numeric threshold,
+    which is an *RMS* guard.  Same number, different physical meaning.
+
+    Note: this helper does not clip.  Callers must constrain
+    ``target_dbfs`` so the output stays in valid PCM range; the
+    Pydantic ``[-12, -1.5]`` constraint on ``target_peak_dbfs``
+    is the canonical guarantee.
+    """
+    peak = float(np.max(np.abs(samples)))
+    if peak < 1e-4:  # peak < ~−80 dBFS — treat as silence, do not amplify
+        return samples
+    target_linear = 10.0 ** (target_dbfs / 20.0)
+    return (samples * (target_linear / peak)).astype(np.float32)
 
 
 def _resample(samples: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
@@ -189,13 +243,33 @@ def preprocess(
         samples = _wiener_denoise(samples)
         steps.append("wiener_denoise")
 
-    # --- 5. Peak limit to −1.0 dBFS (never scale up) -------------------------
+    # --- 5a. Peak-normalize to target (#78) ----------------------------------
+    # Single global gain — preserves per-turn RMS contrast (M3a) while pinning
+    # absolute peak to a configured value.  Without this step, M3a-shaped
+    # clips peak wherever per-turn RMS happens to land (~−6 dBFS for Tier A
+    # baseline targets), which made it impossible to define a clip-level
+    # loudness contract or detect downstream regressions from metadata alone.
+    #
+    # Note: empirically (lever probe, 2026-05-05) Whisper WER does not respond
+    # to the absolute peak in the spec range — its log-mel feature extractor
+    # internally normalizes — so the rationale for this step is contract
+    # clarity + metadata-trail, not ASR recovery.  The actual ASR regression
+    # tracked at the M17 spike has a different cause (likely the M15/#70
+    # prosody changes); see the prosody-bisect follow-up issue.
+    samples = peak_normalize_to_target(samples, cfg.target_peak_dbfs)
+    steps.append("peak_normalize")
+
+    # --- 5b. Safety limiter at −1.0 dBFS (never scale up) --------------------
+    # Defence-in-depth.  Pydantic constrains target_peak_dbfs ≤ −1.5, so this
+    # is a guaranteed no-op in normal flow — it only fires if upstream code
+    # somehow bypasses step 5a, in which case clamping at the spec ceiling is
+    # still strictly better than shipping a clipped clip.
     samples = _peak_limit(samples, _PEAK_DBFS)
-    steps.append(f"peak_limit_{_PEAK_DBFS}dBFS")
+    steps.append("peak_limit")
 
     # --- 6. Silence pad (≥ 0.5 s at head and tail) ---------------------------
     samples = _ensure_silence_pad(samples, sr, _SILENCE_PAD_S)
-    steps.append(f"silence_pad_{_SILENCE_PAD_S}s")
+    steps.append("silence_pad")
 
     # --- Clip duration checks ------------------------------------------------
     duration = len(samples) / sr
@@ -220,6 +294,7 @@ def preprocess(
         channels=_TARGET_CHANNELS,
         duration_seconds=duration,
         peak_dbfs=_to_dbfs(samples),
+        target_peak_dbfs=cfg.target_peak_dbfs,
         steps_applied=steps,
         warnings=warnings,
     )

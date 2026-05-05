@@ -14,6 +14,7 @@ from synthbanshee.augment.preprocessing import (
     _TARGET_SR,
     PreprocessingConfig,
     _peak_limit,
+    peak_normalize_to_target,
     preprocess,
     validate_audio,
 )
@@ -74,26 +75,54 @@ class TestPreprocess:
         data, _ = sf.read(str(dst))
         assert data.ndim == 1
 
-    def test_peak_limiter_loud_clip_clamped(self, tmp_path):
-        """A clip whose peak exceeds the ceiling must be attenuated to ≤ ceiling."""
-        # amplitude=0.99 → peak ≈ −0.09 dBFS, above the −1.0 dBFS ceiling
+    def test_loud_input_lands_at_target_not_at_ceiling(self, tmp_path):
+        """#78: loud input → output peak == target_peak_dbfs, not the ceiling.
+
+        Pre-#78, the limiter would have clamped this clip at −1.0 dBFS.
+        Post-#78, the target step lands it at the configured −2.0 dBFS and the
+        limiter is a no-op.  Tolerance is 0.1 dB — high-pass at 80 Hz on a
+        440 Hz tone shaves ~0.03 dB; PCM_16 quantisation ~0.0001 dB.
+        """
         src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.99)
         dst = tmp_path / "out.wav"
-        preprocess(src, dst)
+        cfg = PreprocessingConfig()  # target = −2.0 dBFS
+        preprocess(src, dst, config=cfg)
         peak = _peak_dbfs(dst)
-        assert peak <= _PEAK_DBFS + 0.5, f"Peak {peak:.2f} dBFS exceeds ceiling {_PEAK_DBFS} dBFS"
+        assert abs(peak - cfg.target_peak_dbfs) < 0.1, (
+            f"Loud input not normalized to target: peak {peak:.3f} dBFS, "
+            f"target {cfg.target_peak_dbfs} dBFS"
+        )
+        # Belt + braces: peak must also stay below the safety ceiling.
+        assert peak <= _PEAK_DBFS, f"Peak {peak:.3f} dBFS exceeds ceiling {_PEAK_DBFS}"
 
-    def test_peak_limiter_quiet_clip_not_scaled_up(self, tmp_path):
-        """A clip already below the ceiling must NOT be scaled up."""
-        # amplitude=0.05 → peak ≈ −26 dBFS, well below the −1.0 dBFS ceiling
+    def test_quiet_clip_normalized_up_to_target(self, tmp_path):
+        """#78: quiet clips MUST be scaled up to PreprocessingConfig.target_peak_dbfs.
+
+        This is the inverse of the M3b-era assertion.  M3b correctly stopped the
+        legacy peak normalizer from collapsing per-turn RMS contrast, but it
+        also stopped scaling quiet M3a-shaped clips up to a configured loudness.
+        #78 restores absolute loudness via a single global gain (which preserves
+        per-turn RMS ratios exactly).
+        """
+        # amplitude=0.05 → peak ≈ −26 dBFS, well below the −2.0 dBFS default target
         src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.05, sample_rate=_TARGET_SR)
         dst = tmp_path / "out.wav"
-        preprocess(src, dst)
+        cfg = PreprocessingConfig()  # default target_peak_dbfs = −2.0
+        preprocess(src, dst, config=cfg)
         peak = _peak_dbfs(dst)
-        # Must remain well below the ceiling — not normalized up to −1.0 dBFS
-        assert peak < _PEAK_DBFS - 5.0, (
-            f"Quiet clip was scaled up: peak {peak:.2f} dBFS (expected << {_PEAK_DBFS} dBFS)"
+        assert abs(peak - cfg.target_peak_dbfs) < 0.1, (
+            f"Quiet clip not normalized to target: peak {peak:.3f} dBFS, "
+            f"target {cfg.target_peak_dbfs} dBFS"
         )
+
+    def test_target_peak_dbfs_override_respected(self, tmp_path):
+        """A non-default target_peak_dbfs must drive the output peak."""
+        src = _write_sine_wav(tmp_path / "src.wav", amplitude=0.3, sample_rate=_TARGET_SR)
+        dst = tmp_path / "out.wav"
+        cfg = PreprocessingConfig(target_peak_dbfs=-6.0)
+        preprocess(src, dst, config=cfg)
+        peak = _peak_dbfs(dst)
+        assert abs(peak - (-6.0)) < 0.1, f"Override ignored: peak {peak:.3f} dBFS, target −6.0 dBFS"
 
     def test_silence_padding_present(self, tmp_path):
         src = _write_sine_wav(tmp_path / "src.wav", duration_s=4.0)
@@ -125,6 +154,7 @@ class TestPreprocess:
         assert "resample" in steps_str
         # "mono" step only appears when source has >1 channels
         assert "highpass" in steps_str
+        assert "peak_normalize" in steps_str  # #78 — runs before peak_limit
         assert "peak_limit" in steps_str
         assert "silence_pad" in steps_str
 
@@ -238,6 +268,74 @@ class TestPeakLimit:
         np.testing.assert_array_almost_equal(result, at_ceiling)
 
 
+class TestPeakNormalizeToTarget:
+    """Unit tests for peak_normalize_to_target() helper (#78)."""
+
+    def test_quiet_signal_scaled_up(self):
+        """A signal well below target gets scaled up (the inverse of _peak_limit)."""
+        quiet = np.ones(1000, dtype=np.float32) * 0.05  # peak ≈ −26 dBFS
+        result = peak_normalize_to_target(quiet, -2.0)
+        peak = float(np.max(np.abs(result)))
+        target = 10 ** (-2.0 / 20.0)
+        assert abs(peak - target) < 1e-5
+
+    def test_loud_signal_scaled_down(self):
+        """A signal above target gets scaled down (the safety-net direction)."""
+        loud = np.ones(1000, dtype=np.float32) * 0.99
+        result = peak_normalize_to_target(loud, -2.0)
+        peak = float(np.max(np.abs(result)))
+        target = 10 ** (-2.0 / 20.0)
+        assert abs(peak - target) < 1e-5
+
+    def test_silence_returned_unchanged(self):
+        """Pure silence stays silent — never amplify a noise floor."""
+        silence = np.zeros(500, dtype=np.float32)
+        result = peak_normalize_to_target(silence, -2.0)
+        np.testing.assert_array_equal(result, silence)
+
+    def test_near_silence_returned_unchanged(self):
+        """Below the −80 dBFS guard, the signal is treated as silence."""
+        # peak ≈ 5e-5 → ~−86 dBFS, below the 1e-4 (~−80 dBFS) guard
+        near_silent = np.ones(500, dtype=np.float32) * 5e-5
+        original = near_silent.copy()
+        result = peak_normalize_to_target(near_silent, -2.0)
+        np.testing.assert_array_equal(result, original)
+
+    def test_preserves_relative_ratios(self):
+        """The single-gain invariant — RMS ratios across segments must survive."""
+        # Two segments at amplitude ratio 2.5:1 (8 dB apart)
+        seg_a = np.ones(500, dtype=np.float32) * 0.20
+        seg_b = np.ones(500, dtype=np.float32) * 0.08
+        signal = np.concatenate([seg_a, seg_b])
+        result = peak_normalize_to_target(signal, -2.0)
+        rms_a = float(np.sqrt(np.mean(result[:500] ** 2)))
+        rms_b = float(np.sqrt(np.mean(result[500:] ** 2)))
+        # The 2.5× ratio in the input must survive exactly (single global gain).
+        assert abs((rms_a / rms_b) - 2.5) < 1e-4
+
+    def test_config_range_validation(self):
+        """target_peak_dbfs must be in [−12, −1.5].
+
+        The −1.5 upper bound (#78 review fix) preserves 0.5 dB headroom over the
+        −1.0 dBFS safety limiter.  Allowing the target to equal the limiter
+        ceiling would put the two stages in collision under float-arithmetic
+        noise.
+        """
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PreprocessingConfig(target_peak_dbfs=0.0)
+        with pytest.raises(ValidationError):
+            PreprocessingConfig(target_peak_dbfs=-20.0)
+        # Boundary: −1.0 must be rejected (collides with safety limiter).
+        with pytest.raises(ValidationError):
+            PreprocessingConfig(target_peak_dbfs=-1.0)
+        # Boundary: −1.5 is the tightest allowed.
+        cfg = PreprocessingConfig(target_peak_dbfs=-1.5)
+        assert cfg.target_peak_dbfs == -1.5
+
+
 class TestPreprocessingConfig:
     """Unit tests for M5 — PreprocessingConfig + wiener_denoise flag."""
 
@@ -269,6 +367,7 @@ class TestPreprocessingConfig:
         steps_str = " ".join(result.steps_applied)
         assert "resample" in steps_str
         assert "highpass" in steps_str
+        assert "peak_normalize" in steps_str
         assert "peak_limit" in steps_str
         assert "silence_pad" in steps_str
 
@@ -283,3 +382,4 @@ class TestPreprocessingConfig:
     def test_config_default_values(self):
         cfg = PreprocessingConfig()
         assert cfg.wiener_denoise is False
+        assert cfg.target_peak_dbfs == -2.0  # #78 default

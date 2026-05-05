@@ -32,7 +32,7 @@ docs/ tests/unit/ tests/integration/
 ## Audio format (hard constraints)
 
 - **16 kHz, mono, 16-bit PCM WAV**
-- **Peak limiter ceiling: −1.0 dBFS** — never scale up quiet clips (limiter, not normalizer)
+- **Loudness: peak-normalize to target (−2.0 dBFS default, range [−12.0, −1.5]), then peak-limit at ≤ −1.0 dBFS** — `preprocess()` applies a single global gain so the clip's absolute peak lands at `PreprocessingConfig.target_peak_dbfs`; the −1.0 dBFS limiter is a safety ceiling that is a guaranteed no-op for in-spec target values. The single-gain step preserves per-turn RMS contrast (M3a) — it shifts absolute level but every per-turn RMS *ratio* survives unchanged. Tier B/C augmentation re-applies the same target after room-IR/noise mixing through the shared `peak_normalize_to_target` helper, so all tiers exit at the same absolute peak. **Behaviour change vs. pre-#78:** Tier B/C clips previously normalized to −1.0 dBFS (zero headroom over the limiter); they now exit at the configured target (−2.0 dBFS by default). The `loudness_target_peak_dbfs` field in `GenerationMetadata` records the exact value used so any future loudness regression can be diagnosed from metadata alone — without this trail, #78 hid for three weeks behind unchanged `generator_version`. **Empirical note:** peak/RMS in the spec range does not affect Whisper WER (Whisper's log-mel feature extractor internally normalizes); the M17 ASR regression has a separate prosody-level cause being tracked elsewhere. (#78)
 - **Silence padding: ≥ 0.5 s** at head and tail — `silence_pad_applied_s` is per-side
 - Onset/offset times from `MixedScene` must be shifted by the leading pad only
 - **No torchaudio** — preprocessing uses `scipy` + `soundfile` exclusively

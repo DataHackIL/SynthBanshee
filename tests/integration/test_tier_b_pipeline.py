@@ -218,3 +218,49 @@ class TestTierBPipeline:
         assert sr == 16_000
         assert data.ndim == 1  # mono
         assert float(np.max(np.abs(data))) > 0.0
+
+    def test_tier_b_post_augment_peak_lands_at_target(self, tmp_path):
+        """#78: Tier B/C post-augment normalize must land at PreprocessingConfig.target_peak_dbfs.
+
+        Pre-#78, ``cli.py`` hardcoded the post-augment target at −1.0 dBFS,
+        diverging from Tier A (which had no clip-level target).  Post-#78,
+        both tiers route through ``peak_normalize_to_target`` with the same
+        config value, so this assertion is the canonical contract for Tier B/C.
+
+        The fixture's ``_build_aug_audio`` deliberately hands back audio
+        peak-normalized to −1.0 dBFS — the test passes only if the cli-side
+        normalize re-scales it to −2.0 (the default ``target_peak_dbfs``).
+        """
+        wav, errors = self._run(tmp_path)
+        assert wav is not None, errors
+        data, _ = sf.read(str(wav))
+        peak = float(np.max(np.abs(data)))
+        peak_dbfs = 20.0 * np.log10(peak) if peak > 0 else float("-inf")
+        # Default target is −2.0 dBFS; tolerance 0.1 dB matches integration regime.
+        assert abs(peak_dbfs - (-2.0)) < 0.1, (
+            f"Tier B/C post-augment peak {peak_dbfs:.3f} dBFS deviates >0.1 dB "
+            f"from default target_peak_dbfs (−2.0).  This means the cli.py "
+            f"Stage 3b normalize is no longer routed through the shared "
+            f"peak_normalize_to_target helper, or the config plumbing is broken."
+        )
+
+    def test_tier_b_metadata_carries_loudness_target(self, tmp_path):
+        """GenerationMetadata.loudness_target_peak_dbfs must record the actual target.
+
+        This is the structural fix from #78: future bug-hunters can read the
+        loudness policy off metadata directly without correlating against
+        external state.  Was the gap that let the original regression hide for
+        three weeks.
+        """
+        wav, errors = self._run(tmp_path)
+        assert wav is not None, errors
+        meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        gen_meta = meta.get("generation_metadata") or {}
+        assert gen_meta.get("normalization_strategy") == "per_turn_rms_v2_target_peak", (
+            f"normalization_strategy tag missing or wrong: "
+            f"{gen_meta.get('normalization_strategy')!r}"
+        )
+        assert gen_meta.get("loudness_target_peak_dbfs") == -2.0, (
+            f"loudness_target_peak_dbfs missing or wrong: "
+            f"{gen_meta.get('loudness_target_peak_dbfs')!r}"
+        )
