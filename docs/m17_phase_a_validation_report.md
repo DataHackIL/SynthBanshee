@@ -12,7 +12,7 @@ Generated: 2026-05-05. Raw data: `state/spikes/m17_phase_a/results.json` (gitign
 | **E1 — ASR** | median WER < 0.40 | **PASS** by ~10× margin on all three Whisper variants |
 | **E2 — UTMOS** | clean − degraded mean ≥ 0.5 | **FAIL** (max separation 0.21 across 5 RMS-matched degradations) |
 
-**Phase A is BLOCKED** per the design doc's gate semantics (all three gates required). Unblock path: turn-segmented UTMOS re-spike (Option A in the recommendation). E1 evidence is strong and ready to use the moment Phase A is unblocked.
+**Phase A status: E1 GO, E2 BLOCKED, phase in-progress.** Per the design doc's per-evaluator gate semantics (`docs/automated_eval_design.md` §"Acceptance Criteria"), each gate blocks its specific evaluator. The two ASR gates pass → E1 may proceed. The UTMOS gate fails → E2 cannot. Phase A's E1 portion is ready to land in the next PR; Phase A's E2 portion waits on the Option A turn-segmented re-spike (see Recommendation).
 
 Other findings worth surfacing inline:
 
@@ -64,7 +64,7 @@ Distribution: 2 IT / 3 NEG / 3 NEU / 2 SV. Old clips peak at exactly 0.891 (= �
 | UTMOS — best of 5-degradation sweep | any ≥ 0.50 | max **+0.208** (white noise +10 dB) | ❌ FAIL |
 | UTMOS — white-noise monotonicity in severity | more noise → lower UTMOS | **inverted** | ❌ FAIL |
 
-**Phase A — BLOCKED.** The design doc's acceptance criteria treat the three gates as conjunctive (all three block Phase A). UTMOS fails; Phase A doesn't start. E1 evidence below is strong and ready to land in the Phase A code-skeleton PR the moment Phase A is unblocked.
+**Phase A — E1 GO, E2 BLOCKED, phase in-progress.** The design doc's acceptance criteria gate each evaluator independently within its phase: the two ASR gates unblock E1; the UTMOS gate blocks E2 until the Option A re-spike clears it. E1 evidence below is strong and ready to land in the Phase A E1-skeleton PR.
 
 ## ASR — Per-Clip WER
 
@@ -271,9 +271,14 @@ WERs are byte-stable run-to-run when `num_beams=1`, `do_sample=False`, `temperat
 
 ## Recommendation
 
-### Phase A overall — BLOCKED
+### Phase A overall — E1 GO, E2 BLOCKED, phase in-progress
 
-Per the design doc's gate semantics (acceptance criteria table; all three gates required to start Phase A), Phase A is blocked on the UTMOS gate. The unblock path is the Option A re-spike below. E1 evidence is strong and ready to land in the Phase A code-skeleton PR the moment Phase A is unblocked.
+Per the design doc's per-evaluator gate semantics (`docs/automated_eval_design.md` §"Acceptance Criteria"), each gate blocks the specific evaluator it tests:
+
+- **E1 (ASR)**: both Whisper gates pass → **GO.** May land as its own PR with the model + detector configuration above.
+- **E2 (UTMOS)**: gate fails → **BLOCKED** until the Option A re-spike below clears it (or the design switches to Option B / C).
+
+Phase A is "in progress" — E1 lands now, E2 lands after the re-spike. The phase is "complete" when both have either passed their gate or been replaced via an explicit design amendment.
 
 ### E1 — when Phase A unblocks
 

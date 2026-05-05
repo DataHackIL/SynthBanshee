@@ -413,7 +413,9 @@ Until calibration is complete for an evaluator, it runs in **informational mode*
 
 ## Acceptance Criteria (Before Implementation Begins)
 
-This design is validated when the following prototyping experiments are complete:
+This design is validated when the following prototyping experiments are complete.
+
+**Gate semantics:** each row's `Blocks` column applies *per-evaluator within the named phase*, not to the phase as a whole. Whisper / ivrit-ai gates block E1; UTMOS gate blocks E2; ECAPA-TDNN gate blocks E4; and so on. An evaluator whose gate passes may proceed even if a sibling evaluator in the same phase is still gated. A phase is "complete" when every evaluator in it has either passed its gate or been replaced/dropped via an explicit re-spike or design amendment.
 
 | Experiment | Pass criterion | Blocks |
 |------------|---------------|--------|
