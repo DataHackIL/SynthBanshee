@@ -1,7 +1,7 @@
 # M17 Phase A Validation Report — Whisper + UTMOS on Hebrew Clips
 
 This report validates the Phase A acceptance criteria from the M17 design doc
-(`docs/automated_eval_design.md` lines 418–422) before the E1/E2 module skeletons land.
+(`docs/automated_eval_design.md` §"Acceptance Criteria") before the E1/E2 module skeletons land.
 
 Generated: 2026-05-05. Raw data: `state/spikes/m17_phase_a/results.json` (gitignored). Auto-tables: `state/spikes/m17_phase_a/report_auto.md`. Listening samples: `state/spikes/m17_phase_a/<clip_id>__<degradation>.wav`. SHA-256 prefixes shown in the manifest are first-8-chars only — full hashes in `results.json`.
 
