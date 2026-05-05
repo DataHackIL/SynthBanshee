@@ -61,7 +61,7 @@ Pipeline output (WAV + transcript + metadata)
 **Goal:** Verify that every word in the ground-truth transcript is intelligible in the audio.
 
 **Approach:**
-- Run an ASR model (Whisper large-v3 or ivrit-ai/whisper-v2-d3-e3) on each turn's audio segment
+- Run an ASR model (Whisper large-v3 or ivrit-ai/whisper-large-v3) on each turn's audio segment
 - Compute Word Error Rate (WER) and Character Error Rate (CER) against `text_spoken`
 - Hebrew-specific: strip niqqud before comparison; normalize final-form letters
 
@@ -77,7 +77,7 @@ Pipeline output (WAV + transcript + metadata)
 
 **Tools:**
 - Primary: `openai/whisper-large-v3` (he-IL)
-- Alternative: `ivrit-ai/whisper-v2-d3-e3` (Hebrew-specialized, potentially better WER)
+- Alternative: `ivrit-ai/whisper-large-v3` (Hebrew-specialized fine-tune; CT2 variant `ivrit-ai/whisper-large-v3-ct2` for `faster-whisper` int8 in CI)
 - Fallback: Google Cloud Speech-to-Text v2 (he-IL)
 
 **Implementation notes:**
@@ -418,7 +418,7 @@ This design is validated when the following prototyping experiments are complete
 | Experiment | Pass criterion | Blocks |
 |------------|---------------|--------|
 | Run Whisper large-v3 on 10 existing clips, report WER distribution | Median WER < 0.40 (model is usable on our Hebrew) | Phase A |
-| Run ivrit-ai/whisper-v2-d3-e3 on same 10 clips | Report WER; pick whichever model has lower median | Phase A |
+| Run ivrit-ai/whisper-large-v3 on same 10 clips | Report WER; pick whichever model has lower median | Phase A |
 | Run UTMOS on 10 clips + 5 deliberately degraded clips | Known-good mean > known-bad mean by ≥ 0.5 | Phase A |
 | Run ECAPA-TDNN on 5 clips; compute same-speaker vs cross-speaker similarity | Same-speaker always higher than cross-speaker | Phase B |
 | Run emotion model on 10 clips spanning I1–I5 | Predicted arousal increases with intensity (ρ > 0.2) | Phase B |

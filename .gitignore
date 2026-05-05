@@ -224,6 +224,7 @@ state/queue/
 state/runs/
 state/queries/
 state/locks/
+state/spikes/
 raw/
 derived/
 reports/
