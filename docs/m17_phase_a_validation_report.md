@@ -3,20 +3,25 @@
 This report validates the Phase A acceptance criteria from the M17 design doc
 (`docs/automated_eval_design.md` lines 418–422) before the E1/E2 module skeletons land.
 
-Generated: 2026-05-05. Raw data: `state/spikes/m17_phase_a/results.json`. Auto-tables: `state/spikes/m17_phase_a/report_auto.md`. Listening samples: `state/spikes/m17_phase_a/<clip_id>__<degradation>.wav`.
+Generated: 2026-05-05. Raw data: `state/spikes/m17_phase_a/results.json` (gitignored). Auto-tables: `state/spikes/m17_phase_a/report_auto.md`. Listening samples: `state/spikes/m17_phase_a/<clip_id>__<degradation>.wav`. SHA-256 prefixes shown in the manifest are first-8-chars only — full hashes in `results.json`.
 
 ## TL;DR
 
 | Evaluator | Gate | Outcome |
 |---|---|---|
 | **E1 — ASR** | median WER < 0.40 | **PASS** by ~10× margin on all three Whisper variants |
-| **E1 — int8 CT2 in CI** | within ε = 0.02 WER of GPU baseline | **PASS** (Δ = 0.008) |
-| **E2 — UTMOS** | clean − degraded mean ≥ 0.5 | **FAIL** (max separation 0.21 across 5 degradations) |
+| **E2 — UTMOS** | clean − degraded mean ≥ 0.5 | **FAIL** (max separation 0.21 across 5 RMS-matched degradations) |
 
-- **E1 — GO.** Adopt `ivrit-ai/whisper-large-v3` (HF, primary). `ivrit-ai/whisper-large-v3-ct2` with `compute_type="int8"` is viable for CI. Add a trigram-repetition hallucination guard.
-- **E2 — NO-GO.** UTMOS shows the right direction (degraded < clean) on this set but separation is well below 0.5, and white-noise severity is *inverted* (more noise scores higher). Re-spike at the turn level before any E2 implementation.
-- **Design doc fix landed** in this PR: `ivrit-ai/whisper-v2-d3-e3` → `ivrit-ai/whisper-large-v3` at three locations.
-- **Carry-over finding:** Azure TTS SSML rejected the LLM-generated script for one of the new IT scenes (`sp_it_a_0003`). Replaced with `sp_neg_a_0003`. PR #67/#71 didn't fully cover this case; tracking as a separate follow-up.
+**Phase A is BLOCKED** per the design doc's gate semantics (all three gates required). Unblock path: turn-segmented UTMOS re-spike (Option A in the recommendation). E1 evidence is strong and ready to use the moment Phase A is unblocked.
+
+Other findings worth surfacing inline:
+
+- **`ivrit-ai/whisper-large-v3` is the right primary model** (median WER 0.036 vs openai 0.064) — but neither model handles a TTS-loudness regression on the new clips well.
+- **The new clips (`sp_neg_a_0003`, `sp_neu_a_0003`) are −6 dB quieter than the old 8.** Old: peak 0.891 (= −1 dBFS limiter), RMS 0.097 mean. New: peak 0.49–0.54, RMS 0.045 mean. This is a **real signal-domain regression in the TTS pipeline**, not just a perceptual-quality drift. It's the proximate cause of openai's 28% / 19% WER on the new clips and a major contributor to UTMOS reading them higher. Tracking as a separate follow-up.
+- **The hallucination outlier on `sp_it_a_0002` and the openai outliers on the new clips are *different failure modes*** — over-transcription (loop) vs under-transcription (dropout). A single threshold can't cover both; a *bidirectional* length-ratio detector does.
+- **UTMOS white-noise severity is genuinely inverted** — confirmed even with RMS-matched degradations. The previous PR's broken peak-clip code did not cause the inversion.
+- **CI viability of int8 CT2 is encouraging but underspecified.** Single run on M4 Max; needs validation on representative CI hardware before claiming the design doc's CI plan is settled.
+- **Design doc model ID fixed in this PR.** `ivrit-ai/whisper-v2-d3-e3` → `ivrit-ai/whisper-large-v3` at three locations.
 
 ## Reproduce
 
@@ -26,24 +31,24 @@ uv pip install --python .venv/bin/python torch torchaudio transformers \
 .venv/bin/python scripts/m17_phase_a_validation.py
 ```
 
-Inputs: 10 clips at `data/m2a_wettest/agg_m_30-45_001/` — see Manifest below for SHA-256s. Device: MPS (Apple Silicon M4 Max). All decoders are greedy (`num_beams=1`, `do_sample=False`, `temperature=0`); `numpy` and `torch` seeded to 42.
+Inputs: 10 clips at `data/m2a_wettest/agg_m_30-45_001/` — see Manifest below for SHA-256s. Device: MPS (Apple Silicon M4 Max). All decoders are greedy (`num_beams=1`, `do_sample=False`, `temperature=0`); `numpy` and `torch` seeded to 42. Degraded variants are RMS-normalized to match each clip's clean RMS before scoring (see `rms_normalize_to_match` in the script).
 
 ## Clip-set manifest
 
-| Clip | Duration (s) | Ref words | SHA-256 (8) |
-|---|---|---|---|
-| sp_it_a_0001_00 | 155.9 | 233 | `792d622b` |
-| sp_it_a_0002_00 | 146.7 | 291 | `064e9f29` |
-| sp_neg_a_0001_00 | 128.5 | 240 | `f403b7db` |
-| sp_neg_a_0002_00 | 114.2 | 177 | `bdbf4487` |
-| sp_neg_a_0003_00 | 257.5 | 257 | `8988c9ec` (new) |
-| sp_neu_a_0001_00 | 121.0 | 189 | `e4782fe6` |
-| sp_neu_a_0002_00 | 133.1 | 221 | `9edae0a1` |
-| sp_neu_a_0003_00 | 190.4 | 176 | `7a616df5` (new) |
-| sp_sv_a_0001_00 | 122.5 | 188 | `682049f7` |
-| sp_sv_a_0002_00 | 99.4 | 164 | `44b1e4e4` |
+| Clip | Duration (s) | Ref words | gen_date | Peak | RMS | Crest (dB) | SHA-256 (first 8) |
+|---|---|---|---|---|---|---|---|
+| sp_it_a_0001_00 | 155.9 | 233 | 2026-04-15 | 0.891 | 0.099 | 19.1 | `792d622b` |
+| sp_it_a_0002_00 | 146.7 | 291 | 2026-04-15 | 0.891 | 0.105 | 18.6 | `064e9f29` |
+| sp_neg_a_0001_00 | 128.5 | 240 | 2026-04-15 | 0.891 | 0.089 | 20.1 | `f403b7db` |
+| sp_neg_a_0002_00 | 114.2 | 177 | 2026-04-15 | 0.891 | 0.101 | 19.0 | `bdbf4487` |
+| **sp_neg_a_0003_00** | 257.5 | 257 | **2026-05-05** | **0.541** | **0.046** | 21.4 | `8988c9ec` |
+| sp_neu_a_0001_00 | 121.0 | 189 | 2026-04-15 | 0.891 | 0.096 | 19.4 | `e4782fe6` |
+| sp_neu_a_0002_00 | 133.1 | 221 | 2026-04-15 | 0.891 | 0.101 | 18.9 | `9edae0a1` |
+| **sp_neu_a_0003_00** | 190.4 | 176 | **2026-05-05** | **0.490** | **0.044** | 21.0 | `7a616df5` |
+| sp_sv_a_0001_00 | 122.5 | 188 | 2026-04-15 | 0.891 | 0.084 | 20.5 | `682049f7` |
+| sp_sv_a_0002_00 | 99.4 | 164 | 2026-04-15 | 0.891 | 0.099 | 19.1 | `44b1e4e4` |
 
-Distribution: 2 IT / 3 NEG / 3 NEU / 2 SV. Spec asked for 10; we have 10.
+Distribution: 2 IT / 3 NEG / 3 NEU / 2 SV. Old clips peak at exactly 0.891 (= −1 dBFS, the CLAUDE.md limiter ceiling). New clips peak at 0.49–0.54, ~6 dB below ceiling and ~6 dB below the old RMS — the regression that drives most of the noise in this report's secondary findings.
 
 ## Gate Outcomes
 
@@ -52,12 +57,11 @@ Distribution: 2 IT / 3 NEG / 3 NEU / 2 SV. Spec asked for 10; we have 10.
 | ASR — `openai/whisper-large-v3` (HF, MPS) | median WER < 0.40 | **0.064** | ✅ PASS |
 | ASR — `ivrit-ai/whisper-large-v3` (HF, MPS) | median WER < 0.40 | **0.036** | ✅ PASS |
 | ASR — `ivrit-ai/whisper-large-v3-ct2` (faster-whisper, int8 CPU) | median WER < 0.40 | **0.044** | ✅ PASS |
-| CI viability — int8 vs MPS baseline | Δ median WER < ε (0.02) | **0.008** | ✅ PASS |
-| UTMOS — primary degradation (white noise −10 dB SNR) | clean − deg mean ≥ 0.50 | separation **+0.135** vs same-5 clean mean | ❌ FAIL |
-| UTMOS — best degradation in sweep | any in sweep ≥ 0.50 | max **+0.207** (white noise +10 dB) | ❌ FAIL |
-| UTMOS — white-noise monotonic in severity | more noise → lower UTMOS | **inverted** | ❌ FAIL |
+| UTMOS — primary degradation (white noise −10 dB SNR, RMS-matched) | clean − deg ≥ 0.50 | **+0.135** vs same-5 clean mean (1.461) | ❌ FAIL |
+| UTMOS — best of 5-degradation sweep | any ≥ 0.50 | max **+0.208** (white noise +10 dB) | ❌ FAIL |
+| UTMOS — white-noise monotonicity in severity | more noise → lower UTMOS | **inverted** | ❌ FAIL |
 
-**Preferred Whisper run (lowest median WER):** `ivrit-ai/whisper-large-v3` (HF, MPS).
+**Phase A — BLOCKED.** The design doc's acceptance criteria treat the three gates as conjunctive (all three block Phase A). UTMOS fails; Phase A doesn't start. E1 evidence below is strong and ready to land in the Phase A code-skeleton PR the moment Phase A is unblocked.
 
 ## ASR — Per-Clip WER
 
@@ -65,22 +69,28 @@ Distribution: 2 IT / 3 NEG / 3 NEU / 2 SV. Spec asked for 10; we have 10.
 |---|---|---|---|
 | sp_it_a_0001_00 | 0.056 | 0.039 | 0.047 |
 | sp_it_a_0002_00 | 0.065 | **0.127** | 0.062 |
-| sp_neg_a_0001_00 | 0.054 | 0.033 | 0.033 |
-| sp_neg_a_0002_00 | 0.040 | 0.017 | 0.028 |
-| sp_neg_a_0003_00 | 0.535 | 0.016 | 0.016 |
-| sp_neu_a_0001_00 | 0.063 | 0.048 | 0.053 |
+| sp_neg_a_0001_00 | 0.063 | 0.033 | 0.033 |
+| sp_neg_a_0002_00 | 0.045 | 0.017 | 0.028 |
+| **sp_neg_a_0003_00** | **0.280** | 0.016 | 0.016 |
+| sp_neu_a_0001_00 | 0.079 | 0.048 | 0.053 |
 | sp_neu_a_0002_00 | 0.045 | 0.041 | 0.041 |
-| sp_neu_a_0003_00 | 0.341 | 0.051 | 0.057 |
-| sp_sv_a_0001_00 | 0.053 | 0.032 | 0.053 |
-| sp_sv_a_0002_00 | 0.030 | 0.012 | 0.018 |
+| **sp_neu_a_0003_00** | **0.188** | 0.051 | 0.057 |
+| sp_sv_a_0001_00 | 0.075 | 0.032 | 0.053 |
+| sp_sv_a_0002_00 | 0.061 | 0.012 | 0.018 |
 | **median** | 0.064 | 0.036 | 0.044 |
 | **mean** | 0.096 | 0.042 | 0.041 |
 
-The bolded `0.127` on the ivrit-ai HF run is the known hallucination outlier (see Findings §3). The `0.535`/`0.341` on the new clips through `openai/whisper-large-v3` HF appear to be quality regressions on the Hebrew distribution covered by `sp_neg_a_0003` and `sp_neu_a_0003`; ivrit-ai handles both cleanly. This reinforces the recommendation to prefer the ivrit-ai variant.
+Three outliers worth understanding:
+
+- **`sp_it_a_0002` ivrit-ai HF (0.127):** over-transcription. Length ratio 1.048 (293 hyp words vs 291 ref), trigram repeat 2 (vs 1 in ref), 19 RTL embedding marks in raw output. Classic Whisper repeat-loop failure. Faster-whisper int8 handles this clip cleanly at 0.062.
+- **`sp_neg_a_0003` openai HF (0.280):** under-transcription. Length ratio 0.763 (196 hyp vs 257 ref) — openai dropped ~24% of words. No repeat-loop (trigram repeat ratio 0.50). Likely Whisper's silence-handling / VAD treating the quieter new-pipeline audio as silence and clipping segments.
+- **`sp_neu_a_0003` openai HF (0.188):** under-transcription. Length ratio 0.920 (162/176) — openai dropped ~8% of words. Same proximate cause.
+
+The two openai outliers are exactly the two new-pipeline clips. ivrit-ai handles both cleanly (0.016, 0.051). The Hebrew fine-tune is materially more robust to the loudness regression in §4 below.
 
 ## CI viability — int8 CT2 vs MPS baseline
 
-For each clip, |WER(ivrit-ai HF MPS) − WER(ivrit-ai CT2 int8 CPU)|:
+Δ between `ivrit-ai/whisper-large-v3` (HF, MPS) and `ivrit-ai/whisper-large-v3-ct2` (faster-whisper, int8, CPU):
 
 | Clip | HF MPS | CT2 int8 | Δ |
 |---|---|---|---|
@@ -95,16 +105,24 @@ For each clip, |WER(ivrit-ai HF MPS) − WER(ivrit-ai CT2 int8 CPU)|:
 | sp_sv_a_0001_00 | 0.032 | 0.053 | +0.021 |
 | sp_sv_a_0002_00 | 0.012 | 0.018 | +0.006 |
 
-Median Δ: **+0.008** — well under the ε = 0.02 tolerance the prompt set. int8 CT2 is viable for CI without revising the design doc's "Whisper small in CI" plan to something smaller. Notable: int8 CT2 actually *avoids* the hallucination loop on `sp_it_a_0002_00` that HF MPS hits (Δ = −0.065 in int8's favour). Either the CT2 conversion or the faster-whisper decoding logic is more resistant to the loop.
+Median |Δ|: **0.008** — encouraging vs the prompt's ε = 0.02 tolerance.
 
-## Hallucination detectors — empirical validation
+**Caveats before treating this as "CI viable":**
 
-Run on the ivrit-ai HF results (the only run that produces an outlier):
+1. **Single run on a single machine.** No variance estimate over time, no validation on representative GitHub Actions x86 hardware.
+2. **The two backends differ in more than quantization.** HF transformers uses fixed 30 s window chunking; faster-whisper uses silence-based segmentation; default temperature-fallback chains differ; their decoding loops aren't equivalent. The Δ is not isolating "int8 vs fp32"; it's measuring "the whole stack."
+3. **The −0.065 outlier in int8's favour on `sp_it_a_0002`** is *not* evidence that int8 is more robust. It's that the silence-based segmentation in faster-whisper happened to break the repeat-loop on this clip. A different clip with a different triggering pattern could go the other way.
+
+The honest claim: **on this 10-clip set, on this machine, int8 CT2 lands within ε of the MPS baseline, which is consistent with the design doc's CI plan being feasible.** Sizing CI runners and committing to the plan needs at least: a re-run on Linux x86 (where CI actually runs), variance estimation across multiple runs, and matched decoding settings between backends.
+
+## Hallucination detectors — empirical signals on the 10-clip set
+
+Per-clip detector output for `ivrit-ai/whisper-large-v3` (the only run with the over-transcription outlier):
 
 | Clip | WER | length_ratio | hyp 3-gram repeat | trigram_repeat_ratio | RTL marks |
 |---|---|---|---|---|---|
 | sp_it_a_0001_00 | 0.039 | 1.004 | 2 | 1.00 | 0 |
-| **sp_it_a_0002_00** | **0.127** | **1.048** | 2 | **2.00** | **19** |
+| **sp_it_a_0002_00** | **0.127** | **1.048** | **2** | **2.00** | **19** |
 | sp_neg_a_0001_00 | 0.033 | 1.008 | 2 | 1.00 | 8 |
 | sp_neg_a_0002_00 | 0.017 | 1.000 | 1 | 1.00 | 0 |
 | sp_neg_a_0003_00 | 0.016 | 1.004 | 2 | 1.00 | 0 |
@@ -114,143 +132,169 @@ Run on the ivrit-ai HF results (the only run that produces an outlier):
 | sp_sv_a_0001_00 | 0.032 | 0.995 | 2 | 1.00 | 0 |
 | sp_sv_a_0002_00 | 0.012 | 1.000 | 2 | 1.00 | 0 |
 
-Empirical detector thresholds (catch the outlier, ignore the rest):
+Per-clip detector output for `openai/whisper-large-v3` (the runs with under-transcription on the new clips):
 
-| Detector | Threshold | Catches outlier? | False positives on this set |
-|---|---|---|---|
-| `length_ratio > 1.04` | 1.04 | yes (1.048) | 0 of 9 (max non-outlier 1.011) |
-| `trigram_repeat_ratio > 1.5` | 1.5 | yes (2.00) | 0 of 9 (all non-outliers 1.00) |
-| `rtl_mark_count > 16` | 16 | yes (19) | 0 of 9 (others 0–15) |
+| Clip | WER | length_ratio | hyp 3-gram repeat | trigram_repeat_ratio | RTL marks |
+|---|---|---|---|---|---|
+| sp_it_a_0001_00 | 0.056 | 1.013 | 2 | 1.00 | 0 |
+| sp_it_a_0002_00 | 0.065 | 1.007 | 1 | 1.00 | 0 |
+| sp_neg_a_0001_00 | 0.063 | 1.012 | 2 | 1.00 | 0 |
+| sp_neg_a_0002_00 | 0.045 | 1.000 | 1 | 1.00 | 0 |
+| **sp_neg_a_0003_00** | **0.280** | **0.763** | 1 | **0.50** | 0 |
+| sp_neu_a_0001_00 | 0.079 | 1.005 | 1 | 1.00 | 0 |
+| sp_neu_a_0002_00 | 0.045 | 1.009 | 1 | 1.00 | 0 |
+| **sp_neu_a_0003_00** | **0.188** | **0.920** | 1 | 1.00 | 0 |
+| sp_sv_a_0001_00 | 0.075 | 1.000 | 1 | 1.00 | 0 |
+| sp_sv_a_0002_00 | 0.061 | 0.970 | 2 | 1.00 | 0 |
 
-`trigram_repeat_ratio` is the cleanest signal — non-outliers all sit at exactly 1.0 — so it should be the primary E1 hallucination guard. `length_ratio` is a useful redundant check; the proposed-but-wrong `1.05` from PR #77 review now becomes `1.04`. RTL-mark count is too noisy alone (false positives at 8 and 15 on clean clips); useful only as a tiebreaker.
+Two failure modes, two detector behaviors:
+
+| Failure | Example | Length ratio | Trigram repeat ratio | RTL marks |
+|---|---|---|---|---|
+| Over-transcription / loop | `sp_it_a_0002` ivrit-ai | 1.048 | 2.00 | 19 |
+| Under-transcription / dropout | `sp_neg_a_0003` openai | 0.763 | 0.50 | 0 |
+| Under-transcription / dropout | `sp_neu_a_0003` openai | 0.920 | 0.50 (sub-1.0 floor) | 0 |
+
+A single-sided trigram-repeat detector (the recommendation in the previous PR push) catches only the over-transcription case. **A bidirectional length-ratio detector catches all three** observed positives:
+
+```
+flag if length_ratio < 0.95 OR length_ratio > 1.04
+```
+
+On this set, this rule has 100% precision (3/3 positives caught, 0/17 false positives across both runs). Calibration caveat: that's a small set, and the threshold pair is fitted to exactly the data that calibrated it. Real validation needs a held-out positive set with multiple instances of each failure mode. Treat the thresholds as a **starting hypothesis** for E1, not a tuned production guard.
 
 ## UTMOS — clean baseline + degradation sweep
 
 Clean per clip:
 
-| Clip | UTMOS | Notes |
+| Clip | UTMOS | Era |
 |---|---|---|
-| sp_it_a_0001_00 | 1.307 | original |
-| sp_it_a_0002_00 | 1.282 | original |
-| sp_neg_a_0001_00 | 1.302 | original |
-| sp_neg_a_0002_00 | 1.324 | original |
-| **sp_neg_a_0003_00** | **2.087** | new render |
-| sp_neu_a_0001_00 | 1.299 | original |
-| sp_neu_a_0002_00 | 1.327 | original |
-| **sp_neu_a_0003_00** | **2.324** | new render |
-| sp_sv_a_0001_00 | 1.336 | original |
-| sp_sv_a_0002_00 | 1.302 | original |
+| sp_it_a_0001_00 | 1.307 | old |
+| sp_it_a_0002_00 | 1.282 | old |
+| sp_neg_a_0001_00 | 1.302 | old |
+| sp_neg_a_0002_00 | 1.324 | old |
+| **sp_neg_a_0003_00** | **2.087** | new |
+| sp_neu_a_0001_00 | 1.299 | old |
+| sp_neu_a_0002_00 | 1.327 | old |
+| **sp_neu_a_0003_00** | **2.324** | new |
+| sp_sv_a_0001_00 | 1.336 | old |
+| sp_sv_a_0002_00 | 1.302 | old |
 
-Mean (n=10): **1.489**. Mean of the 5 clips used in the degradation sweep (first 5 alphabetically — 4 originals + `sp_neg_a_0003_00`): **1.460**.
+Mean (n=10): **1.489**. Mean over the first-5-alphabetical clips used in the degradation sweep (4 old + `sp_neg_a_0003`): **1.461**.
 
-The new clips (`sp_neg_a_0003`, `sp_neu_a_0003`) score **0.7–1.0 MOS points higher than the originals**. They were rendered by today's TTS pipeline (post-M3a per-turn RMS gain, post-Lombard tilt fix #74, post-#67/#71 SSML escaping); the originals come from the older `m2a_wettest` run. UTMOS *is* sensitive to TTS pipeline version on this data — just not in the way the E2 gate expects.
+Degradation sweep (5 clips × 5 degradations, **RMS-normalized to match each clean clip** before scoring; paired against same-5 clean mean of 1.461):
 
-Degradation sweep (5 clips × 5 degradations, paired against same-5 clean mean of 1.460):
-
-| Degradation | Mean UTMOS | Δ vs clean | Direction |
+| Degradation | Mean UTMOS | Δ vs same-5 clean | Direction |
 |---|---|---|---|
-| white noise SNR −20 dB | 1.396 | +0.064 | ↓ as expected (smallest gap) |
-| white noise SNR −10 dB | 1.325 | +0.135 | ↓ as expected |
-| white noise SNR 0 dB | 1.324 | +0.136 | ↓ as expected |
-| white noise SNR +10 dB | 1.253 | +0.207 | ↓ as expected (largest gap) |
-| 2 kHz brick-wall lowpass | 1.308 | +0.152 | ↓ as expected |
+| white noise SNR −20 dB | 1.394 | +0.067 | ↓ as expected (smallest gap) |
+| white noise SNR −10 dB | 1.327 | +0.135 | ↓ as expected |
+| white noise SNR 0 dB | 1.324 | +0.137 | ↓ as expected |
+| white noise SNR +10 dB | 1.253 | +0.208 | ↓ as expected (largest gap) |
+| 2 kHz brick-wall lowpass | 1.308 | +0.153 | ↓ as expected |
 
-Two observations:
+Two findings, both load-bearing:
 
-1. **All degradations drop UTMOS below clean** when paired against the same 5 clips. The original PR #77 report's "degraded scored higher than clean" verdict was an artefact of comparing degraded(n=5) against clean(n=8) — once you pair properly, direction is correct.
-2. **White-noise severity is inverted.** More noise (lower SNR) → *higher* UTMOS, not lower. UTMOS reads the −20 dB white-noise overlay as more "natural"-sounding than the +10 dB version, possibly because the high-frequency noise floor masks artefacts of the tightly-clean TTS spectrum. This is the harder finding — UTMOS isn't broken in *direction*, but it can't be used to compare degradation magnitudes.
+1. **All degradations score below clean** when paired correctly. The previous PR's "degraded scored higher than clean" verdict was a paired-comparison error.
+2. **White-noise severity is inverted** — adding *less* noise produces a *lower* UTMOS score. Verified across the −20 / −10 / 0 / +10 dB SNR sweep; not monotonic at any boundary. Confirmed under RMS-matched conditions (no peak-clip ever fired on this run; per-clip pre/post normalize RMS captured in `results.json` under `per_clip_loudness`), so this isn't a methodology artefact.
 
-Even with paired comparison, the maximum separation is 0.207 — well below the 0.5 gate. **E2 is not buildable as designed.**
+The maximum separation is **0.208** at +10 dB SNR — far below the 0.5 gate. UTMOS doesn't discriminate clean from degraded with enough magnitude *or* the right direction to gate releases on.
 
-Listening samples for verification: `state/spikes/m17_phase_a/<clip_id>__wn_snr_-20db.wav` (most degraded) through `..__wn_snr_+10db.wav` (least), plus `..__lp_2khz.wav`.
+Listening samples are at `state/spikes/m17_phase_a/<clip_id>__<degradation>.wav` for human verification.
 
 ## Findings
 
-### 1. ASR is far better than the gate assumed — across all three runs
+### 1. ASR is far better than the gate assumed
 
-The 0.40 WER gate was a wager against a low-resource-language risk. Reality on this data: median WER **0.036** (best), **0.064** (baseline). E1 clip-level pass thresholds in the 0.10–0.15 range are realistic; the design's calibration protocol still applies before any production gate.
+All three runs clear the 0.40 gate by ~10×; clip-level pass thresholds in the 0.10–0.15 range are realistic for E1. Calibration on a 50-clip baseline per the design doc's protocol still required before any production gate.
 
-### 2. ivrit-ai variants beat openai on Hebrew, with two failure modes worth knowing
+### 2. ivrit-ai/whisper-large-v3 wins on 9/10 clips
 
-- **ivrit-ai HF wins on 9/10 clips** (one outlier: `sp_it_a_0002_00`). Median WER 0.036 vs openai 0.064 (44% relative improvement).
-- **openai is unstable on the new clips.** WER 0.535 / 0.341 on `sp_neg_a_0003` / `sp_neu_a_0003` — both rendered by the post-M3a TTS pipeline. ivrit-ai handles them at 0.016 / 0.051. The Hebrew-specialised fine-tune is materially more robust to recent TTS distributional changes.
-- **ivrit-ai HF can hallucinate-loop on long-form audio** (the `sp_it_a_0002_00` outlier). The CT2 int8 path *does not* hit the loop on the same clip — possibly because of how faster-whisper's decoder handles seq2seq state across 30 s windows. This is an unexpectedly clean argument for using CT2 int8 even in the dev/QA path, not just CI.
+Median WER 0.036 vs openai 0.064 (44% relative improvement). Adopt as the primary E1 model.
 
-### 3. Trigram-repetition detector cleanly separates the hallucination outlier
+### 3. Two distinct failure modes on this 10-clip set, both caught by a bidirectional length-ratio detector
 
-Empirical thresholds on this set: `trigram_repeat_ratio > 1.5` catches `sp_it_a_0002_00` (ratio 2.00) and nothing else (all other clips at exactly 1.00). E1 should compute this on every clip and flag as a quality-control signal before WER scoring — the offending clip then either gets re-run on openai (cross-check) or re-run with `condition_on_previous_text=False` and a temperature fallback.
+- `sp_it_a_0002` ivrit-ai: over-transcription / repeat-loop (length_ratio 1.048, trigram_repeat 2, 19 RTL marks).
+- `sp_neg_a_0003` and `sp_neu_a_0003` openai: under-transcription / dropout (length_ratio 0.763 / 0.920).
 
-### 4. int8 CT2 is viable for CI
+The length-ratio rule `< 0.95 OR > 1.04` flags all three. Trigram-repeat alone misses both under-transcription cases. RTL count is too noisy to use alone (0–15 on clean clips). E1 should track all three signals; the bidirectional length-ratio rule is the cleanest single-detector starting point — but the detector is fitted on N=3 positives and needs broader validation before it's a release gate.
 
-Δ median WER vs MPS baseline: 0.008. Within the prompt's ε = 0.02 tolerance. The design doc's CI cost table at lines 449–456 (which assumes int8 faster-whisper) is validated. Bonus: int8 CT2 dodged the only hallucination loop in the run.
+### 4. The new clips are −6 dB quieter than the old 8 — a TTS pipeline regression
 
-### 5. UTMOS direction is correct — but separation magnitude and severity-monotonicity are not
+Measured directly from the WAVs:
 
-The original PR #77 report's "UTMOS doesn't discriminate" verdict was an artefact of unpaired comparison. With paired same-5 clean vs same-5 degraded:
+- Old 8 (rendered 2026-04-15): peak 0.891 *exactly* on every clip (= −1 dBFS, the CLAUDE.md limiter ceiling). RMS 0.084–0.105 (mean 0.097).
+- New 2 (rendered 2026-05-05): peak 0.49–0.54. RMS 0.044–0.046 (mean 0.045).
 
-- All five degradations (4 SNR levels + 1 lowpass) push UTMOS below clean. ✅
-- But max separation is 0.207, not 0.5. ❌
-- White-noise severity is inverted (lower SNR → higher UTMOS). ❌
+The new clips meet the CLAUDE.md spec ("peak ≤ −1 dBFS") but are nowhere near the limiter ceiling. Something between 2026-04-15 and 2026-05-05 changed the rendering loudness — the most likely culprit is recent mixer work (PRs #65, #66, #74) interacting with the M3a per-turn RMS gain. This is the proximate cause of:
 
-The implications for E2 are unchanged: NO-GO under the current design. But the cause is more nuanced — UTMOS is a noisy signal at the magnitudes we want to gate on, and it's particularly fragile to the type of spectral perturbation we'd need it to flag.
+- **openai's 28% / 19% WER on new clips** — Whisper's silence-handling drops segments when input level is low.
+- **UTMOS reading new clips ~0.9 points higher** — less aggressive limiting reads as more "natural" to a model trained on speech that wasn't aggressively limited.
+- **UTMOS variance dominated by render era**, masking any within-clip degradation signal.
 
-### 6. The original 8 clips score systematically lower on UTMOS than the 2 new ones
+This is a **TTS regression**, not an evaluator concern. Tracking as a separate follow-up — fixing it would tighten the spike's secondary findings considerably and is a prerequisite for any E2 calibration that relies on stable input loudness.
 
-Original 8: mean 1.31 (range 1.28–1.34, std 0.018). New 2: mean 2.21 (range 2.09–2.32). This is a ~0.9 MOS-point gap, far larger than any gap UTMOS produces between clean and degraded versions of the same clip. The likely reason is TTS pipeline drift between the m2a_wettest era and now. Two implications:
+### 5. UTMOS direction is correct under paired comparison; magnitude and severity-monotonicity are not
 
-- UTMOS is *not* fit for run-to-run regression detection — pipeline-version noise dominates the within-clip degradation signal.
-- The pipeline-version separation might itself be a useful signal for *human review* (e.g., "the v3-pipeline clips are getting better predicted MOS than v2"), but that's an informational pivot, not a release gate.
+With same-5 clean vs same-5 degraded, all five degradations push UTMOS below clean — the previous PR's "doesn't discriminate" verdict was a comparison artefact. But:
 
-### 7. Greedy decoding is reproducible across runs, modulo normalization
+- Maximum separation 0.208, well below the 0.5 gate.
+- White-noise severity inverted (lower SNR → higher UTMOS).
+- The inversion survives RMS-normalization, so it's not a loudness artifact of the test pipeline.
 
-WER on every clip is byte-stable run-to-run on MPS with `num_beams=1`, `do_sample=False`, `temperature=0`. The PR #77 → today change in `sp_it_a_0002_00` ivrit-ai WER (0.144 → 0.127) is fully explained by the new RTL-mark stripping in `normalize_for_wer`; the *raw* ASR output is unchanged. Reproducibility is a settled question for E1.
+Either UTMOS reads heavy noise as "natural acoustic environment" rather than "degraded TTS," or the model's output saturates at a noise level lower than +10 dB SNR. Either way, it can't gate releases on this data at this gate magnitude.
 
-### 8. Azure TTS SSML rejected the LLM-generated script for IT-0003 (twice, two templates)
+### 6. faster-whisper int8 stays within ε of the MPS baseline on this run
 
-`sp_it_a_0003.yaml` failed Azure synthesis at "TurnStarted; Received audio size: 0 bytes" with both `intimate_terror_financial_control.j2` and `intimate_terror_jealousy_surveillance.j2` templates under different `script_slots`. PR #67/#71 fixed the adjacent-`<break>` SSML class, but this is a different failure mode — likely either (a) an unescaped character class the LLM emits in IT-typology scripts at this seed range, or (b) something in the prosody/style markup. Replaced with `sp_neg_a_0003`. Tracking as a separate follow-up issue; the spike's gate signal isn't affected.
+Median |Δ| = 0.008, vs ε = 0.02. Encouraging but not sufficient for CI sizing decisions on its own — see the CI viability section above for the limitations on this claim.
+
+### 7. Reproducibility of greedy decoding on MPS is settled
+
+WERs are byte-stable run-to-run when `num_beams=1`, `do_sample=False`, `temperature=0`, identical normalization. The PR #77 → today change in `sp_it_a_0002` ivrit-ai WER (0.144 → 0.127) is fully explained by the new RTL-mark strip in `normalize_for_wer`; the raw ASR output is unchanged.
+
+### 8. Azure TTS SSML rejected one of the planned IT scenes
+
+`sp_it_a_0003.yaml` failed Azure synthesis with `intimate_terror_financial_control` and again with `intimate_terror_jealousy_surveillance`. Replaced with `sp_neg_a_0003`. The failure pattern (`SSML parsing error: 0x80045003`, "TurnStarted; Received audio size: 0 bytes") suggests PR #67 / #71's escaping doesn't cover this case. Tracking separately.
 
 ## Limitations
 
-1. **Single speaker pair.** All 10 clips use `AGG_M_30-45_001` + `VIC_F_25-40_002`. Speaker generalisation untested.
-2. **Tier A only.** No room IR, device profiles, or background noise. Tier B/C ASR performance is unknown — likely materially worse and warrants its own validation.
-3. **TTS pipeline drift dominates between-clip variance.** New clips score 0.9 MOS points higher than original 8 on UTMOS; we don't yet know how this would interact with E2 calibration on a production batch.
-4. **Long-form chunking is HF's experimental path** (`pipeline(chunk_length_s=30)`). Switching E1 to native `model.generate(...)` long-form is a recommended follow-up but doesn't change the gate result.
-5. **No CI cost measurement.** Wall-time captured in JSON but not reported — laptop-sleep makes the numbers meaningless. A controlled benchmarking session is required before per-clip latency makes it into the design doc's CI table.
-6. **`sp_it_a_0003` not represented.** Azure SSML rejection means one IT scene that we wanted is missing; replaced with NEG. Distribution skew is documented above.
+1. **N=10 with 3 positives** — detector thresholds are fitted on the same data they were validated on. Real validation needs a multi-positive held-out set.
+2. **Single speaker pair** (`AGG_M_30-45_001` + `VIC_F_25-40_002`); generalisation untested.
+3. **Tier A only** — no room IR / device profile / background noise; Tier B/C ASR performance is unknown.
+4. **Single ASR run per backend, single machine** — no variance estimate; CI viability claim is preliminary.
+5. **TTS pipeline drift dominates between-clip UTMOS variance.** Until the loudness regression is fixed, any UTMOS-based regression detection over time is unreliable.
+6. **Long-form chunking is HF's "experimental" path** (`pipeline(chunk_length_s=30)`). Switching E1 to the native long-form `WhisperForConditionalGeneration.generate(...)` is a recommended follow-up but doesn't change the gate result.
+7. **No CI cost measurement** — wall-time captured in the JSON but not reported (laptop sleep makes the numbers meaningless).
 
 ## Recommendation
 
-### E1 — Whisper ASR — GO
+### Phase A overall — BLOCKED
 
-1. **Primary model:** `ivrit-ai/whisper-large-v3` (HF transformers, MPS in dev / GPU in prod).
-2. **CI model:** `ivrit-ai/whisper-large-v3-ct2` via `faster-whisper` with `compute_type="int8"`. Δ vs primary is within ε = 0.02 on this set.
-3. **Hallucination guard:** compute `trigram_repeat_ratio = max_3gram_count(hyp) / max(1, max_3gram_count(ref))`. Threshold `> 1.5`. On flag: re-run with `openai/whisper-large-v3` and prefer the lower-WER hypothesis.
-4. **Reference normalisation:** strip Hebrew niqqud and RTL embedding marks before WER. Punctuation → whitespace. The script's `normalize_for_wer` is the canonical implementation.
-5. **Defer to follow-up:** switch chunking from HF's `pipeline(chunk_length_s=30)` to native `WhisperForConditionalGeneration.generate(...)`. Doesn't block Phase A.
-6. **Calibrate E1 thresholds** on a 50-clip baseline before any WER threshold gates merges, per the design doc's protocol.
+Per the design doc's gate semantics (acceptance criteria table; all three gates required to start Phase A), Phase A is blocked on the UTMOS gate. The unblock path is the Option A re-spike below. E1 evidence is strong and ready to land in the Phase A code-skeleton PR the moment Phase A is unblocked.
 
-### E2 — Predicted MOS — NO-GO
+### E1 — when Phase A unblocks
+
+- **Primary model:** `ivrit-ai/whisper-large-v3` (HF transformers).
+- **CI candidate:** `ivrit-ai/whisper-large-v3-ct2` via `faster-whisper` with `compute_type="int8"` — pending CI-hardware validation.
+- **Hallucination guard (preliminary):** bidirectional length-ratio rule (`< 0.95 OR > 1.04`) caught all three observed positives on this set. Validate on a multi-positive held-out set before deploying as a gate.
+- **Reference normalisation:** strip Hebrew niqqud, RTL embedding marks, punctuation. The `normalize_for_wer` in the spike script is one defensible implementation; E1 can adopt or replace.
+
+The detail-level prescription for E1 (chunking algorithm, beam settings, threshold values for clip-level WER gates) is out of this spike's scope and belongs in the E1 PR.
+
+### E2 — re-spike before any implementation
 
 Three options, ordered by cost:
 
-- **Option A — turn-segmented UTMOS re-spike** (one afternoon). Use `ONSET`/`OFFSET` from the reference transcripts to extract per-turn audio (4–15 s windows match UTMOS's training distribution), score each turn, aggregate per clip. Re-test the degradation sweep. If turn-level UTMOS gives ≥ 0.5 separation and severity-monotonicity holds, E2 design proceeds with turn-segmented scoring.
+- **Option A — turn-segmented UTMOS re-spike** (one afternoon). Use `ONSET`/`OFFSET` from the reference transcripts to extract per-turn audio (4–15 s windows, matching UTMOS's training distribution), score each turn, aggregate per clip. Re-test the degradation sweep. If turn-level UTMOS shows ≥ 0.5 separation and severity-monotonicity holds, E2 design proceeds with turn-segmented scoring.
 - **Option B — swap UTMOS for a long-form-friendly predictor** (NISQA / WV-MOS). Re-spike on the same 10-clip set + 5 degraded variants per clip.
-- **Option C — drop predicted MOS entirely.** Replace E2 with deterministic objective metrics (SNR, peak dBFS, clipping rate, silence ratio, spectral tilt) plus the human listening-test cadence the M12 incident already established as necessary. The TTS-pipeline-version variance we observed makes any predicted-MOS gate fragile to changes that aren't actually quality regressions.
+- **Option C — drop predicted MOS entirely.** Replace E2 with deterministic objective metrics (SNR, peak dBFS, clipping rate, silence ratio, spectral tilt) plus the human listening-test cadence the M12 incident already established as necessary.
 
-**Recommendation: start with Option A.** If A fails, jump to Option C — the M12 listening-test history says automated MOS isn't a reliable release gate for this project, and Option B is unlikely to cross the gap.
-
-### Phase A overall
-
-Phase A is **partially unblocked**:
-
-- E1 code skeleton can proceed with the model + detector configuration above.
-- E2 needs the turn-segmented re-spike (Option A) before any E2 implementation.
-
-The Phase A code-skeleton PR should land E1 only; E2 follows the re-spike.
+**Recommendation: Option A first.** The TTS-loudness regression in §4 means any predicted-MOS gate is currently fragile to changes that aren't actual quality regressions; turn-segmented scoring may help by removing the dominant variance source. If Option A doesn't restore separation magnitude / monotonicity, jump to Option C.
 
 ### Tracked follow-ups
 
-- IT-0003 SSML failure → new issue.
-- HF `pipeline(chunk_length_s=30)` → native long-form switch → follow-up after E1 lands.
-- M4 Max inference-time calibration session (per-clip latency for the CI cost table).
-- E2 turn-segmented re-spike (Option A above).
+- **TTS loudness regression** (new clips at half the RMS / peak of old clips) — high priority; affects any future eval calibration.
+- **Azure TTS SSML failure** on the IT-0003 scene (two different templates) — PR #67/#71 escaping incomplete.
+- **HF `pipeline(chunk_length_s=30)` → native long-form `generate(...)`** — follow-up after E1 lands.
+- **M4 Max inference-time calibration session** — required before per-clip latency can enter the design doc's CI cost table.
+- **E2 turn-segmented UTMOS re-spike** (Option A above) — Phase A unblocker.
+- **CI-hardware validation of int8 CT2** — Linux x86 GitHub Actions runner, multiple runs, matched decoding.
