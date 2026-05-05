@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,6 +138,9 @@ def normalize_for_wer(text: str) -> str:
 
 
 def detect_hallucination_signals(reference: str, hypothesis: str) -> dict:
+    # length + trigram run on normalized text (fair to both ref and hyp).
+    # rtl_mark_count runs on RAW hypothesis because normalize_for_wer strips
+    # RTL marks — we still want to know if Whisper emitted them.
     ref_n = normalize_for_wer(reference)
     hyp_n = normalize_for_wer(hypothesis)
     ref_words = ref_n.split()
@@ -248,14 +252,14 @@ def apply_white_noise(wav: np.ndarray, snr_db: float, rng: np.random.Generator) 
     sig_power = float((wav**2).mean()) + 1e-12
     noise_power = sig_power / (10 ** (snr_db / 10))
     noise = rng.standard_normal(len(wav)).astype(np.float32) * np.sqrt(noise_power)
-    out = wav + noise
-    peak = float(np.max(np.abs(out)))
-    if peak > 0.99:
-        out = out * (0.99 / peak)
-    return out.astype(np.float32)
+    return (wav + noise).astype(np.float32)
 
 
 def apply_lowpass(wav: np.ndarray, sr: int, cutoff_hz: float) -> np.ndarray:
+    # 8th-order Butterworth via filtfilt (zero-phase, effective 16th order) is
+    # a brick-wall — deliberate "spectral surgery" stress test for UTMOS, not
+    # a realistic codec/telephony envelope. If E2 ever uses lowpass-style
+    # degradation in production, swap for a gentler / linear-phase design.
     nyq = sr / 2.0
     b, a = butter(N=8, Wn=cutoff_hz / nyq, btype="low")
     return filtfilt(b, a, wav).astype(np.float32)
@@ -267,6 +271,47 @@ def apply_degradation(wav: np.ndarray, sr: int, spec: dict, rng: np.random.Gener
     if spec["kind"] == "lowpass":
         return apply_lowpass(wav, sr, spec["cutoff_hz"])
     raise ValueError(f"unknown degradation kind: {spec['kind']}")
+
+
+def rms_normalize_to_match(degraded: np.ndarray, clean: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Scale ``degraded`` so its RMS matches ``clean``'s RMS.
+
+    Isolates SNR / spectral effects from loudness when scoring perceptual MOS:
+    UTMOS is loudness-sensitive, so a peak-clipped −20 dB SNR mix would otherwise
+    score "quieter, therefore less obvious noise" rather than "more noise."
+    Falls back to a uniform peak guard if the RMS-matched signal would clip;
+    metrics record both outcomes so the report can surface any compromise.
+    """
+    clean_rms = float(np.sqrt(np.mean(clean**2)))
+    deg_rms_pre = float(np.sqrt(np.mean(degraded**2))) + 1e-12
+    scale = clean_rms / deg_rms_pre
+    out = degraded * scale
+    peak = float(np.max(np.abs(out)))
+    peak_clipped = peak > 0.99
+    if peak_clipped:
+        out = out * (0.99 / peak)
+    out = out.astype(np.float32)
+    deg_rms_post = float(np.sqrt(np.mean(out**2)))
+    return out, {
+        "clean_rms": clean_rms,
+        "deg_rms_pre_norm": deg_rms_pre,
+        "deg_rms_post_norm": deg_rms_post,
+        "peak_clipped": peak_clipped,
+    }
+
+
+def is_monotonic_with_severity(white_noise_results: list[dict], slack: float = 0.01) -> bool:
+    """True iff UTMOS rises monotonically as SNR rises (less noise → higher score).
+
+    Sorts white-noise variants by SNR ascending, then checks each consecutive
+    pair: lower-SNR (more noisy) UTMOS must be ≤ higher-SNR (less noisy) UTMOS,
+    plus a small slack to forgive numerical noise.
+    """
+    by_snr = sorted(white_noise_results, key=lambda d: d["snr_db"])
+    return all(
+        prev["mean_utmos"] <= nxt["mean_utmos"] + slack
+        for prev, nxt in zip(by_snr, by_snr[1:], strict=False)
+    )
 
 
 # ---------- UTMOS --------------------------------------------------------
@@ -448,14 +493,29 @@ def main() -> None:
     degradation_results = []
     for spec in DEGRADATIONS:
         per_clip_scores: dict[str, float] = {}
+        per_clip_loudness: dict[str, dict] = {}
         for c in sample_clips:
-            degraded = apply_degradation(c.wav, c.sr, spec, rng)
+            raw_degraded = apply_degradation(c.wav, c.sr, spec, rng)
+            degraded, loudness_meta = rms_normalize_to_match(raw_degraded, c.wav)
             sample_path = SPIKE_DIR / f"{c.clip_id}__{spec['id']}.wav"
             sf.write(sample_path, degraded, c.sr, subtype="PCM_16")
             per_clip_scores[c.clip_id] = utmos_score(utmos_model, degraded, c.sr)
+            per_clip_loudness[c.clip_id] = loudness_meta
         mean_u = float(np.mean(list(per_clip_scores.values())))
-        print(f"  degradation {spec['id']}: mean UTMOS = {mean_u:.3f}", flush=True)
-        degradation_results.append({**spec, "per_clip": per_clip_scores, "mean_utmos": mean_u})
+        any_clipped = any(m["peak_clipped"] for m in per_clip_loudness.values())
+        print(
+            f"  degradation {spec['id']}: mean UTMOS = {mean_u:.3f}"
+            f"{' (peak-clipped on at least one clip)' if any_clipped else ''}",
+            flush=True,
+        )
+        degradation_results.append(
+            {
+                **spec,
+                "per_clip": per_clip_scores,
+                "per_clip_loudness": per_clip_loudness,
+                "mean_utmos": mean_u,
+            }
+        )
 
     # Gate: original gate uses the white-noise -10 dB SNR baseline (the
     # design's implicit reference). We also report whether ANY degradation in
@@ -466,23 +526,8 @@ def main() -> None:
     any_passes = any(
         (clean_mean - d["mean_utmos"]) >= UTMOS_SEPARATION_GATE for d in degradation_results
     )
-    monotonic_in_severity = (
-        # Higher SNR (less noise) should give higher UTMOS.
-        # Sort the white-noise variants by SNR ascending; UTMOS should be non-decreasing.
-        all(
-            a["mean_utmos"] <= b["mean_utmos"] + 0.01
-            for a, b in zip(
-                sorted(
-                    (d for d in degradation_results if d["kind"] == "white_noise"),
-                    key=lambda d: d["snr_db"],
-                ),
-                sorted(
-                    (d for d in degradation_results if d["kind"] == "white_noise"),
-                    key=lambda d: d["snr_db"],
-                )[1:],
-                strict=False,
-            )
-        )
+    monotonic_in_severity = is_monotonic_with_severity(
+        [d for d in degradation_results if d["kind"] == "white_noise"]
     )
 
     asr_gates = {
@@ -500,11 +545,9 @@ def main() -> None:
         min(valid_runs, key=lambda r: r["median_wer"])["model_label"] if valid_runs else None
     )
 
-    import time as _time
-
     results = {
         "metadata": {
-            "run_date": _time.strftime("%Y-%m-%d"),
+            "run_date": time.strftime("%Y-%m-%d"),
             "n_clips": len(clips),
             "device": device,
             "wer_gate": WER_GATE,
