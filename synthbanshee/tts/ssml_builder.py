@@ -6,8 +6,6 @@ Generates SSML 1.1 documents with:
     ``supports_style_tags=False``)
   - <prosody> elements for rate, pitch, and volume control
   - Nested per-phrase <prosody> + <break> elements (M2b)
-  - Inter-word ``<break time="50ms"/>`` elements to prevent Hebrew word
-    merging (#62)
 
 Azure SSML reference:
 https://learn.microsoft.com/en-us/azure/ai-services/speech-service/speech-synthesis-markup-voice
@@ -23,80 +21,6 @@ from synthbanshee.tts.ssml_types import PhraseProsody
 _AZURE_XMLNS = "http://www.w3.org/2001/10/synthesis"
 _MSTTS_XMLNS = "http://www.w3.org/2001/mstts"
 _SPEAK_LANG = "he-IL"
-
-# Inter-word break duration in milliseconds.  50 ms is the initial estimate
-# for signalling a word boundary to Azure / Google he-IL without introducing
-# an audible pause.  This value needs empirical validation with real TTS
-# output — it may need per-provider tuning if engines respond differently.
-_WORD_BREAK_MS = 50
-
-
-def _inject_word_breaks(
-    parent: ET.Element,
-    text: str,
-    after: ET.Element | None = None,
-) -> ET.Element | None:
-    """Insert *text* into *parent* with ``<break>`` tags between words.
-
-    Hebrew TTS engines (Azure he-IL, Google Chirp) merge adjacent words into
-    unintelligible speech when no explicit boundary cue exists.  This function
-    splits *text* on whitespace and inserts a short ``<break>`` element between
-    every pair of consecutive words.
-
-    Args:
-        parent: The XML element to add content to.
-        text: The text to inject (may contain multi-word Hebrew).
-        after: If provided, the first text chunk is appended to
-            ``after.tail`` instead of ``parent.text``.
-
-    Returns:
-        The last child element added to *parent*, or *after* if no ``<break>``
-        elements were created (single word or empty text).
-    """
-    if not text or not text.strip():
-        # Pure whitespace or empty — append as-is without inserting breaks.
-        if text:
-            if after is None:
-                parent.text = (parent.text or "") + text
-            else:
-                after.tail = (after.tail or "") + text
-        return after
-
-    words = text.split()
-    last = after
-
-    # Preserve any leading whitespace (e.g. space before a text fragment
-    # that follows a <break> or <prosody> element).
-    leading = text[: len(text) - len(text.lstrip())]
-    if leading:
-        if last is None:
-            parent.text = (parent.text or "") + leading
-        else:
-            last.tail = (last.tail or "") + leading
-
-    for i, word in enumerate(words):
-        if i == 0:
-            # First word: append directly (no break needed before it).
-            if last is None:
-                parent.text = (parent.text or "") + word
-            else:
-                last.tail = (last.tail or "") + word
-        else:
-            # Subsequent words: insert <break/> then the word with a
-            # leading space in the tail to preserve normal spacing.
-            brk = ET.SubElement(parent, "break", attrib={"time": f"{_WORD_BREAK_MS}ms"})
-            brk.tail = " " + word
-            last = brk
-
-    # Preserve any trailing whitespace.
-    trailing = text[len(text.rstrip()) :]
-    if trailing:
-        if last is None:
-            parent.text = (parent.text or "") + trailing
-        else:
-            last.tail = (last.tail or "") + trailing
-
-    return last
 
 
 @dataclass
@@ -141,10 +65,9 @@ def _apply_phrase_prosody(
 
     Splits *text* around phrase spans and wraps each phrase in a nested
     ``<prosody>`` element with optional ``<break time="…"/>`` elements
-    inserted before and/or after.  Inter-word ``<break>`` elements are
-    inserted within each text fragment to prevent Hebrew word merging (#62).
-    Overlapping spans are skipped (the span whose ``char_start`` falls
-    before the previous span's ``char_end`` is silently dropped).
+    inserted before and/or after.  Overlapping spans are skipped (the span
+    whose ``char_start`` falls before the previous span's ``char_end`` is
+    silently dropped).
 
     Args:
         parent: The XML element that will receive the mixed text/element content.
@@ -155,13 +78,13 @@ def _apply_phrase_prosody(
     prev: ET.Element | None = None
 
     def _append_text(s: str) -> None:
-        """Append *s* with inter-word ``<break>`` elements."""
         nonlocal prev
         if not s:
             return
-        result = _inject_word_breaks(parent, s, after=prev)
-        if result is not None:
-            prev = result
+        if prev is None:
+            parent.text = (parent.text or "") + s
+        else:
+            prev.tail = (prev.tail or "") + s
 
     def _append_break(ms: int) -> ET.Element:
         nonlocal prev
@@ -196,7 +119,7 @@ def _apply_phrase_prosody(
         phrase_text = text[phrase.char_start : phrase.char_end]
         if phrase_attrs:
             pe = ET.SubElement(parent, "prosody", attrib=phrase_attrs)
-            _inject_word_breaks(pe, phrase_text)
+            pe.text = phrase_text
             prev = pe
         else:
             _append_text(phrase_text)
@@ -287,7 +210,7 @@ class SSMLBuilder:
             if utt.phrase_prosody:
                 _apply_phrase_prosody(inner, utt.text, utt.phrase_prosody)
             else:
-                _inject_word_breaks(inner, utt.text)
+                inner.text = utt.text
 
         raw = ET.tostring(speak, encoding="unicode", xml_declaration=False)
         return '<?xml version="1.0" encoding="UTF-8"?>\n' + raw

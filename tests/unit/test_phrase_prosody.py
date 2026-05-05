@@ -333,13 +333,8 @@ class TestApplyPhraseProsody:
     def test_no_phrases_sets_text(self) -> None:
         parent = _make_parent()
         _apply_phrase_prosody(parent, "hello world", [])
-        # Inter-word <break> splits text: parent.text = "hello",
-        # then <break time="50ms"/> with tail " world".
-        assert parent.text == "hello"
-        children = list(parent)
-        assert len(children) == 1
-        assert children[0].tag == "break"
-        assert children[0].tail == " world"
+        assert parent.text == "hello world"
+        assert len(list(parent)) == 0  # no children
 
     def test_single_phrase_mid_text(self) -> None:
         parent = _make_parent()
@@ -377,12 +372,8 @@ class TestApplyPhraseProsody:
         parent = _make_parent()
         phrase = PhraseProsody("p0", 3, 3)  # zero-length span
         _apply_phrase_prosody(parent, "hello world", [phrase])
-        # Zero-length phrase skipped → text set with inter-word breaks
-        assert parent.text == "hello"
-        children = list(parent)
-        assert len(children) == 1
-        assert children[0].tag == "break"
-        assert children[0].tail == " world"
+        # Zero-length phrase skipped → text is set as-is
+        assert parent.text == "hello world"
 
     def test_phrase_with_pitch_attribute(self) -> None:
         # Covers `if phrase.pitch is not None: phrase_attrs["pitch"] = ...` (line 113-114).
