@@ -32,7 +32,7 @@ docs/ tests/unit/ tests/integration/
 ## Audio format (hard constraints)
 
 - **16 kHz, mono, 16-bit PCM WAV**
-- **Peak limiter ceiling: −1.0 dBFS** — never scale up quiet clips (limiter, not normalizer)
+- **Loudness: peak-normalize to target (−2.0 dBFS default), then peak-limit at ≤ −1.0 dBFS** — `preprocess()` applies a single global gain so the clip's absolute peak lands at `PreprocessingConfig.target_peak_dbfs`; the −1.0 dBFS limiter is a safety ceiling. The single-gain step preserves per-turn RMS contrast (M3a). Tier B/C augmentation re-applies the same target after room-IR/noise mixing so all tiers exit at the same absolute peak. (#78)
 - **Silence padding: ≥ 0.5 s** at head and tail — `silence_pad_applied_s` is per-side
 - Onset/offset times from `MixedScene` must be shifted by the leading pad only
 - **No torchaudio** — preprocessing uses `scipy` + `soundfile` exclusively

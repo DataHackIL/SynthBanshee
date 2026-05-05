@@ -33,7 +33,7 @@ from synthbanshee.config.preprocessing_config import PreprocessingConfig
 
 _TARGET_SR = 16_000
 _TARGET_CHANNELS = 1
-_PEAK_DBFS = -1.0  # −1.0 dBFS
+_PEAK_DBFS = -1.0  # −1.0 dBFS — safety ceiling enforced by validate_audio()
 _HP_CUTOFF_HZ = 80  # high-pass cutoff for DC/rumble removal
 _HP_ORDER = 2  # Butterworth order (gentle slope)
 _SILENCE_PAD_S = 0.5  # minimum silence padding (seconds)
@@ -41,7 +41,13 @@ _MIN_DURATION_S = 3.0  # clips below this are invalid (spec §3)
 _MAX_DURATION_S = 300.0  # clips above this must be segmented (spec §3)
 
 # Re-export so callers can do: from synthbanshee.augment.preprocessing import PreprocessingConfig
-__all__ = ["PreprocessingConfig", "PreprocessingResult", "preprocess", "validate_audio"]
+__all__ = [
+    "PreprocessingConfig",
+    "PreprocessingResult",
+    "peak_normalize_to_target",
+    "preprocess",
+    "validate_audio",
+]
 
 
 @dataclass
@@ -69,9 +75,10 @@ def _peak_limit(samples: np.ndarray, ceiling_dbfs: float = _PEAK_DBFS) -> np.nda
     """Attenuate samples so peak ≤ ceiling_dbfs; never scale up.
 
     Unlike peak normalization, this only applies gain when the signal
-    exceeds the ceiling.  Quieter signals are returned unchanged so that
-    the within-scene loudness trajectory established by per-turn RMS gain
-    (M3a) is preserved across the full clip.
+    exceeds the ceiling.  Quieter signals are returned unchanged.  After
+    #78 this is a safety net behind ``peak_normalize_to_target``; on its
+    own it would let M3a-shaped clips sit ~6 dB below useful ASR / MOS
+    operating range.
     """
     peak = float(np.max(np.abs(samples)))
     if peak == 0.0:
@@ -80,6 +87,26 @@ def _peak_limit(samples: np.ndarray, ceiling_dbfs: float = _PEAK_DBFS) -> np.nda
     if peak <= ceiling_linear:
         return samples  # already within limit — do not scale up
     return (samples * (ceiling_linear / peak)).astype(np.float32)
+
+
+def peak_normalize_to_target(samples: np.ndarray, target_dbfs: float) -> np.ndarray:
+    """Scale *samples* by a single global gain so their peak equals *target_dbfs*.
+
+    Why a single global gain (#78): per-turn RMS targeting (M3a) creates
+    the within-clip loudness trajectory.  We must not collapse it back
+    into a flat shape, which is what the M3b commit (PR #27) deliberately
+    avoided.  A single multiplicative factor preserves all per-turn RMS
+    *ratios* exactly, while bringing the clip's absolute peak to a target
+    that downstream Whisper / UTMOS can reason about.
+
+    Silent or near-silent input (peak < ~−80 dBFS) is returned unchanged
+    to avoid amplifying a noise floor by 60+ dB.
+    """
+    peak = float(np.max(np.abs(samples)))
+    if peak < 1e-4:  # ~−80 dBFS — treat as silence
+        return samples
+    target_linear = 10.0 ** (target_dbfs / 20.0)
+    return (samples * (target_linear / peak)).astype(np.float32)
 
 
 def _resample(samples: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
@@ -189,7 +216,19 @@ def preprocess(
         samples = _wiener_denoise(samples)
         steps.append("wiener_denoise")
 
-    # --- 5. Peak limit to −1.0 dBFS (never scale up) -------------------------
+    # --- 5a. Peak-normalize to target (#78) ----------------------------------
+    # Single global gain — preserves per-turn RMS contrast (M3a) while bringing
+    # the clip to a useful absolute loudness.  Without this step, M3a-shaped
+    # clips peak ~6 dB below the −1.0 dBFS ceiling; Whisper drops words on the
+    # quieter input and UTMOS reads less-limited clips ~0.9 MOS higher,
+    # poisoning M17 evaluation.
+    samples = peak_normalize_to_target(samples, cfg.target_peak_dbfs)
+    steps.append(f"peak_normalize_{cfg.target_peak_dbfs}dBFS")
+
+    # --- 5b. Safety limiter at −1.0 dBFS (never scale up) --------------------
+    # Redundant for the in-spec target_peak_dbfs range (−12 .. −1) but kept as
+    # a defence-in-depth: if anything upstream produces an over-ceiling sample
+    # we still clamp to spec rather than ship a clipped clip.
     samples = _peak_limit(samples, _PEAK_DBFS)
     steps.append(f"peak_limit_{_PEAK_DBFS}dBFS")
 
