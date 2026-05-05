@@ -411,16 +411,21 @@ def write_auto_report(results: dict) -> None:
         md.append(f"| {cid} | {score:.3f} |")
     md.append("")
     md.append(
-        f"clean mean: **{results['utmos']['clean_mean']:.3f}** (n={len(results['utmos']['clean'])})"
+        f"clean mean (all): **{results['utmos']['clean_mean']:.3f}** "
+        f"(n={len(results['utmos']['clean'])})  ·  "
+        f"clean mean (degradation sample, n={len(results['utmos']['degradation_sample_clip_ids'])}): "
+        f"**{results['utmos']['sample_clean_mean']:.3f}**"
     )
     md.append("")
     md.append("## UTMOS — degradation sweep")
     md.append("")
     md.append("| Degradation | mean UTMOS | clean − deg | direction |")
     md.append("|---|---|---|---|")
-    clean_mean = results["utmos"]["clean_mean"]
+    # Paired comparison — degraded means cover only the degradation-sample clips,
+    # so we subtract from the sample-matched clean mean, not the all-clip mean.
+    sample_clean_mean = results["utmos"]["sample_clean_mean"]
     for d in results["utmos"]["degradations"]:
-        diff = clean_mean - d["mean_utmos"]
+        diff = sample_clean_mean - d["mean_utmos"]
         direction = "↓ as expected" if diff > 0 else "↑ INVERTED"
         md.append(
             f"| `{d['id']}` ({d['kind']}) | {d['mean_utmos']:.3f} | {diff:+.3f} | {direction} |"
@@ -557,14 +562,16 @@ def main() -> None:
             }
         )
 
-    # Gate: original gate uses the white-noise -10 dB SNR baseline (the
-    # design's implicit reference). We also report whether ANY degradation in
-    # the sweep meets the 0.5 separation threshold.
+    # Gate: paired comparison between the SAME 5 clips clean and degraded.
+    # `clean_mean` (n=10) is kept in the JSON as a population baseline, but the
+    # gate must use `sample_clean_mean` to avoid mixing populations — degraded
+    # means are over `sample_clips` only.
+    sample_clean_mean = float(np.mean([clean_scores[c.clip_id] for c in sample_clips]))
     primary_deg = next(d for d in degradation_results if d["id"] == "wn_snr_-10db")
-    primary_separation = clean_mean - primary_deg["mean_utmos"]
+    primary_separation = sample_clean_mean - primary_deg["mean_utmos"]
     primary_gate = "PASS" if primary_separation >= UTMOS_SEPARATION_GATE else "FAIL"
     any_passes = any(
-        (clean_mean - d["mean_utmos"]) >= UTMOS_SEPARATION_GATE for d in degradation_results
+        (sample_clean_mean - d["mean_utmos"]) >= UTMOS_SEPARATION_GATE for d in degradation_results
     )
     monotonic_in_severity = is_monotonic_with_severity(
         [d for d in degradation_results if d["kind"] == "white_noise"]
@@ -599,6 +606,8 @@ def main() -> None:
         "utmos": {
             "clean": clean_scores,
             "clean_mean": clean_mean,
+            "sample_clean_mean": sample_clean_mean,
+            "degradation_sample_clip_ids": [c.clip_id for c in sample_clips],
             "degradations": degradation_results,
             "primary_separation_db_-10_white_noise": primary_separation,
             "primary_gate": primary_gate,
