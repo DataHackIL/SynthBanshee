@@ -9,6 +9,7 @@ import io
 import struct
 import sys
 import wave
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -16,13 +17,13 @@ from synthbanshee.config.speaker_config import SpeakerConfig
 from synthbanshee.tts.azure_provider import AzureProvider
 from synthbanshee.tts.renderer import TTSRenderer
 from synthbanshee.tts.ssml_builder import (
-    _WORD_BREAK_MS,
     SSMLBuilder,
     UtteranceSpec,
-    _inject_word_breaks,
     _rate_to_string,
     _semitones_to_percent,
+    _volume_to_string,
 )
+from synthbanshee.tts.ssml_types import PhraseProsody
 
 EXAMPLES_DIR = Path(__file__).parent.parent.parent / "configs" / "examples"
 
@@ -137,210 +138,23 @@ class TestSSMLBuilder:
 
 
 # ---------------------------------------------------------------------------
-# Word-boundary break tests (#62)
+# SSML invariants — sanitization, clamping, regression guard for #83
 # ---------------------------------------------------------------------------
 
 
-class TestWordBoundaryBreaks:
-    """Verify that multi-word Hebrew text produces inter-word <break> tags."""
+class TestSSMLInvariants:
+    """Defense-in-depth invariants the SSML builder must hold.
 
-    def setup_method(self):
-        self.builder = SSMLBuilder()
+    These assertions catch regressions in three orthogonal hardenings that
+    were lost when PR #70 + #71 were initially reverted as a bundle for
+    #83, then restored individually:
 
-    def _body(self, ssml: str) -> str:
-        """Strip XML declaration to get parseable SSML body."""
-        return ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
-
-    def test_multi_word_text_has_breaks(self):
-        """Multi-word text must contain <break> elements between words."""
-        utt = UtteranceSpec(
-            text="word1 word2 word3",
-            voice_id="he-IL-AvriNeural",
-        )
-        ssml = self.builder.build_single(utt)
-        # Two word boundaries → two <break> elements
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 2
-
-    def test_single_word_no_breaks(self):
-        """Single-word text must not contain any <break> elements."""
-        utt = UtteranceSpec(
-            text="hello",
-            voice_id="he-IL-AvriNeural",
-        )
-        ssml = self.builder.build_single(utt)
-        assert f'time="{_WORD_BREAK_MS}ms"' not in ssml
-
-    def test_text_preserved_after_breaks(self):
-        """All original words must appear in the serialised SSML."""
-        utt = UtteranceSpec(
-            text="word1 word2 word3",
-            voice_id="he-IL-AvriNeural",
-        )
-        ssml = self.builder.build_single(utt)
-        assert "word1" in ssml
-        assert "word2" in ssml
-        assert "word3" in ssml
-
-    def test_breaks_inside_prosody(self):
-        """Word breaks must also appear when a <prosody> wrapper is present."""
-        utt = UtteranceSpec(
-            text="word1 word2",
-            voice_id="he-IL-AvriNeural",
-            rate_multiplier=1.2,
-        )
-        ssml = self.builder.build_single(utt)
-        # One word boundary inside the prosody wrapper
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
-        assert "prosody" in ssml
-
-    def test_breaks_with_phrase_prosody(self):
-        """Word breaks must appear in text fragments around phrase prosody spans."""
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        # "before1 before2 phrase1 phrase2 after1 after2"
-        #  0123456789...
-        # "before1"=0:7, " "=7, "before2"=8:15, " "=15,
-        # "phrase1"=16:23, " "=23, "phrase2"=24:31, " "=31,
-        # "after1"=32:38, " "=38, "after2"=39:45
-        text = "before1 before2 phrase1 phrase2 after1 after2"
-        phrase = PhraseProsody(
-            phrase_id="p0",
-            char_start=16,  # "phrase1 phrase2"
-            char_end=31,
-            rate="+10%",
-        )
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-            phrase_prosody=[phrase],
-        )
-        ssml = self.builder.build_single(utt)
-        # All words must appear
-        for word in text.split():
-            assert word in ssml, f"word {word!r} missing from SSML"
-        # Exact break count: 1 (before1↔before2) + 1 (phrase1↔phrase2
-        # inside <prosody>) + 1 (after1↔after2) = 3 word-boundary breaks.
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 3
-
-    def test_hebrew_multi_word_text_has_breaks(self):
-        """Hebrew multi-word text must produce inter-word <break> elements."""
-        # Reproduces the core scenario from issue #62.
-        utt = UtteranceSpec(
-            text="\u05d4\u05d9\u05d9, \u05d7\u05e9\u05d1\u05ea\u05d9",
-            voice_id="he-IL-AvriNeural",
-        )
-        ssml = self.builder.build_single(utt)
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
-        # Both tokens must survive serialization intact.
-        assert "\u05d4\u05d9\u05d9," in ssml
-        assert "\u05d7\u05e9\u05d1\u05ea\u05d9" in ssml
-
-    def test_hebrew_with_niqqud_preserved(self):
-        """Niqqud-bearing Hebrew words must not be corrupted by break injection."""
-        # Two words, the first with niqqud (shin + shva + lamed + dagesh).
-        text = "\u05e9\u05b0\u05dc\u05d5\u05bc\u05dd \u05e2\u05d5\u05dc\u05dd"
-        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
-        ssml = self.builder.build_single(utt)
-        assert ssml.count(f'time="{_WORD_BREAK_MS}ms"') == 1
-        assert "\u05e9\u05b0\u05dc\u05d5\u05bc\u05dd" in ssml
-        assert "\u05e2\u05d5\u05dc\u05dd" in ssml
-
-    def test_text_roundtrip_preserves_content(self):
-        """Serialise → parse → extract text: all content must match the input."""
-        import xml.etree.ElementTree as ET
-
-        text = "one two three four"
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-        )
-        ssml = self.builder.build_single(utt)
-        root = ET.fromstring(self._body(ssml))
-
-        # Walk the tree and collect every text/tail fragment.
-        fragments: list[str] = []
-
-        def _collect(el: ET.Element) -> None:
-            if el.text:
-                fragments.append(el.text)
-            for child in el:
-                _collect(child)
-                if child.tail:
-                    fragments.append(child.tail)
-
-        _collect(root)
-        recovered = "".join(fragments)
-        # Recovered text (ignoring break elements) must equal the original.
-        assert recovered == text
-
-    def test_hebrew_text_roundtrip(self):
-        """Hebrew content must survive the SSML serialise → parse roundtrip."""
-        import xml.etree.ElementTree as ET
-
-        text = (
-            "\u05d0\u05d2\u05d1 \u05e0\u05d9\u05e1\u05d9\u05ea\u05d9"
-            " \u05dc\u05d3\u05d1\u05e8 \u05d0\u05d9\u05ea\u05da"
-        )
-        utt = UtteranceSpec(text=text, voice_id="he-IL-HilaNeural")
-        ssml = self.builder.build_single(utt)
-        root = ET.fromstring(self._body(ssml))
-
-        fragments: list[str] = []
-
-        def _collect(el: ET.Element) -> None:
-            if el.text:
-                fragments.append(el.text)
-            for child in el:
-                _collect(child)
-                if child.tail:
-                    fragments.append(child.tail)
-
-        _collect(root)
-        assert "".join(fragments) == text
-
-    def test_xml_well_formed_with_breaks(self):
-        """SSML with word breaks must remain valid XML."""
-        import xml.etree.ElementTree as ET
-
-        utt = UtteranceSpec(
-            text="word1 word2 word3 word4",
-            voice_id="he-IL-AvriNeural",
-            style="angry",
-            rate_multiplier=1.1,
-        )
-        ssml = self.builder.build_single(utt)
-        ET.fromstring(self._body(ssml))  # Should not raise
-
-    def test_inject_word_breaks_empty_text(self):
-        """_inject_word_breaks with empty text should not create elements."""
-        import xml.etree.ElementTree as ET
-
-        parent = ET.Element("test")
-        result = _inject_word_breaks(parent, "")
-        assert result is None
-        assert len(list(parent)) == 0
-
-    def test_inject_word_breaks_whitespace_only(self):
-        """_inject_word_breaks with whitespace-only text should preserve it."""
-        import xml.etree.ElementTree as ET
-
-        parent = ET.Element("test")
-        result = _inject_word_breaks(parent, "  ")
-        assert result is None
-        assert parent.text == "  "
-
-
-# ---------------------------------------------------------------------------
-# SSML parse-error regression tests (#67)
-# ---------------------------------------------------------------------------
-
-
-class TestSSMLParseErrorFix67:
-    """Regression tests for Azure SSML parsing error 0x80045003.
-
-    The root cause is adjacent <break> elements created when inter-word breaks
-    (PR #70) interact with phrase prosody break_before/break_after attributes.
-    Azure's SSML parser rejects adjacent breaks as malformed.
+      - XML 1.0 control-character sanitization (originally from #71).
+      - Azure-range prosody clamping (originally from #71).
+      - Adjacent ``<break>`` merging in ``_apply_phrase_prosody`` to avoid
+        Azure error 0x80045003 (originally from #71, narrowed to the
+        phrase-after / phrase-before case after #70 was reverted).
+      - The ``no per-word <break> tags`` rule pinned to #83.
     """
 
     def setup_method(self):
@@ -349,104 +163,58 @@ class TestSSMLParseErrorFix67:
     def _body(self, ssml: str) -> str:
         return ssml.split("\n", 1)[1] if ssml.startswith("<?xml") else ssml
 
-    def test_no_adjacent_breaks_with_break_before(self):
-        """Phrase break_before must merge with preceding inter-word break."""
-        import re
+    def test_text_with_invalid_xml_chars_sanitized(self):
+        # Simulate LLM output with control characters (#67 root cause).
+        text = "hello\x00world\x0bfoo\x1fbar"
+        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
+        ssml = self.builder.build_single(utt, supports_style_tags=False)
+        for ch in ("\x00", "\x0b", "\x1f"):
+            assert ch not in ssml
+        for word in ("hello", "world", "foo", "bar"):
+            assert word in ssml
 
-        from synthbanshee.tts.ssml_types import PhraseProsody
+    def test_prosody_pitch_clamped_to_azure_range(self):
+        # 12 st → +71% unclamped; clamps to +50%.
+        assert _semitones_to_percent(12.0) == "+50%"
+        assert _semitones_to_percent(-12.0) == "-50%"
+        # In-range values pass through.
+        assert _semitones_to_percent(3.0) == "+18%"
+        assert _semitones_to_percent(-2.0) == "-12%"
 
-        # "word1 word2 phrase1 phrase2" — phrase starts at word boundary
-        text = "word1 word2 phrase1 phrase2"
-        phrase = PhraseProsody(
-            phrase_id="p0",
-            char_start=12,  # "phrase1 phrase2"
-            char_end=27,
-            rate="-25%",
-            pitch="-1st",
-            break_before_ms=300,  # "menace" hint
-        )
+    def test_prosody_rate_clamped_to_azure_range(self):
+        # rate=4.0 → +300% unclamped; clamps to +200%.
+        assert _rate_to_string(4.0) == "+200%"
+        # rate=0.3 → -70% unclamped; clamps to -50%.
+        assert _rate_to_string(0.3) == "-50%"
+        assert _rate_to_string(1.1) == "+10%"
+
+    def test_prosody_volume_clamped_to_azure_range(self):
+        assert _volume_to_string(80.0) == "+50%"
+        assert _volume_to_string(-80.0) == "-50%"
+        assert _volume_to_string(5.0) == "+5%"
+
+    def test_no_per_word_breaks_in_default_ssml(self):
+        """Default multi-word SSML must not contain per-word ``<break>`` tags.
+
+        Pinned to #83: per-word ``<break time="50ms"/>`` insertion (PR #70)
+        tripped Whisper's silence-detection / segmentation heuristic and
+        produced a 6× WER regression on Tier A clips.  Any future Hebrew
+        word-merge mitigation (#62) must not re-introduce per-word breaks.
+        """
         utt = UtteranceSpec(
-            text=text,
+            text="one two three four five six seven eight",
             voice_id="he-IL-AvriNeural",
-            phrase_prosody=[phrase],
         )
         ssml = self.builder.build_single(utt, supports_style_tags=False)
+        assert "<break" not in ssml, "Default SSML must not emit per-word <break> tags — see #83."
 
-        # No two <break .../> elements should be adjacent (only whitespace between).
-        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
-        assert len(adjacent_breaks) == 0, f"Adjacent breaks found in SSML: {ssml}"
+    def test_adjacent_phrase_breaks_are_merged(self):
+        """break_after of one phrase + break_before of the next must merge.
 
-    def test_merged_break_uses_max_duration(self):
-        """When merging breaks, the longer duration wins."""
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        text = "before phrase_word"
-        phrase = PhraseProsody(
-            phrase_id="p0",
-            char_start=7,  # "phrase_word"
-            char_end=18,
-            rate="-20%",
-            break_before_ms=150,  # "slow" hint — longer than 50ms word break
-        )
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-            phrase_prosody=[phrase],
-        )
-        ssml = self.builder.build_single(utt, supports_style_tags=False)
-
-        # The inter-word break (50ms) between "before" and phrase should be
-        # merged to 150ms (the phrase break_before duration wins).
-        assert 'time="150ms"' in ssml
-        # The original 50ms word break should NOT appear as a separate element.
-        assert ssml.count('time="50ms"') == 0
-
-    def test_menace_hint_no_adjacent_breaks(self):
-        """Menace hint (break_before=300ms) must not create adjacent breaks."""
-        import re
-
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        # Simulate a failing pattern: multi-word text with menace-annotated phrase.
-        text = "word1 word2 word3 threat_word1 threat_word2"
-        phrase = PhraseProsody(
-            phrase_id="p0",
-            char_start=18,
-            char_end=44,
-            rate="-25%",
-            pitch="-1st",
-            break_before_ms=300,
-        )
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-            rate_multiplier=1.14,
-            pitch_delta_st=2.0,
-            volume_delta_db=13.0,
-            phrase_prosody=[phrase],
-        )
-        ssml = self.builder.build_single(utt, supports_style_tags=False)
-
-        # Must be valid XML.
-        import xml.etree.ElementTree as ET
-
-        ET.fromstring(self._body(ssml))
-
-        # No adjacent breaks.
-        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
-        assert len(adjacent_breaks) == 0, f"Adjacent breaks found in SSML: {ssml}"
-
-        # The 300ms menace break should appear (replaced the 50ms word break).
-        assert 'time="300ms"' in ssml
-
-    def test_semantic_break_after_then_break_before_sums(self):
-        """break_after + break_before of consecutive phrases must sum durations."""
-        import re
-
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        # Two phrases with break_after on first and break_before on second.
-        # Space between them is " " (no words → no word breaks created).
+        Without merging, Azure rejects the SSML with parse error
+        0x80045003 (#67).  With #70 reverted, the only remaining adjacent-
+        break risk is between two consecutive phrases.
+        """
         text = "intro phrase_a end_a mid phrase_b outro"
         phrases = [
             PhraseProsody(
@@ -471,153 +239,17 @@ class TestSSMLParseErrorFix67:
         )
         ssml = self.builder.build_single(utt, supports_style_tags=False)
 
-        # No adjacent breaks.
-        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
-        assert len(adjacent_breaks) == 0, f"Adjacent breaks found: {ssml}"
-
-        # The 250ms break_after and 300ms break_before should be summed (550ms)
-        # because the preceding break is semantic (not a word-boundary break).
-        assert 'time="550ms"' in ssml
-
-    def test_text_with_invalid_xml_chars_sanitized(self):
-        """Characters invalid in XML 1.0 must be stripped before SSML building."""
-        # Simulate LLM output with control characters.
-        text = "hello\x00world\x0bfoo\x1fbar"
-        utt = UtteranceSpec(text=text, voice_id="he-IL-AvriNeural")
-        ssml = self.builder.build_single(utt, supports_style_tags=False)
-        # Must not contain invalid chars.
-        assert "\x00" not in ssml
-        assert "\x0b" not in ssml
-        assert "\x1f" not in ssml
-        # Words must still be present.
-        assert "hello" in ssml
-        assert "world" in ssml
-        assert "foo" in ssml
-        assert "bar" in ssml
-
-    def test_hebrew_high_intensity_with_menace_hint(self):
-        """Regression: Hebrew I5 turn with menace hint must produce valid SSML.
-
-        Simulates the exact pattern from failing scene sp_sv_a_0001: AGG speaker
-        at intensity 5 with accumulated state drift, multi-word Hebrew text,
-        and a "menace" phrase hint with break_before=300ms.
-        """
-        import re
-        import xml.etree.ElementTree as ET
-
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        # Hebrew text simulating an I5 assault-scene turn (3 sentences).
-        # Contains niqqud on one word to test PR #69 interaction.
-        text = (
-            "\u05d0\u05ea \u05dc\u05d0 \u05ea\u05e2\u05e9\u05d4"  # "you don't do"
-            " \u05de\u05d4 \u05e9\u05d0\u05de\u05e8\u05ea\u05d9"  # " what I said"
-            " \u05dc\u05da. "  # " to you. "
-            "\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9"  # "listen" (with niqqud)
-            " \u05d8\u05d5\u05d1!"  # " well!"
-        )
-        # "menace" hint on the imperative word (with niqqud): char_start/end
-        # covering the niqqud-bearing word.
-        imperative_start = text.index("\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9")
-        imperative_end = imperative_start + len("\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9")
-        phrase = PhraseProsody(
-            phrase_id="t5_p0",
-            char_start=imperative_start,
-            char_end=imperative_end,
-            rate="-25%",
-            pitch="-1st",
-            break_before_ms=300,
-        )
-        # AGG_M_30-45_001 at I5 with state drift: rate=1.14*1.05*~1.15=1.38,
-        # pitch=2+~1.5=3.5 st, volume=13+0+~4=17 dB.
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-            rate_multiplier=1.38,
-            pitch_delta_st=3.5,
-            volume_delta_db=17.0,
-            phrase_prosody=[phrase],
-        )
-        ssml = self.builder.build_single(utt, supports_style_tags=False)
-
-        # Must be valid XML.
+        # Must remain valid XML.
         ET.fromstring(self._body(ssml))
 
-        # No adjacent breaks.
-        adjacent_breaks = re.findall(r"<break[^/]*/>\s*<break", ssml)
-        assert len(adjacent_breaks) == 0, f"Adjacent breaks in Hebrew SSML: {ssml}"
+        # No two <break .../> elements separated only by whitespace.
+        import re
 
-        # Hebrew text must survive (spot-check key words).
-        assert "\u05ea\u05e2\u05e9\u05d4" in ssml  # "do"
-        assert "\u05ea\u05b4\u05e9\u05b0\u05de\u05e2\u05d9" in ssml  # "listen" with niqqud
-        assert "\u05d8\u05d5\u05d1" in ssml  # "well"
+        adjacent = re.findall(r"<break[^/]*/>\s*<break", ssml)
+        assert adjacent == [], f"Adjacent breaks found in SSML: {ssml}"
 
-        # The 300ms menace break must appear (merged with preceding word break).
-        assert 'time="300ms"' in ssml
-
-    def test_prosody_pitch_clamped_to_azure_range(self):
-        """Extreme pitch values must be clamped to ±50%."""
-        # 12 semitones → 71% unclamped, should be clamped to 50%
-        assert _semitones_to_percent(12.0) == "+50%"
-        assert _semitones_to_percent(-12.0) == "-50%"
-        # Moderate values remain unchanged
-        assert _semitones_to_percent(3.0) == "+18%"
-        assert _semitones_to_percent(-2.0) == "-12%"
-
-    def test_prosody_rate_clamped_to_azure_range(self):
-        """Extreme rate values must be clamped to Azure's -50% to +200% range."""
-        # rate=4.0 → +300% unclamped, should be clamped to +200%
-        assert _rate_to_string(4.0) == "+200%"
-        # rate=0.3 → -70% unclamped, should be clamped to -50%
-        assert _rate_to_string(0.3) == "-50%"
-        # Normal values pass through
-        assert _rate_to_string(1.1) == "+10%"
-
-    def test_well_formed_ssml_with_phrase_prosody_and_breaks(self):
-        """Full integration: high-intensity turn with phrase prosody must be valid XML."""
-        import xml.etree.ElementTree as ET
-
-        from synthbanshee.tts.ssml_types import PhraseProsody
-
-        # Simulate a high-intensity assault-scene turn with multiple hints.
-        text = "word1 word2 word3 word4 phrase_a1 phrase_a2 word5 word6 phrase_b1 word7"
-        # Offsets: phrase_a1 phrase_a2 = 24:43, phrase_b1 = 56:65
-        phrases = [
-            PhraseProsody(
-                phrase_id="p0",
-                char_start=24,
-                char_end=43,
-                rate="+15%",
-                volume="+3dB",
-                pitch="+1st",
-                break_before_ms=0,  # "stress" — no break_before
-            ),
-            PhraseProsody(
-                phrase_id="p1",
-                char_start=56,
-                char_end=65,
-                rate="-25%",
-                pitch="-1st",
-                break_before_ms=300,  # "menace" — has break_before
-            ),
-        ]
-        utt = UtteranceSpec(
-            text=text,
-            voice_id="he-IL-AvriNeural",
-            rate_multiplier=1.14,
-            pitch_delta_st=3.5,
-            volume_delta_db=17.0,
-            phrase_prosody=phrases,
-        )
-        ssml = self.builder.build_single(utt, supports_style_tags=False)
-        body = self._body(ssml)
-
-        # Must parse as valid XML.
-        ET.fromstring(body)
-
-        # All words must be present in the output.
-        for word in text.split():
-            assert word in ssml
+        # The two break durations must be summed into the surviving element.
+        assert 'time="550ms"' in ssml
 
 
 # ---------------------------------------------------------------------------
