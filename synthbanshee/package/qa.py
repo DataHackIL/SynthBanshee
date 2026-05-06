@@ -107,6 +107,10 @@ class DatasetStats:
     # M10b structural warning counters (separate from acoustic)
     structural_warnings: dict[str, int] = field(default_factory=dict)
     clips_with_structural_warnings: int = 0
+    # #87: clips whose generation_metadata recorded one or more
+    # effective-prosody cap activations.  Static signal; needs no audio access.
+    clips_with_prosody_cap_activations: int = 0
+    prosody_cap_activations_total: int = 0
 
 
 @dataclass
@@ -150,6 +154,17 @@ class QAReport:
     passed: bool = False
     failure_rate: float = 0.0
     run_summary: RunSummary | None = None
+    # #87: per-clip effective-prosody cap activation counts (clip_id -> count).
+    # Empty when no clip ever tripped the cap during generation.  A non-empty
+    # entry means the renderer pulled this clip's pitch/rate back from the
+    # helium / Whisper-trip range — frequent activations across many clips
+    # warrant a listening-test review of the speaker style_map.
+    prosody_cap_activations: dict[str, int] = field(default_factory=dict)
+    # #87: per-clip ASR sanity results, populated only when ``run_asr_check``
+    # is called.  Maps clip_id -> dict with keys ``wer``, ``length_ratio``,
+    # ``hyp_words``, ``ref_words``.  Clips below the length-ratio threshold
+    # exhibit the Whisper silence-detector failure mode.
+    asr_warnings: dict[str, dict] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +409,14 @@ def run_qa(
             stats.quality_flagged_clips += 1
             report.quality_flagged[metadata.clip_id] = list(metadata.quality_flags)
 
+        # #87: count effective-prosody cap activations from generation metadata.
+        if metadata.generation_metadata is not None:
+            cap_count = len(metadata.generation_metadata.effective_prosody_caps)
+            if cap_count > 0:
+                stats.clips_with_prosody_cap_activations += 1
+                stats.prosody_cap_activations_total += cap_count
+                report.prosody_cap_activations[metadata.clip_id] = cap_count
+
         # Count Stage 4b JSONL warnings surfaced by validate_clip()
         if any("Strong labels JSONL missing" in w for w in validation.warnings):
             stats.clips_missing_strong_labels += 1
@@ -512,3 +535,64 @@ def run_qa(
         report.run_summary = summary
 
     return report
+
+
+def run_asr_check(
+    data_dir: Path,
+    *,
+    min_length_ratio: float = 0.85,
+    model: str | None = None,
+) -> dict[str, dict]:
+    """Run Whisper-based per-clip ASR sanity on all valid clips in *data_dir*.
+
+    Detects the #87 Whisper "backdoor": clips that synthesize fine to a
+    listener but cause Whisper-large-v3 to mis-segment audio chunks as
+    silence and drop ~20–30 % of words.  Length ratio
+    (``hyp_words / ref_words``) is the canonical fingerprint — the #87
+    cases sat at 0.70–0.76 vs the 04-15 baseline at 1.00.
+
+    Returns a dict mapping ``clip_id`` → dict of metrics for clips whose
+    length ratio falls below ``min_length_ratio``.  Clips that pass are
+    not reported (the audit is "show me the failures").
+
+    This is heavyweight — Whisper-large-v3 takes ~5–20 s per clip on M-series
+    MPS — so it is opt-in via ``qa-report --asr``.  Whisper weights load
+    lazily on the first clip; reuse one ``WhisperRunner`` across all clips
+    to amortize the load cost (the function does this internally).
+
+    Args:
+        data_dir: Same layout as ``run_qa``: ``{speaker_id}/{clip_id}.wav``.
+        min_length_ratio: Clips with ratio below this are flagged.  Default
+            0.85 leaves comfortable margin above the #87 fingerprint (0.70).
+        model: HuggingFace model id; defaults to ``openai/whisper-large-v3``.
+            Pinned by default because the #87 evidence base used this exact
+            model — switching would require re-baselining flagged clips.
+    """
+    from synthbanshee.package.asr_sanity import (
+        DEFAULT_MODEL,
+        WhisperRunner,
+        compute_asr_metrics,
+    )
+
+    runner = WhisperRunner(model=model or DEFAULT_MODEL)
+    flagged: dict[str, dict] = {}
+    wav_paths = [p for p in sorted(data_dir.rglob("*.wav")) if "_dirty" not in p.stem]
+
+    for wav_path in wav_paths:
+        txt_path = wav_path.with_suffix(".txt")
+        if not txt_path.exists():
+            continue
+        try:
+            metrics = compute_asr_metrics(wav_path, txt_path, runner)
+        except Exception:
+            logger.warning("ASR sanity failed for %s", wav_path.stem, exc_info=True)
+            continue
+        if metrics.is_silence_collapse(min_length_ratio):
+            flagged[wav_path.stem] = {
+                "wer": round(metrics.wer, 4),
+                "length_ratio": round(metrics.length_ratio, 4),
+                "hyp_words": metrics.hyp_words,
+                "ref_words": metrics.ref_words,
+            }
+
+    return flagged

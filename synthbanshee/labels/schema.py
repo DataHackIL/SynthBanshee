@@ -126,6 +126,23 @@ class PreprocessingApplied(BaseModel):
     silence_padded: bool = False
 
 
+class EffectiveProsodyCapEvent(BaseModel):
+    """One activation of the #87 runtime effective-prosody cap.
+
+    Recorded per turn and per dimension when the post-state, post-randomization
+    prosody value would have exceeded the envelope that Whisper-large-v3 can
+    transcribe and the listener finds natural at high intensities.  See
+    ``synthbanshee.tts.renderer._apply_effective_prosody_cap`` for thresholds
+    and rationale.
+    """
+
+    turn_index: int = Field(ge=0)
+    intensity: int = Field(ge=1, le=5)
+    dim: Literal["rate", "pitch", "volume"]
+    pre_cap: float
+    post_cap: float
+
+
 class GenerationMetadata(BaseModel):
     """Pipeline provenance metadata for ablation studies (spec §4.11).
 
@@ -160,6 +177,17 @@ class GenerationMetadata(BaseModel):
 
     breathiness_applied: bool = False
     speaker_state_serialized: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+    effective_prosody_caps: list[EffectiveProsodyCapEvent] = Field(default_factory=list)
+    """Per-turn activations of the #87 effective-prosody cap.
+
+    One entry per ``(turn_index, dim)`` clamp.  An empty list means every turn's
+    effective prosody fell within the envelope (post-state, post-randomization).
+    A non-empty list is a static signal that the renderer pulled the turn's
+    pitch or rate back from the helium / Whisper-trip range — typically a small
+    number of high-intensity turns near the end of an arc with significant M7
+    SpeakerState drift.  Use ``synthbanshee qa-report`` to flag clips with
+    ``len(effective_prosody_caps) > N``."""
 
 
 # ---------------------------------------------------------------------------

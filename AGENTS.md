@@ -70,6 +70,7 @@ SFX onset/offset times come **only** from the Stage 3b augmentation log. Speech-
 - **Cache key: SHA-256 of the full rendered SSML string** — not `(voice_id, text)`
 - **M3a — per-turn RMS gain:** `StyleEntry.rms_target_dbfs` → module-level `_apply_rms_gain()` in `synthbanshee/tts/mixer.py`; 4-tuple segment API `(wav_bytes, pause_s, speaker_id, rms_target_dbfs)`
 - **Temp WAV from mixer must be `subtype="FLOAT"`** — never `PCM_16` before `preprocess()` to avoid hard-clipping M3 gain
+- **#87 effective-prosody cap:** `synthbanshee/tts/renderer._apply_effective_prosody_cap` clamps post-state, post-randomization prosody to `pitch ∈ [−3.0, +2.0] st`, `rate ∈ [0.85, 1.20]`. Volume is left to `_volume_to_string`'s ±50% Azure clamp (Whisper internally normalizes loudness; #82 lever probe). Cap activations are recorded per-turn in `DialogueTurn.effective_prosody_caps` and rolled up into `ClipMetadata.generation_metadata.effective_prosody_caps`. Caps are anchored to the pre-#51 effective envelope (the 04-15 reference baseline that Whisper handles with WER 0.04–0.08); changing them requires a paired listening test + Whisper sanity check (see "ASR sanity check policy" below).
 
 ## Splits
 
@@ -84,6 +85,23 @@ SFX onset/offset times come **only** from the Stage 3b augmentation log. Speech-
   2. WAV passes `validate_audio()` — 16 kHz, mono, peak ≤ −1.0 dBFS, duration ≥ 3 s
   3. JSON parses as `ClipMetadata` with `is_synthetic=True`
   4. Filename stem is ASCII-only lowercase
+
+## ASR sanity check policy (#87)
+
+The Whisper-large-v3 sanity check (`synthbanshee qa-report --asr`) detects audio that synthesizes fine to a listener but trips Whisper's silence-detection / segmentation heuristic — the failure mode that surfaced in #87 and went undetected on `sp_it_a_0001` for weeks. The canonical fingerprint is **length-ratio collapse** (`hyp_words / ref_words < 0.85`).
+
+**Cost:** ~5–20 s per clip on M-series MPS, ~3 GB Whisper-large-v3 download on first use. Real Azure render to populate the cache is an additional ~$0.05–$0.20 per scene.
+
+**Policy — for the foreseeable future, this check is _local-only_, not in CI:**
+
+1. **Unit tests** for the cap logic (in `tests/unit/test_effective_prosody_cap.py`) run on every PR. They cover ~90 % of regressions with no Azure / Whisper cost.
+2. **`qa-report --asr` (Tier-3)** is run **locally**, **once**, **after all PR reviews and fixes are done**, **and only for PRs that might affect audio rendering** (anything touching `synthbanshee/tts/`, `synthbanshee/script/`, `synthbanshee/augment/`, or the speaker / scene / acoustic / project YAML configs). PRs that only touch labels, packaging, docs, or tests skip it.
+3. **Cost discipline:** use this command **very sparingly** — each invocation incurs Azure spend (~$1–$2 per real-render run). Prefer running against a directory of already-cached clips when possible; only re-render when a code change invalidates the SSML cache.
+4. **Result documentation:** when run, paste the `qa-report --asr` output (table of any clips with `length_ratio < 0.85`, plus the green-tick "no asr warnings" line if all clean) into the PR body's "Test plan" section under a "Tier-3 ASR sanity (local)" sub-heading.
+
+**Future CI consideration:** see GH issue tracking the addition of a scheduled / labeled Whisper-based CI workflow, including repo-secret management for `AZURE_TTS_KEY` and Azure spend caps. Re-evaluate when scene volume increases enough that local manual runs become impractical.
+
+**Install:** `uv pip install --python .venv/bin/python -e ".[eval-asr]"` (heavyweight optional extra).
 
 ## Environment variables
 
@@ -153,3 +171,5 @@ When addressing PR review comments (Copilot, human, or bot):
 - Don't generate clips shorter than 3.0 s
 - Don't add a new typology to `taxonomy.yaml` without adding it to `_TYPOLOGY_INTENSITY_MAP`
 - Don't pin `pr-agent-context` workflow references to a specific patch version — keep `@v4` floating
+- Don't relax the #87 effective-prosody cap (`_EFFECTIVE_PITCH_*`, `_EFFECTIVE_RATE_*` in `synthbanshee/tts/renderer.py`) without a paired listening test + `qa-report --asr` Tier-3 run; the cap defends both naturalness (May-3 listening test) and Whisper transcription
+- Don't merge a PR that touches audio rendering (`synthbanshee/tts/`, `synthbanshee/script/`, `synthbanshee/augment/`, or speaker / scene / acoustic / project YAMLs) without running `qa-report --asr` locally first and pasting the result into the PR's test plan (see "ASR sanity check policy")

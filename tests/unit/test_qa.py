@@ -22,6 +22,59 @@ from synthbanshee.package.qa import (
 )
 
 # ---------------------------------------------------------------------------
+# #87 prosody-cap roll-up tests
+# ---------------------------------------------------------------------------
+
+
+class TestProsodyCapRollup:
+    """qa-report's static surfacing of #87 effective-prosody cap activations."""
+
+    def test_clip_with_no_cap_events_does_not_appear_in_report(self, tmp_path):
+        _write_valid_clip(tmp_path / "agg_m_30-45_001", "clip_001_00")
+        report = run_qa(tmp_path)
+        assert report.prosody_cap_activations == {}
+        assert report.stats.clips_with_prosody_cap_activations == 0
+        assert report.stats.prosody_cap_activations_total == 0
+
+    def test_clip_with_cap_events_recorded(self, tmp_path):
+        events = [
+            {"turn_index": 12, "intensity": 5, "dim": "rate", "pre_cap": 1.33, "post_cap": 1.20},
+            {"turn_index": 12, "intensity": 5, "dim": "pitch", "pre_cap": 2.9, "post_cap": 2.0},
+        ]
+        _write_valid_clip(tmp_path / "agg_m_30-45_001", "clip_001_00", prosody_cap_events=events)
+        report = run_qa(tmp_path)
+        assert report.prosody_cap_activations == {"clip_001_00": 2}
+        assert report.stats.clips_with_prosody_cap_activations == 1
+        assert report.stats.prosody_cap_activations_total == 2
+
+    def test_multiple_clips_aggregated(self, tmp_path):
+        _write_valid_clip(tmp_path / "agg_m_30-45_001", "clip_clean_00")
+        _write_valid_clip(
+            tmp_path / "agg_m_30-45_002",
+            "clip_one_cap_00",
+            prosody_cap_events=[
+                {"turn_index": 0, "intensity": 5, "dim": "rate", "pre_cap": 1.5, "post_cap": 1.2},
+            ],
+        )
+        _write_valid_clip(
+            tmp_path / "agg_m_30-45_003",
+            "clip_three_caps_00",
+            prosody_cap_events=[
+                {"turn_index": 0, "intensity": 5, "dim": "rate", "pre_cap": 1.4, "post_cap": 1.2},
+                {"turn_index": 1, "intensity": 5, "dim": "pitch", "pre_cap": 3.0, "post_cap": 2.0},
+                {"turn_index": 2, "intensity": 4, "dim": "pitch", "pre_cap": 2.5, "post_cap": 2.0},
+            ],
+        )
+        report = run_qa(tmp_path)
+        assert report.stats.clips_with_prosody_cap_activations == 2
+        assert report.stats.prosody_cap_activations_total == 4
+        assert report.prosody_cap_activations == {
+            "clip_one_cap_00": 1,
+            "clip_three_caps_00": 3,
+        }
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -39,6 +92,7 @@ def _write_valid_clip(
     tts_engine: str = "azure_he_IL",
     tts_voice_id: str = "he-IL-AvriNeural",
     gender: str = "male",
+    prosody_cap_events: list[dict] | None = None,
 ) -> Path:
     """Write a minimal valid WAV + TXT + JSON triplet and return the WAV path."""
     parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +146,11 @@ def _write_valid_clip(
         "annotator_confidence": 1.0,
         "iaa_reviewed": False,
     }
+    if prosody_cap_events is not None:
+        metadata["generation_metadata"] = {
+            "pipeline_version": "0.1.0",
+            "effective_prosody_caps": prosody_cap_events,
+        }
     json_path.write_text(json.dumps(metadata), encoding="utf-8")
     return wav_path
 
