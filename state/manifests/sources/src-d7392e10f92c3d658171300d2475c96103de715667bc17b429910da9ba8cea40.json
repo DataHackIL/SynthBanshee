@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T21:11:20+00:00",
+  "aliases": [],
   "checksum": "d7392e10f92c3d658171300d2475c96103de715667bc17b429910da9ba8cea40",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-d7392e10f92c3d658171300d2475c96103de715667bc17b429910da9ba8cea40.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/research/research_report_gemini.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": null,
+  "source_commit_capture": null,
   "source_id": "src-d7392e10f92c3d658171300d2475c96103de715667bc17b429910da9ba8cea40",
   "source_labels": [],
   "source_ref": "docs/research/research_report_gemini.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-128c158e90fb8152a2a7cc60197db1cff24fb29f07d15a29e537e865f6095fa7",
+  "supersedes": [],
   "title": "research report gemini"
 }

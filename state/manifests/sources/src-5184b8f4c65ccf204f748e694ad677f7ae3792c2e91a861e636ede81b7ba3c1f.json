@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:23+00:00",
+  "aliases": [],
   "checksum": "5184b8f4c65ccf204f748e694ad677f7ae3792c2e91a861e636ede81b7ba3c1f",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-5184b8f4c65ccf204f748e694ad677f7ae3792c2e91a861e636ede81b7ba3c1f.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "synthbanshee/augment/preprocessing.py",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-5184b8f4c65ccf204f748e694ad677f7ae3792c2e91a861e636ede81b7ba3c1f",
   "source_labels": [],
   "source_ref": "synthbanshee/augment/preprocessing.py",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-1b0f849cf5512e8c6f5b76b1034f2e11bcc7cbdabe03e9c0183852086e8ce8ec",
+  "supersedes": [],
   "title": "preprocessing"
 }

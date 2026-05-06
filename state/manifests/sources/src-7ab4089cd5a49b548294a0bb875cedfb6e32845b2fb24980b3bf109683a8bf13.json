@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:15+00:00",
+  "aliases": [],
   "checksum": "7ab4089cd5a49b548294a0bb875cedfb6e32845b2fb24980b3bf109683a8bf13",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-7ab4089cd5a49b548294a0bb875cedfb6e32845b2fb24980b3bf109683a8bf13.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "AGENTS.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-7ab4089cd5a49b548294a0bb875cedfb6e32845b2fb24980b3bf109683a8bf13",
   "source_labels": [],
   "source_ref": "AGENTS.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-6fd3cc5a7137e382e981de065a0ca93ad272c233bdb453520c78893ad8b163ba",
+  "supersedes": [],
   "title": "AGENTS"
 }

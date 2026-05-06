@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:22+00:00",
+  "aliases": [],
   "checksum": "7706229e80cfbe02b508a76eb9345988578205928a859276ead7fec7952bb403",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-7706229e80cfbe02b508a76eb9345988578205928a859276ead7fec7952bb403.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "synthbanshee/tts/mixer.py",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-7706229e80cfbe02b508a76eb9345988578205928a859276ead7fec7952bb403",
   "source_labels": [],
   "source_ref": "synthbanshee/tts/mixer.py",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f",
+  "supersedes": [],
   "title": "mixer"
 }

@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T21:11:20+00:00",
+  "aliases": [],
   "checksum": "5539b824c2a485f676fe6097f25b5de407229f8c05d3632e58860a815bb28963",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-5539b824c2a485f676fe6097f25b5de407229f8c05d3632e58860a815bb28963.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/research/research_report_gpt55_pro.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": null,
+  "source_commit_capture": null,
   "source_id": "src-5539b824c2a485f676fe6097f25b5de407229f8c05d3632e58860a815bb28963",
   "source_labels": [],
   "source_ref": "docs/research/research_report_gpt55_pro.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-65d8bddad06a13b809c9af5ee9b209cb723f6b7a7e53a116f68fcb72c0ea1d6c",
+  "supersedes": [],
   "title": "research report gpt55 pro"
 }

@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:15+00:00",
+  "aliases": [],
   "checksum": "42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/audio_generation_v3_design.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-42711de5f7b0e5a5b70b02d8fcd01097a6901aa5b5d14d61b351b6bbbd94ab89",
   "source_labels": [],
   "source_ref": "docs/audio_generation_v3_design.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-9cf0b398f33a574eabd017f5090f195a995232ab61a1092b75e8c347da3a962a",
+  "supersedes": [],
   "title": "audio generation v3 design"
 }
