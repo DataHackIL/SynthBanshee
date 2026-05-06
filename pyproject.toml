@@ -58,6 +58,17 @@ google-tts = [
     "google-cloud-texttospeech>=2.16",
 ]
 
+# Whisper-based ASR sanity for `qa-report --asr` (#87 length-ratio detector).
+# Heavyweight: pulls torch + transformers + ~3 GB of Whisper-large-v3 weights
+# on first use.  Not required for normal generation/QA — only install when
+# running the ASR sanity check locally (see CLAUDE.md "ASR sanity check policy").
+eval-asr = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "accelerate>=0.30",
+    "jiwer>=3.0",
+]
+
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",

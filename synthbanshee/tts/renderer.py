@@ -11,6 +11,7 @@ Spec reference: docs/implementation_plan.md §0.3
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -27,10 +28,77 @@ from synthbanshee.tts.speaker_state import SpeakerState
 from synthbanshee.tts.ssml_builder import SSMLBuilder
 from synthbanshee.tts.ssml_types import PhraseProsody, collect_phrase_prosody, rebase_phrase_prosody
 
+_log = logging.getLogger(__name__)
+
 # Verbose-log callback type.  Strings passed to this callback may contain
 # Rich markup tags (e.g. ``[dim]…[/dim]``).  Callers that do not use Rich
 # (e.g. standard loggers) should strip or ignore the markup.
 _VerboseLog = Callable[[str], None]
+
+
+# ---------------------------------------------------------------------------
+# Effective-prosody cap (#87)
+# ---------------------------------------------------------------------------
+#
+# Bound the post-state, post-randomization prosody before SSML emission.  This
+# defends against two correlated failure modes that surfaced in #87:
+#
+#   1. M7 ``SpeakerState`` drift compounds with #51's M15 style_map values to
+#      push effective pitch past +2.5 st (~+15%) and effective rate past 1.30×
+#      at I4/I5 turns.  Listening test (2026-05-03) flagged that range as
+#      cartoonish ("helium / oompa-loompa").
+#   2. The same effective-prosody range trips Whisper-large-v3's silence-
+#      detection heuristic — pitch/rate combinations outside the natural-speech
+#      training distribution cause the encoder to mis-segment chunks as silence,
+#      producing 6× WER regression with length-ratio collapse to ~0.7
+#      (the #87 fingerprint, also seen on `sp_it_a_0001`).
+#
+# Volume is intentionally NOT capped here — Whisper's log-mel feature extractor
+# internally normalizes loudness (per #82's lever probe, 7 of 8 peak/RMS variants
+# produced byte-identical Whisper hypotheses), so loudness is not a Whisper-trip
+# dimension.  Existing ±50% Azure clamp in ``ssml_builder._volume_to_string``
+# remains the only volume bound.
+#
+# Caps are anchored to the pre-#51 effective prosody envelope, which produced
+# the 04-15 reference clips with WER 0.04–0.08.  Tighter caps would diverge
+# further from M15 listening-test calibration; looser caps would re-trip
+# Whisper.  Revisit with a paired listening test + Whisper sanity check
+# (`qa-report --asr`) before changing.
+_EFFECTIVE_PITCH_MAX_ST = 2.0  # ≈ +12% — pre-#51 AGG never exceeded this with drift
+_EFFECTIVE_PITCH_MIN_ST = -3.0  # pre-#51 VIC went down to -4 baseline + drift
+_EFFECTIVE_RATE_MAX = 1.20
+_EFFECTIVE_RATE_MIN = 0.85
+
+
+def _apply_effective_prosody_cap(
+    rate: float,
+    pitch: float,
+    volume: float,
+    *,
+    out_cap_events: list[dict] | None = None,
+) -> tuple[float, float, float]:
+    """Clamp ``rate`` and ``pitch`` to the #87 effective-prosody envelope.
+
+    Returns the (possibly clamped) ``(rate, pitch, volume)`` tuple.  When
+    ``out_cap_events`` is provided, one event dict is appended per dimension
+    that was actually clamped, with keys ``dim``, ``pre_cap``, ``post_cap``.
+    Volume is returned unchanged (see module-level rationale).
+    """
+    new_pitch = max(_EFFECTIVE_PITCH_MIN_ST, min(_EFFECTIVE_PITCH_MAX_ST, pitch))
+    if new_pitch != pitch:
+        if out_cap_events is not None:
+            out_cap_events.append(
+                {"dim": "pitch", "pre_cap": round(pitch, 4), "post_cap": round(new_pitch, 4)}
+            )
+        _log.warning("Effective pitch %+.2f st clamped to %+.2f st (#87 cap)", pitch, new_pitch)
+    new_rate = max(_EFFECTIVE_RATE_MIN, min(_EFFECTIVE_RATE_MAX, rate))
+    if new_rate != rate:
+        if out_cap_events is not None:
+            out_cap_events.append(
+                {"dim": "rate", "pre_cap": round(rate, 4), "post_cap": round(new_rate, 4)}
+            )
+        _log.warning("Effective rate %.3f clamped to %.3f (#87 cap)", rate, new_rate)
+    return new_rate, new_pitch, volume
 
 
 class TTSRenderer:
@@ -129,6 +197,7 @@ class TTSRenderer:
         rng_seed: int | None = None,
         speaker_state: SpeakerState | None = None,
         phrase_prosody: list[PhraseProsody] | None = None,
+        out_cap_events: list[dict] | None = None,
     ) -> tuple[bytes, str, bool]:
         """Render a single utterance and return (wav_bytes, cache_key, cache_hit).
 
@@ -144,6 +213,10 @@ class TTSRenderer:
                 style values before SSML is built.
             phrase_prosody: Optional resolved per-phrase prosody spans (M2b).
                 Offsets must reference *text* (the final string passed here).
+            out_cap_events: Optional list that the renderer appends to when
+                the #87 effective-prosody cap fires.  One dict per clamped
+                dimension; see ``_apply_effective_prosody_cap``.  Pass an empty
+                list to capture; pass ``None`` to ignore.
 
         Returns:
             Tuple of (raw WAV bytes, cache key string, cache_hit bool).
@@ -176,6 +249,13 @@ class TTSRenderer:
             rate *= rng.uniform(0.97, 1.03)
             pitch += rng.uniform(-0.5, 0.5)
             volume += rng.uniform(-1.0, 1.0)
+
+        # #87: cap effective post-state, post-randomization prosody to keep
+        # the SSML inside the envelope that Whisper can read AND that the
+        # listener finds natural at high intensities.
+        rate, pitch, volume = _apply_effective_prosody_cap(
+            rate, pitch, volume, out_cap_events=out_cap_events
+        )
 
         provider = self._get_provider(speaker)
         ssml = self._ssml_builder.build_from_speaker_config(
@@ -305,6 +385,7 @@ class TTSRenderer:
             # Snapshot pre-render state for reproducibility metadata (prep for M11).
             turn.speaker_state_snapshot = state.to_metadata_dict()
             render_seed = rng.randint(0, 2**31) if randomize else None
+            cap_events: list[dict] = []
             wav_bytes, _, hit = self.render_utterance(
                 text,
                 speaker,
@@ -313,6 +394,7 @@ class TTSRenderer:
                 rng_seed=render_seed,
                 speaker_state=state,
                 phrase_prosody=phrases if phrases else None,
+                out_cap_events=cap_events,
             )
             # M15: run turn-level quality gates with retry on failure.
             if quality_gates:
@@ -324,6 +406,7 @@ class TTSRenderer:
                 while not gate_result.passed and retries_attempted < max_retries:
                     retries_attempted += 1
                     render_seed = rng.randint(0, 2**31)
+                    cap_events = []
                     wav_bytes, _, hit = self.render_utterance(
                         text,
                         speaker,
@@ -332,6 +415,7 @@ class TTSRenderer:
                         rng_seed=render_seed,
                         speaker_state=state,
                         phrase_prosody=phrases if phrases else None,
+                        out_cap_events=cap_events,
                     )
                     gate_result = run_quality_gates(wav_bytes, speaker.gender)
                 if not gate_result.passed:
@@ -344,6 +428,9 @@ class TTSRenderer:
                             f" (after {retries_attempted} retries):"
                             f" {failure_str}[/yellow]"
                         )
+            # #87: persist effective-prosody cap activations on the turn so cli.py
+            # can roll them up into ClipMetadata.generation_metadata.
+            turn.effective_prosody_caps = cap_events
             # Update state after rendering so the first turn always uses neutral
             # state and drift accumulates from the second turn onward.
             state.update(turn.intensity, speaker.role)

@@ -54,6 +54,12 @@ class DialogueTurn:
     # M15: quality gate failures recorded during render_scene().
     # Each entry is "{gate_name}: {detail}".  Empty list means all gates passed.
     quality_gate_failures: list[str] = field(default_factory=list)
+    # #87: per-turn effective-prosody cap activations (post-state, post-randomize).
+    # Each event is a dict with keys ``dim`` ("rate" or "pitch"), ``pre_cap``,
+    # ``post_cap``.  Empty list means the turn's effective prosody fell within
+    # the envelope; non-empty means the renderer clamped one or more dimensions
+    # to defend against the helium / Whisper-trip range.
+    effective_prosody_caps: list[dict] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # Default text_spoken to the original LLM text when not explicitly set.

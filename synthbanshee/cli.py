@@ -628,7 +628,7 @@ def _run_generate_pipeline(
     from collections import Counter
 
     from synthbanshee import __version__
-    from synthbanshee.labels.schema import GenerationMetadata
+    from synthbanshee.labels.schema import EffectiveProsodyCapEvent, GenerationMetadata
 
     # Per-speaker TTS backend and voice family.
     _backends_map: dict[str, str] = {sid: spk.tts_provider for sid, spk in speakers.items()}
@@ -655,6 +655,19 @@ def _run_generate_pipeline(
         if turn.speaker_id not in _speaker_states and turn.speaker_state_snapshot:
             _speaker_states[turn.speaker_id] = turn.speaker_state_snapshot
 
+    # #87: roll up per-turn effective-prosody cap activations into clip metadata.
+    _cap_events: list[EffectiveProsodyCapEvent] = [
+        EffectiveProsodyCapEvent(
+            turn_index=i,
+            intensity=turn.intensity,
+            dim=ev["dim"],
+            pre_cap=ev["pre_cap"],
+            post_cap=ev["post_cap"],
+        )
+        for i, turn in enumerate(turns)
+        for ev in turn.effective_prosody_caps
+    ]
+
     gen_meta = GenerationMetadata(
         pipeline_version=__version__,
         tts_backend=_backends_map,
@@ -668,6 +681,7 @@ def _run_generate_pipeline(
         loudness_target_peak_dbfs=preproc_config.target_peak_dbfs,
         breathiness_applied=_breathiness_was_applied,
         speaker_state_serialized=_speaker_states,
+        effective_prosody_caps=_cap_events,
     )
 
     metadata = label_gen.generate_clip_metadata(
@@ -1444,8 +1458,29 @@ def validate(clip: Path) -> None:
     default=False,
     help="Compute and display M10b run-level aggregation metrics.",
 )
+@click.option(
+    "--asr",
+    is_flag=True,
+    default=False,
+    help="Run Whisper-large-v3 on every clip and flag length-ratio collapse "
+    "(the #87 'silence-detector trip' fingerprint). Heavyweight: ~5-20s per "
+    "clip on M-series MPS, ~3GB model download. Requires the 'eval-asr' extra.",
+)
+@click.option(
+    "--asr-min-length-ratio",
+    type=float,
+    default=0.85,
+    show_default=True,
+    help="Length-ratio (hyp_words / ref_words) threshold below which a clip is "
+    "flagged by --asr. The #87 fingerprint sat at ~0.70; baseline is 1.00.",
+)
 def qa_report(
-    data_dir: Path, output: Path | None, max_failure_rate: float, run_summary: bool
+    data_dir: Path,
+    output: Path | None,
+    max_failure_rate: float,
+    run_summary: bool,
+    asr: bool,
+    asr_min_length_ratio: float,
 ) -> None:
     """Run the automated QA suite on a dataset directory.
 
@@ -1455,12 +1490,22 @@ def qa_report(
     from synthbanshee.package.qa import (
         _HIGH_EMOTION_DOWNGRADE_RATE,
         _MIN_VOICE_DIVERSITY,
+        run_asr_check,
         run_qa,
     )
 
     console.print(f"[cyan]Running QA on:[/cyan] {data_dir}")
     report = run_qa(data_dir, max_failure_rate=max_failure_rate, run_summary=run_summary)
     stats = report.stats
+
+    # #87: opt-in Whisper sanity check.  Runs after run_qa so we already
+    # know the clips that validated; ASR results attach to the same report.
+    if asr:
+        console.print(
+            f"[cyan]Running ASR sanity (Whisper-large-v3, "
+            f"length_ratio < {asr_min_length_ratio}):[/cyan] {data_dir}"
+        )
+        report.asr_warnings = run_asr_check(data_dir, min_length_ratio=asr_min_length_ratio)
 
     table = Table(title="Dataset Statistics")
     table.add_column("Metric")
@@ -1476,6 +1521,12 @@ def qa_report(
     )
     table.add_row("Unique speakers", str(stats.speaker_count))
     table.add_row("Quality-flagged", str(stats.quality_flagged_clips))
+    if stats.clips_with_prosody_cap_activations > 0:
+        table.add_row(
+            "Clips with prosody-cap activations (#87)",
+            f"[yellow]{stats.clips_with_prosody_cap_activations}[/yellow]"
+            f" ({stats.prosody_cap_activations_total} total events)",
+        )
     missing_jsonl_label = (
         f"[yellow]{stats.clips_missing_strong_labels}[/yellow]"
         if stats.clips_missing_strong_labels > 0
@@ -1516,6 +1567,44 @@ def qa_report(
             console.print(f"  [red]• {clip_id}[/red]")
         if len(report.failed_clip_ids) > 20:
             console.print(f"  ... and {len(report.failed_clip_ids) - 20} more")
+
+    # #87: prosody-cap activations are surfaced as a top-level table because
+    # they catch a class of regression that the M10a/M10b checks cannot —
+    # specifically, prosody pushed past the listening-test-validated envelope.
+    if report.prosody_cap_activations:
+        t_caps = Table(title="Effective-Prosody Cap Activations (#87)")
+        t_caps.add_column("Clip ID")
+        t_caps.add_column("Cap events", justify="right")
+        for clip_id, count in sorted(
+            report.prosody_cap_activations.items(),
+            key=lambda kv: kv[1],
+            reverse=True,
+        )[:20]:
+            t_caps.add_row(clip_id, str(count))
+        console.print(t_caps)
+        if len(report.prosody_cap_activations) > 20:
+            console.print(f"  ... and {len(report.prosody_cap_activations) - 20} more")
+
+    # #87: ASR sanity surfaces clips whose length-ratio collapsed below the
+    # configured threshold — the Whisper "silence-detector trip" fingerprint.
+    if report.asr_warnings:
+        t_asr = Table(title=f"ASR Sanity Failures (#87, length_ratio < {asr_min_length_ratio})")
+        t_asr.add_column("Clip ID")
+        t_asr.add_column("WER", justify="right")
+        t_asr.add_column("len_ratio", justify="right")
+        t_asr.add_column("hyp / ref", justify="right")
+        for clip_id, m in sorted(report.asr_warnings.items(), key=lambda kv: kv[1]["length_ratio"])[
+            :20
+        ]:
+            t_asr.add_row(
+                clip_id,
+                f"{m['wer']:.3f}",
+                f"[red]{m['length_ratio']:.3f}[/red]",
+                f"{m['hyp_words']} / {m['ref_words']}",
+            )
+        console.print(t_asr)
+        if len(report.asr_warnings) > 20:
+            console.print(f"  ... and {len(report.asr_warnings) - 20} more")
 
     # --- M10b: run-level summary table ---
     if report.run_summary is not None:
@@ -1595,28 +1684,34 @@ def qa_report(
 
     if output is not None:
         output.parent.mkdir(parents=True, exist_ok=True)
-        report_dict = {
+        stats_dict: dict[str, object] = {
+            "total_clips": stats.total_clips,
+            "failed_clips": stats.failed_clips,
+            "total_duration_seconds": stats.total_duration_seconds,
+            "speaker_count": stats.speaker_count,
+            "quality_flagged_clips": stats.quality_flagged_clips,
+            "clips_missing_strong_labels": stats.clips_missing_strong_labels,
+            "clips_by_typology": stats.clips_by_typology,
+            "clips_by_split": stats.clips_by_split,
+            "clips_by_tier": stats.clips_by_tier,
+            "intensity_distribution": {str(k): v for k, v in stats.intensity_distribution.items()},
+            # #87: surface the prosody-cap counts in the JSON report so CI /
+            # post-batch scripts can detect drift without parsing every clip.
+            "clips_with_prosody_cap_activations": stats.clips_with_prosody_cap_activations,
+            "prosody_cap_activations_total": stats.prosody_cap_activations_total,
+        }
+        report_dict: dict[str, object] = {
             "data_dir": report.data_dir,
             "passed": report.passed,
             "failure_rate": report.failure_rate,
-            "stats": {
-                "total_clips": stats.total_clips,
-                "failed_clips": stats.failed_clips,
-                "total_duration_seconds": stats.total_duration_seconds,
-                "speaker_count": stats.speaker_count,
-                "quality_flagged_clips": stats.quality_flagged_clips,
-                "clips_missing_strong_labels": stats.clips_missing_strong_labels,
-                "clips_by_typology": stats.clips_by_typology,
-                "clips_by_split": stats.clips_by_split,
-                "clips_by_tier": stats.clips_by_tier,
-                "intensity_distribution": {
-                    str(k): v for k, v in stats.intensity_distribution.items()
-                },
-            },
+            "stats": stats_dict,
             "failed_clip_ids": report.failed_clip_ids,
             "quality_flagged": report.quality_flagged,
             "acoustic_warnings": report.acoustic_warnings,
             "structural_warnings": report.structural_warnings,
+            # #87: prosody-cap activations + ASR sanity (empty unless --asr).
+            "prosody_cap_activations": report.prosody_cap_activations,
+            "asr_warnings": report.asr_warnings,
         }
         if report.run_summary is not None:
             rs = report.run_summary
