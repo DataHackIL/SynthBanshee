@@ -17,7 +17,6 @@ This wiki is maintained by Splendor.
 
 ## Sources
 
-- [.agent plan](sources/src-9d9759e5adf63cef43ec7ec89015a42837d798f4456c2df01edc15b5a72a4286.md) (`src-9d9759e5adf63cef43ec7ec89015a42837d798f4456c2df01edc15b5a72a4286`)
 - [AGENTS](sources/src-6fd3cc5a7137e382e981de065a0ca93ad272c233bdb453520c78893ad8b163ba.md) (`src-6fd3cc5a7137e382e981de065a0ca93ad272c233bdb453520c78893ad8b163ba`)
 - [AGENTS](sources/src-7ab4089cd5a49b548294a0bb875cedfb6e32845b2fb24980b3bf109683a8bf13.md) (`src-7ab4089cd5a49b548294a0bb875cedfb6e32845b2fb24980b3bf109683a8bf13`)
 - [README](sources/src-c5bf85592f1e7cfa7ae71790b927d0adf824d1ef2f42c014cafa738f6083aa26.md) (`src-c5bf85592f1e7cfa7ae71790b927d0adf824d1ef2f42c014cafa738f6083aa26`)

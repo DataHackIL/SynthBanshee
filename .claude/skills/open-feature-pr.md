@@ -17,7 +17,7 @@ Run this after all commits are pushed. It completes a feature or milestone.
    git log main..HEAD --oneline
    ```
 
-2. Determine the milestone ID from the branch name or `.agent-plan.md`.
+2. Determine the milestone ID from the branch name (e.g. `feat/m17-...`) or from the parent issue's milestone field. Authoritative milestone status: `docs/audio_generation_v3_design.md` Implementation Tracker.
 
 3. Check for an existing milestone; create one if missing:
    ```bash
