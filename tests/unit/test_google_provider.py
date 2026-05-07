@@ -87,7 +87,10 @@ class TestProviderCapabilities:
         p = AzureProvider(sdk_factory=lambda k, r: MagicMock())
         caps = p.capabilities
         assert caps.supports_ssml is True
-        assert caps.supports_style_tags is False  # M14: disabled for he-IL voices
+        # #97: M14's False default was speculative; flipped pending the spike's
+        # listening-test verdict.  Production speakers all use style="General"
+        # so this is a no-op for default renders.
+        assert caps.supports_style_tags is True
         assert caps.supports_phoneme_tags is True
         assert caps.supports_api_emotion_sliders is False
 

@@ -77,6 +77,33 @@ _EFFECTIVE_RATE_MAX = 1.20
 _EFFECTIVE_RATE_MIN = 0.95
 
 
+# ---------------------------------------------------------------------------
+# #97 spike: VIC high-intensity express-as override
+# ---------------------------------------------------------------------------
+#
+# The 2026-05-07 listening test on PR #95's candidate render said VIC at I3–I5
+# sounds "like a robot whose pitch is a bit higher" — rate/pitch alone don't
+# carry distress on Hebrew Azure voices.  This env var is the spike's single
+# knob for A/B-testing Azure ``<mstts:express-as>`` styles on VIC at I4–I5
+# without changing any speaker YAML or production default.  Set it to one of
+# the he-IL-supported Azure styles (e.g. ``fearful``, ``terrified``,
+# ``whispering``, ``sad``); leave unset for the byte-identical baseline.
+#
+# Scope is intentionally narrow:
+#   - Only VIC role (matches the issue's pass criterion).
+#   - Only intensity ≥ 4 (where the listening test heard the gap).
+#   - Provider must already advertise supports_style_tags (Azure now does;
+#     Google still does not — the env var is a no-op there).
+#
+# When the spike concludes, replace this with whatever the listening test
+# decided: a permanent edit to VIC speaker YAMLs, a different lever from #97's
+# enumerated list, or a revert of the azure_provider.py flip if Azure's he-IL
+# express-as turns out to be perceptually flat.
+_SPIKE_97_ENV_VAR = "SYNTHBANSHEE_SPIKE_97_VIC_STYLE"
+_SPIKE_97_MIN_INTENSITY = 4
+_SPIKE_97_ROLE = "VIC"
+
+
 def _apply_effective_prosody_cap(
     rate: float,
     pitch: float,
@@ -265,10 +292,22 @@ class TTSRenderer:
         )
 
         provider = self._get_provider(speaker)
+
+        # #97 spike: optional VIC@I4–I5 express-as style override (see module docstring).
+        style_for_ssml = style_entry.style
+        spike_style = os.environ.get(_SPIKE_97_ENV_VAR)
+        if (
+            spike_style
+            and speaker.role == _SPIKE_97_ROLE
+            and intensity >= _SPIKE_97_MIN_INTENSITY
+            and provider.capabilities.supports_style_tags
+        ):
+            style_for_ssml = spike_style
+
         ssml = self._ssml_builder.build_from_speaker_config(
             text=text,
             voice_id=speaker.tts_voice_id,
-            style=style_entry.style,
+            style=style_for_ssml,
             rate_multiplier=rate,
             pitch_delta_st=pitch,
             volume_delta_db=volume,
