@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:15+00:00",
+  "aliases": [],
   "checksum": "ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/implementation_plan.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-ca5e04add8743f4c4164800a3aeb368d0be73be97042f9c379ee55cad023e721",
   "source_labels": [],
   "source_ref": "docs/implementation_plan.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-55f44e8ca0e680589bf1279609f291b04900ea672474002a21802a54b313c6c7",
+  "supersedes": [],
   "title": "implementation plan"
 }

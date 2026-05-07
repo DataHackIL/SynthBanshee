@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:22+00:00",
+  "aliases": [],
   "checksum": "05e2269fec7768aab79d408b6b762e131fb3460c91f42251e70dfc615980b5d0",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-05e2269fec7768aab79d408b6b762e131fb3460c91f42251e70dfc615980b5d0.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "synthbanshee/tts/renderer.py",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-05e2269fec7768aab79d408b6b762e131fb3460c91f42251e70dfc615980b5d0",
   "source_labels": [],
   "source_ref": "synthbanshee/tts/renderer.py",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-a924f3024371b11e8441484d5fd6780519d59488d12e67d62053a1e3e5201918",
+  "supersedes": [],
   "title": "renderer"
 }

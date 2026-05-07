@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:23+00:00",
+  "aliases": [],
   "checksum": "8bf7c1f35140580f9732827ae8465f6c03453788923f604a1f65808b3f364d41",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-8bf7c1f35140580f9732827ae8465f6c03453788923f604a1f65808b3f364d41.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "synthbanshee/cli.py",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-8bf7c1f35140580f9732827ae8465f6c03453788923f604a1f65808b3f364d41",
   "source_labels": [],
   "source_ref": "synthbanshee/cli.py",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-16f43795008c05e5677c3a8d476a0eedf4f541139ccc02db1cdc18899c525edf",
+  "supersedes": [],
   "title": "cli"
 }

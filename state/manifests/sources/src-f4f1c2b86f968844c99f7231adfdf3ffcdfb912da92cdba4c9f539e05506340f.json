@@ -1,0 +1,61 @@
+{
+  "added_at": "2026-05-06T21:33:04+00:00",
+  "aliases": [
+    "synthbanshee/tts/mixer.py"
+  ],
+  "checksum": "f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f",
+  "derived_artifacts": [],
+  "discovered_by": null,
+  "generated_by_run_ids": [
+    "run-src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f-20260506T213304870049Z"
+  ],
+  "kind": "source",
+  "last_run_id": "run-src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f-20260506T213304870049Z",
+  "linked_pages": [
+    "wiki/sources/src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f.md"
+  ],
+  "logical_id": "source:synthbanshee/tts/mixer.py",
+  "materialized_at": null,
+  "origin_url": null,
+  "original_path": "synthbanshee/tts/mixer.py",
+  "path": "synthbanshee/tts/mixer.py",
+  "pipeline_version": "0.4.0",
+  "provenance_links": [
+    {
+      "note": null,
+      "page_id": "src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f",
+      "path_ref": "wiki/sources/src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f.md",
+      "role": "generated-page",
+      "run_id": null,
+      "source_id": null
+    },
+    {
+      "note": null,
+      "page_id": null,
+      "path_ref": null,
+      "role": "output",
+      "run_id": "run-src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f-20260506T213304870049Z",
+      "source_id": "src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f"
+    }
+  ],
+  "review_state": "unreviewed",
+  "reviewed_at": null,
+  "reviewed_by": null,
+  "schema_version": "1",
+  "source_class": null,
+  "source_commit": "37c5f62be55a407c5b25753df6e7280dbbb64e09",
+  "source_commit_capture": true,
+  "source_id": "src-f4f1c2b86f968844c99f7231adfdf3ffcdfb912da92cdba4c9f539e05506340f",
+  "source_labels": [],
+  "source_ref": "synthbanshee/tts/mixer.py",
+  "source_ref_kind": "workspace_path",
+  "source_type": "py",
+  "status": "ingested",
+  "storage_mode": "none",
+  "storage_path": null,
+  "superseded_by": null,
+  "supersedes": [
+    "src-7706229e80cfbe02b508a76eb9345988578205928a859276ead7fec7952bb403"
+  ],
+  "title": "mixer"
+}

@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:15+00:00",
+  "aliases": [],
   "checksum": "fa470db101b8a5750947aeb64b5d20b444768498b29088df98dc33aa75c24493",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-fa470db101b8a5750947aeb64b5d20b444768498b29088df98dc33aa75c24493.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/spec.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-fa470db101b8a5750947aeb64b5d20b444768498b29088df98dc33aa75c24493",
   "source_labels": [],
   "source_ref": "docs/spec.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-5711642b828bd3cc22f85ce40e524fe65d427f18fd05eaf30c2650cbe3fc444f",
+  "supersedes": [],
   "title": "spec"
 }

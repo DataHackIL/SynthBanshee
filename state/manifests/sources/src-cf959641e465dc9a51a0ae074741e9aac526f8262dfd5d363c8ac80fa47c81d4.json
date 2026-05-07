@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T20:07:22+00:00",
+  "aliases": [],
   "checksum": "cf959641e465dc9a51a0ae074741e9aac526f8262dfd5d363c8ac80fa47c81d4",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-cf959641e465dc9a51a0ae074741e9aac526f8262dfd5d363c8ac80fa47c81d4.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "synthbanshee/tts/azure_provider.py",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": "b608c4742b57c2ac7bd9c651dbc2dea5bc199ad2",
+  "source_commit_capture": null,
   "source_id": "src-cf959641e465dc9a51a0ae074741e9aac526f8262dfd5d363c8ac80fa47c81d4",
   "source_labels": [],
   "source_ref": "synthbanshee/tts/azure_provider.py",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-b4c7ec553661f496f66e228cbe1297a187ef485b4b32197957a6db8acc02cb07",
+  "supersedes": [],
   "title": "azure provider"
 }

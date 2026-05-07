@@ -1,5 +1,6 @@
 {
   "added_at": "2026-04-30T21:11:20+00:00",
+  "aliases": [],
   "checksum": "0032ce484cf3a12b55535ba22c39eba309352f6564765fe5f6c2c87431294996",
   "derived_artifacts": [],
   "discovered_by": null,
@@ -11,6 +12,7 @@
   "linked_pages": [
     "wiki/sources/src-0032ce484cf3a12b55535ba22c39eba309352f6564765fe5f6c2c87431294996.md"
   ],
+  "logical_id": null,
   "materialized_at": null,
   "origin_url": null,
   "original_path": "docs/research/research_report_gpt-5.2-thinking.md",
@@ -40,6 +42,7 @@
   "schema_version": "1",
   "source_class": null,
   "source_commit": null,
+  "source_commit_capture": null,
   "source_id": "src-0032ce484cf3a12b55535ba22c39eba309352f6564765fe5f6c2c87431294996",
   "source_labels": [],
   "source_ref": "docs/research/research_report_gpt-5.2-thinking.md",
@@ -48,5 +51,7 @@
   "status": "ingested",
   "storage_mode": "none",
   "storage_path": null,
+  "superseded_by": "src-3f021eceaef9e8b77762fb624512b47938eb90bb614fbc529cda23e2b229c3d8",
+  "supersedes": [],
   "title": "research report gpt 5.2 thinking"
 }
