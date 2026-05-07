@@ -67,7 +67,14 @@ _VerboseLog = Callable[[str], None]
 _EFFECTIVE_PITCH_MAX_ST = 2.0  # ≈ +12% — pre-#51 AGG never exceeded this with drift
 _EFFECTIVE_PITCH_MIN_ST = -3.0  # pre-#51 VIC went down to -4 baseline + drift
 _EFFECTIVE_RATE_MAX = 1.20
-_EFFECTIVE_RATE_MIN = 0.85
+# #91 R experiment: rate floor lifted 0.85 → 0.95.  PR #90's symmetric pitch cap
+# closed most of the #87 WER gap on `sp_it_a_0001` (0.322 → 0.129) but left a
+# residual to the 04-15 baseline (0.056).  #89 falsified pitch as the residual
+# driver; rate is the next single-knob lever.  Hypothesis: VIC's I4/I5 slowdown
+# (style_map 0.90 × baseline 1.0 × drift → floors at 0.85) is what trips Whisper's
+# silence-detection heuristic.  Lifting the floor risks flattening VIC's
+# deliberate distress cue — listening test is the merge gate.
+_EFFECTIVE_RATE_MIN = 0.95
 
 
 def _apply_effective_prosody_cap(

@@ -142,6 +142,14 @@ class TestApplyEffectiveProsodyCapHelper:
         assert rate == _EFFECTIVE_RATE_MAX
         assert pitch == _EFFECTIVE_PITCH_MAX_ST
 
+    def test_rate_floor_anchored_to_0_95_for_issue_91(self):
+        # #91 R experiment lifts the rate floor 0.85 → 0.95 to test whether
+        # VIC's I4/I5 slowdown is what drives the residual Whisper WER gap on
+        # sp_it_a_0001 after PR #90.  Anchored as a literal so a silent revert
+        # back to 0.85 is caught here (paired listening test is the merge gate
+        # for any further movement on this constant).
+        assert _EFFECTIVE_RATE_MIN == 0.95
+
 
 # ---------------------------------------------------------------------------
 # 2. render_utterance integration (mocked Azure)
