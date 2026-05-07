@@ -105,12 +105,12 @@ Project codes: `SP` (She-Proves) · `EL` (Elephant in the Room)
 
 ### 3.1 Preprocessing Pipeline (ordered)
 
-All clips must pass through this pipeline before delivery. The "dirty" pre-pipeline file must be retained in `assets/` for robustness testing.
+All clips must pass through this pipeline before delivery. The "dirty" pre-pipeline file must be retained in `assets/` for robustness testing. Authoritative pipeline order lives in `synthbanshee/augment/preprocessing.py:preprocess()`; if this section disagrees with the code, the code wins.
 
-1. **Resample** — convert to 16,000 Hz (SoX `rate` with VHQ quality, or `torchaudio.functional.resample`)
-2. **Downmix** — stereo → mono (average channels)
-3. **Spectral filter** — low-pass at 7,500 Hz to remove irrelevant high-frequency noise from budget sensors (Butterworth order 4)
-4. **Denoising** — spectral subtraction (Wiener filtering) to remove electrical hum; parameterize noise profile from silent leading segment
+1. **Resample** — convert to 16 kHz with `scipy.signal.resample_poly` (polyphase filter; `torchaudio` is forbidden in this repo, see AGENTS.md).
+2. **Downmix** — stereo → mono via channel averaging.
+3. **High-pass filter at 80 Hz** (Butterworth order 2, sos form) to remove DC and sub-bass rumble that small phone microphones cannot capture. Note: M14 (PR #48, 2026-05-01) removed the legacy 7,500 Hz low-pass filter — at 16 kHz Nyquist (8 kHz) it was destroying sibilants and breathiness cues.
+4. **Denoising** — *optional*, controlled by `PreprocessingConfig.wiener_denoise` (default `False`). M14 changed the default because Wiener filtering on clean TTS output over-smooths high-frequency transients (muddy/muffled sound). Enable only for clips with real added noise (Tier B/C after acoustic augmentation).
 5. **Loudness normalization** (#78) — two stages:
    - **5a. Peak-normalize to target.** Apply a single global gain so the absolute peak lands at `PreprocessingConfig.target_peak_dbfs` (default −2.0 dBFS). A *single* gain preserves per-turn RMS *ratios* exactly, so the within-scene loudness trajectory established by per-turn RMS gain (M3a) survives — only the absolute level shifts. This step replaces the M3b "limiter only, never scale up" behaviour: pre-#78 the spec had only an upper bound on peak, leaving the absolute level unspecified; two clips could legitimately sit 6 dB apart and both be in-spec.
    - **5b. Safety limiter.** Attenuate any sample exceeding −1.0 dBFS. For in-spec target values (`target_peak_dbfs ∈ [−12.0, −1.5]`) this is a guaranteed no-op (0.5 dB margin); it remains as defence-in-depth against upstream over-range samples.
