@@ -23,15 +23,13 @@ class SpeechSDKProtocol(Protocol):
 
 _AZURE_CAPABILITIES = ProviderCapabilities(
     supports_ssml=True,
-    # #97: re-enabled.  M14's False default was speculative ("express-as styles
-    # are unavailable / blended for he-IL") — never validated by listening test.
-    # The PR #95 listening test (2026-05-07) found rate/pitch alone don't carry
-    # distress at I4–I5; this flip is the prerequisite for the spike's per-call
-    # style override on VIC@I4–I5 in renderer.py.  All production speakers in
-    # configs/speakers/ currently use style="General", so the flip is a no-op
-    # for existing renders — non-General styles only emit when the spike's
-    # override fires (gated by SYNTHBANSHEE_SPIKE_97_VIC_STYLE).
-    supports_style_tags=True,
+    supports_style_tags=False,  # M14: disabled for he-IL voices — express-as styles
+    # are not supported for Hebrew and cause voice identity shifts.
+    # Use <prosody> tags for emotional control instead.  #97 confirmed this
+    # empirically: the renderer's per-call override (renderer.py) was used to
+    # A/B-test express-as on a single VIC@I4 turn; Azure returned byte-identical
+    # audio for General and fearful SSML, falsifying any benefit to flipping
+    # this default.  See tests/fixtures/issue_97_fearful_ssml.json for evidence.
     supports_phoneme_tags=True,
     supports_api_emotion_sliders=False,
     max_volume_delta_db=None,

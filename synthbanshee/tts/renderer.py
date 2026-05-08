@@ -78,30 +78,28 @@ _EFFECTIVE_RATE_MIN = 0.95
 
 
 # ---------------------------------------------------------------------------
-# #97 spike: VIC high-intensity express-as override
+# VIC high-intensity express-as override (originally #97 spike, kept generic)
 # ---------------------------------------------------------------------------
 #
-# The 2026-05-07 listening test on PR #95's candidate render said VIC at I3–I5
-# sounds "like a robot whose pitch is a bit higher" — rate/pitch alone don't
-# carry distress on Hebrew Azure voices.  This env var is the spike's single
-# knob for A/B-testing Azure ``<mstts:express-as>`` styles on VIC at I4–I5
-# without changing any speaker YAML or production default.  Set it to one of
-# the he-IL-supported Azure styles (e.g. ``fearful``, ``terrified``,
-# ``whispering``, ``sad``); leave unset for the byte-identical baseline.
+# Per-call A/B knob for Azure ``<mstts:express-as>`` styles on VIC at high
+# intensity, without touching any speaker YAML or the provider's global
+# ``supports_style_tags`` capability.  When the env var is set:
+#   - VIC role at intensity ≥ 4
+#   - The renderer overrides ``style_entry.style`` with the env value AND
+#     forces ``supports_style_tags=True`` for this single SSML build (so the
+#     Azure default ``False`` is preserved for every other turn).
 #
-# Scope is intentionally narrow:
-#   - Only VIC role (matches the issue's pass criterion).
-#   - Only intensity ≥ 4 (where the listening test heard the gap).
-#   - Provider must already advertise supports_style_tags (Azure now does;
-#     Google still does not — the env var is a no-op there).
-#
-# When the spike concludes, replace this with whatever the listening test
-# decided: a permanent edit to VIC speaker YAMLs, a different lever from #97's
-# enumerated list, or a revert of the azure_provider.py flip if Azure's he-IL
-# express-as turns out to be perceptually flat.
-_SPIKE_97_ENV_VAR = "SYNTHBANSHEE_SPIKE_97_VIC_STYLE"
-_SPIKE_97_MIN_INTENSITY = 4
-_SPIKE_97_ROLE = "VIC"
+# Origin: the 2026-05-07 listening test on PR #95 said VIC at I3–I5 sounds
+# robotic; rate/pitch alone don't carry distress on Hebrew Azure voices.
+# #97 used this knob to A/B-test ``fearful`` and found Azure he-IL returns
+# byte-identical audio regardless of the express-as wrapper — see
+# ``tests/fixtures/issue_97_fearful_ssml.json``.  The mechanism is left in
+# place so the next style spike (e.g. ``terrified``) can run with no code
+# changes; if all styles are confirmed no-op, delete this block and the
+# unit test in ``tests/unit/test_vic_style_override.py``.
+_VIC_STYLE_OVERRIDE_ENV_VAR = "SYNTHBANSHEE_VIC_STYLE_OVERRIDE"
+_VIC_STYLE_OVERRIDE_MIN_INTENSITY = 4
+_VIC_STYLE_OVERRIDE_ROLE = "VIC"
 
 
 def _apply_effective_prosody_cap(
@@ -293,16 +291,19 @@ class TTSRenderer:
 
         provider = self._get_provider(speaker)
 
-        # #97 spike: optional VIC@I4–I5 express-as style override (see module docstring).
+        # Optional VIC@I≥4 express-as style override (see module docstring).
+        # Forces supports_style_tags=True for this single call so the override
+        # actually takes effect — without flipping the provider's global flag.
         style_for_ssml = style_entry.style
-        spike_style = os.environ.get(_SPIKE_97_ENV_VAR)
+        supports_style_tags = provider.capabilities.supports_style_tags
+        override_style = os.environ.get(_VIC_STYLE_OVERRIDE_ENV_VAR)
         if (
-            spike_style
-            and speaker.role == _SPIKE_97_ROLE
-            and intensity >= _SPIKE_97_MIN_INTENSITY
-            and provider.capabilities.supports_style_tags
+            override_style
+            and speaker.role == _VIC_STYLE_OVERRIDE_ROLE
+            and intensity >= _VIC_STYLE_OVERRIDE_MIN_INTENSITY
         ):
-            style_for_ssml = spike_style
+            style_for_ssml = override_style
+            supports_style_tags = True
 
         ssml = self._ssml_builder.build_from_speaker_config(
             text=text,
@@ -312,7 +313,7 @@ class TTSRenderer:
             pitch_delta_st=pitch,
             volume_delta_db=volume,
             phrase_prosody=phrase_prosody,
-            supports_style_tags=provider.capabilities.supports_style_tags,
+            supports_style_tags=supports_style_tags,
         )
 
         cache_key = self._cache_key(ssml)

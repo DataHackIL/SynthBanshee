@@ -1,0 +1,43 @@
+{
+  "issue": 97,
+  "scene": "sp_it_a_0001",
+  "captured_index": 13,
+  "speaker_role": "VIC",
+  "intensity": 4,
+  "voice_id": "he-IL-HilaNeural",
+  "prosody": {
+    "rate_multiplier": 0.95,
+    "pitch_delta_st": 2.0,
+    "volume_delta_db": 1.56912
+  },
+  "general": {
+    "style": "General",
+    "supports_style_tags_used": false,
+    "ssml_sha256": "9880c52f17531c8b4bc6ea3c95886cffdc9a048dfb37faec6bd8bc1d06742703",
+    "cache_file": "9880c52f17531c8b4bc6ea3c95886cffdc9a048dfb37faec6bd8bc1d06742703.wav",
+    "audio_bytes": 309934,
+    "audio_sha256": "f495bf6a20983d112f8be3da61ae65a444f516766745b4aa41ee7b021228c239",
+    "ssml_fingerprint": {
+      "has_xmlns_mstts": false,
+      "has_express_as_wrapper": false,
+      "ssml_byte_length": 287,
+      "note": "SSML body redacted \u2014 contained the rendered Hebrew utterance text. The ssml_sha256 below is authoritative; anyone with the codebase can regenerate the literal SSML by re-running the spike (see PR #98 reproducer)."
+    }
+  },
+  "fearful": {
+    "style": "fearful",
+    "supports_style_tags_used": true,
+    "ssml_sha256": "18aa1ae1005694f40ea8c9238365d93f664055a5ee7af0057588e9717a80b26c",
+    "cache_file": "18aa1ae1005694f40ea8c9238365d93f664055a5ee7af0057588e9717a80b26c.wav",
+    "audio_bytes": 309934,
+    "audio_sha256": "f495bf6a20983d112f8be3da61ae65a444f516766745b4aa41ee7b021228c239",
+    "ssml_fingerprint": {
+      "has_xmlns_mstts": true,
+      "has_express_as_wrapper": true,
+      "ssml_byte_length": 383,
+      "note": "SSML body redacted \u2014 contained the rendered Hebrew utterance text. The ssml_sha256 below is authoritative; anyone with the codebase can regenerate the literal SSML by re-running the spike (see PR #98 reproducer)."
+    }
+  },
+  "byte_identical": true,
+  "evidence": "Two distinct SSML strings (one wraps prosody with <mstts:express-as style=\"fearful\">, one does not; different SHA-256) hash to two distinct cache keys, both populated by real Azure he-IL-HilaNeural synthesis.  Their cached audio bytes are byte-identical \u2192 Azure's he-IL voice silently ignores the express-as wrapper for this voice and prosody combination."
+}
