@@ -122,6 +122,12 @@ OPENAI_API_KEY           # or ANTHROPIC_API_KEY for Claude script generation
 | Incident sparsity | ≥ 60% pre-incident | alert in final 40% |
 | Extra metadata key | `she_proves_meta` | `elephant_meta` |
 
+## Tooling preferences
+
+- **Always use the `git` and `gh` CLIs** for repo and GitHub operations (state, history, branches, worktrees, remotes, issues, PRs, reviews, comments, labels, releases, workflow runs — including `gh api` for anything `gh` doesn't surface directly). Do not use MCP equivalents for git or GitHub work.
+- **Prefer CLIs / SDKs / binaries over MCP servers in general.** Reach for an MCP tool only when it enables something a CLI genuinely cannot do — e.g., the underlying service has no usable CLI, or the MCP exposes a capability the CLI lacks.
+- The reason is auditability: CLI output and diffs are reviewable directly; MCP tool calls are opaquer.
+
 ## Feature / milestone completion checklist
 
 A feature or milestone is **not complete** until all of the following are true:
@@ -173,3 +179,4 @@ When addressing PR review comments (Copilot, human, or bot):
 - Don't pin `pr-agent-context` workflow references to a specific patch version — keep `@v4` floating
 - Don't relax the #87 effective-prosody cap (`_EFFECTIVE_PITCH_*`, `_EFFECTIVE_RATE_*` in `synthbanshee/tts/renderer.py`) without a paired listening test + `qa-report --asr` Tier-3 run; the cap defends both naturalness (May-3 listening test) and Whisper transcription
 - Don't merge a PR that touches audio rendering (`synthbanshee/tts/`, `synthbanshee/script/`, `synthbanshee/augment/`, or speaker / scene / acoustic / project YAMLs) without running `qa-report --asr` locally first and pasting the result into the PR's test plan (see "ASR sanity check policy")
+- Don't use MCP tools for git or GitHub operations — use the `git` and `gh` CLIs. More generally, don't reach for an MCP server when a CLI can do the same job (see "Tooling preferences")
