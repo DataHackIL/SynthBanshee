@@ -65,8 +65,14 @@ class PhraseProsody:
         char_end: Exclusive end offset.
         rate: SSML rate value (e.g. ``"+15%"``, ``"slow"``).
             ``None`` means no rate change.
-        pitch: SSML pitch value (e.g. ``"+2st"``). ``None`` means no change.
-        volume: SSML volume value (e.g. ``"+3dB"``). ``None`` means no change.
+        pitch: SSML pitch value (e.g. ``"+2st"`` or ``"+6%"``). ``None``
+            means no change. Mixing ``st`` (inner) with ``%`` (outer) is
+            tolerated by Azure.
+        volume: SSML volume value (e.g. ``"+3%"``). ``None`` means no
+            change. **Must be expressed in ``%``** to match the outer
+            ``<prosody volume="...">`` emitted by ``_volume_to_string``;
+            nesting ``volume="+NdB"`` inside ``volume="+N%"`` triggers
+            Azure SSML parser error 0x80045003 (#72).
         break_before_ms: Milliseconds of silence inserted before the span.
         break_after_ms: Milliseconds of silence inserted after the span.
     """
@@ -86,8 +92,10 @@ class PhraseProsody:
 # ---------------------------------------------------------------------------
 
 _HINT_DEFAULTS: dict[str, dict[str, str | int]] = {
-    # Stressed accusatory phrase — faster, louder, higher pitch
-    "stress": {"rate": "+15%", "volume": "+3dB", "pitch": "+1st", "break_before_ms": 0},
+    # Stressed accusatory phrase — faster, louder, higher pitch.
+    # `volume` must be in `%` (#72): Azure SSML rejects `volume="+NdB"`
+    # nested inside the outer `volume="+N%"` emitted by `_volume_to_string`.
+    "stress": {"rate": "+15%", "volume": "+3%", "pitch": "+1st", "break_before_ms": 0},
     # Deliberate command slowing — measured menace
     "slow": {"rate": "-20%", "break_before_ms": 150},
     # Pause before the phrase for dramatic weight
