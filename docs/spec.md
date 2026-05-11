@@ -24,8 +24,8 @@ All requirements in §2–§7 are binding on both the generator (the synthetic f
 ```
 data/
   {language_code}/
-    {speaker_id}/
-      {clip_id}.wav
+    {speaker_id_lower}/                    ← speaker_id.lower() of the scene's primary
+      {clip_id}.wav                          (AGG-role) speaker — see §2.3
       {clip_id}.txt         ← transcript (UTF-8, Hebrew in he-IL clips)
       {clip_id}.json        ← per-clip metadata (see §5)
       {clip_id}.jsonl       ← per-clip strong labels, one event per line (see §5.2)
@@ -67,16 +67,18 @@ Examples:
 
 Role codes: `AGG` (aggressor) · `VIC` (victim) · `BYS` (bystander) · `NEU` (neutral/non-violent speaker)
 
+`speaker_id` is **uppercase** wherever it appears as a value — in YAML configs, in JSON / JSONL / TXT outputs, in the manifest's `speaker_ids` column, and as a Python identifier at runtime. The **directory name** under `data/{language}/` is the lowercase form of this same id (per §2.5 every filesystem path component is ASCII lowercase). Concretely: a scene whose primary speaker is `AGG_M_30-45_001` writes to `data/he/agg_m_30-45_001/`, but every metadata value still reads `AGG_M_30-45_001`. Consumers reconstructing paths from metadata must apply `.lower()` to `speakers[0].speaker_id` (or read `wav_path` from the manifest, which is already correct).
+
 ### 2.4 Clip ID Format
 
 ```
 {project_code}_{violence_type_code}_{tier}_{scene_id:04d}_{segment:02d}
 ```
 
-Examples:
-- `SP_IT_B_0023_00` — She-Proves, Intimate Terrorism, Tier B, scene 23, full scene
-- `EL_SV_A_0105_03` — Elephant in the Room, Situational Violence, Tier A, scene 105, segment 3
-- `SP_NEG_C_0412_00` — She-Proves, Negative/Confusor, Tier C, scene 412
+Examples (on-disk form — §2.5 mandates lowercase filenames; the same id is uppercase in YAML scene configs, written by the CLI as `scene_id.lower().replace("-", "_")` at clip-write time):
+- `sp_it_b_0023_00` — She-Proves, Intimate Terrorism, Tier B, scene 23, full scene
+- `el_sv_a_0105_03` — Elephant in the Room, Situational Violence, Tier A, scene 105, segment 3
+- `sp_neg_c_0412_00` — She-Proves, Negative/Confusor, Tier C, scene 412
 
 Project codes: `SP` (She-Proves) · `EL` (Elephant in the Room)
 
@@ -247,7 +249,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
 
 ```json
 {
-  "clip_id": "SP_IT_B_0023_00",
+  "clip_id": "sp_it_b_0023_00",
   "project": "she_proves",
   "language": "he",
   "violence_typology": "IT",
@@ -256,10 +258,10 @@ Every clip has a companion `{clip_id}.json` file with this schema:
   "sample_rate": 16000,
   "channels": 1,
   "snr_db_estimated": 19.4,
-  "scene_config": "configs/scenes/SP_IT_B_0023.yaml",
+  "scene_config": "configs/scenes/she_proves/sp_it_b_0023.yaml",
   "random_seed": 42,
   "generation_date": "2026-04-10",
-  "generator_version": "avdp-synth-0.1.0",
+  "generator_version": "0.1.0",
   "is_synthetic": true,
   "tts_engine": "azure_he_IL",
   "acoustic_scene": {
@@ -276,14 +278,16 @@ Every clip has a companion `{clip_id}.json` file with this schema:
       "role": "AGG",
       "gender": "male",
       "age_range": "30-45",
-      "tts_voice_id": "he-IL-AvriNeural"
+      "tts_voice_id": "he-IL-AvriNeural",
+      "voice_family": "he-IL-AvriNeural"
     },
     {
       "speaker_id": "VIC_F_25-40_002",
       "role": "VIC",
       "gender": "female",
       "age_range": "25-40",
-      "tts_voice_id": "he-IL-HilaNeural"
+      "tts_voice_id": "he-IL-HilaNeural",
+      "voice_family": "he-IL-HilaNeural"
     }
   ],
   "weak_label": {
@@ -297,16 +301,40 @@ Every clip has a companion `{clip_id}.json` file with this schema:
     "downmixed_to_mono": true,
     "spectral_filtered": true,
     "denoised": true,
-    "normalized_dbfs": -1.0,
+    "normalized_dbfs": -2.0,
     "silence_padded": true
   },
-  "dirty_file_path": "assets/speech/he/AGG_M_30-45_001/SP_IT_B_0023_00_dirty.wav",
-  "transcript_path": "data/he/AGG_M_30-45_001/SP_IT_B_0023_00.txt",
+  "generation_metadata": {
+    "pipeline_version": "0.1.0",
+    "tts_backend": {"AGG_M_30-45_001": "azure", "VIC_F_25-40_002": "azure"},
+    "voice_family": {"AGG_M_30-45_001": "he-IL-AvriNeural", "VIC_F_25-40_002": "he-IL-HilaNeural"},
+    "mix_mode_used": "sequential",
+    "normalization_strategy": "per_turn_rms_v2_target_peak",
+    "loudness_target_peak_dbfs": -2.0,
+    "breathiness_applied": false,
+    "effective_prosody_caps": []
+  },
+  "dirty_file_path": "assets/speech/dirty/sp_it_b_0023_00_dirty.wav",
+  "transcript_path": "data/he/agg_m_30-45_001/sp_it_b_0023_00.txt",
   "quality_flags": [],
   "annotator_confidence": 1.0,
   "iaa_reviewed": false
 }
 ```
+
+`preprocessing_applied.normalized_dbfs` is the **measured** post-preprocess peak written by `synthbanshee.augment.preprocessing.preprocess()`. Pre-#78 this always landed at −1.0 dBFS (the limiter ceiling). Post-#78 it tracks `PreprocessingConfig.target_peak_dbfs` (default −2.0 dBFS, valid range `[−12.0, −1.5]`) — see §3 step 5. The same configured target also surfaces structurally in `generation_metadata.loudness_target_peak_dbfs`; pairing the two diagnoses loudness regressions from metadata alone.
+
+`generation_metadata` is present from `generator_version: 0.1.0` onward (added in M11 with the V3 pipeline) and is `null` on pre-M11 clips. Downstream tooling that reads its fields (`loudness_target_peak_dbfs`, `effective_prosody_caps`, `breathiness_applied`, `mix_mode_used`) must treat absence as "unknown", not as a failure.
+
+#### `weak_label.has_violence` — derivation rule
+
+Authoritative source: `LabelGenerator.build_clip_metadata` in `synthbanshee/labels/generator.py`. The flag is derived from the strong-label events, not from `violence_typology` or `max_intensity`:
+
+```python
+has_violence = any(e.tier1_category != "NONE" for e in events)
+```
+
+This means `NEG` (Negative / Confusor) clips are correctly `has_violence: false` even when `max_intensity ≥ 3` — by taxonomy definition (§4.1) NEG is "acoustically intense but non-violent", so every event ends up labelled `tier1_category: NONE` and the convenience flag stays false. Downstream consumers and external documentation **must mirror this rule**; do not re-derive `has_violence` from typology alone or you will disagree with the data on every NEG row.
 
 **`quality_flags`** valid values: `low_snr` · `clipping` · `short_silence_pad` · `label_uncertainty` · `iaa_disagreement` · `synthetic_artifact`
 
@@ -316,8 +344,8 @@ One record per labeled event, stored **per-clip** as `{clip_id}.jsonl` in the sa
 
 ```json
 {
-  "event_id": "SP_IT_B_0023_00_EVT_007",
-  "clip_id": "SP_IT_B_0023_00",
+  "event_id": "sp_it_b_0023_00_EVT_007",
+  "clip_id": "sp_it_b_0023_00",
   "onset": 143.82,
   "offset": 146.05,
   "tier1_category": "PHYS",

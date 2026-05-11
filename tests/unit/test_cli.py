@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 import soundfile as sf
 from click.testing import CliRunner
 
@@ -192,6 +193,61 @@ class TestGenerateCommand:
         # At least one WAV file was written
         wav_files = list((tmp_path / "out").rglob("*.wav"))
         assert len(wav_files) >= 1
+
+    def test_normalized_dbfs_reflects_actual_peak(self, tmp_path):
+        """`preprocessing_applied.normalized_dbfs` must echo the measured WAV peak,
+        not a stale hardcoded constant.  Pre-#100 the CLI wrote `-1.0` regardless
+        of `PreprocessingConfig.target_peak_dbfs` (default `-2.0` post-#78), so
+        every clip's JSON silently lied about its loudness."""
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "--config",
+                    str(SCENES_DIR / "test_scene_001.yaml"),
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        json_files = list((tmp_path / "out").rglob("*.json"))
+        assert len(json_files) >= 1
+        meta = json.loads(json_files[0].read_text())
+        normalized = meta["preprocessing_applied"]["normalized_dbfs"]
+        # Read the actual peak straight from the WAV
+        wav_path = next((tmp_path / "out").rglob("*.wav"))
+        data, _ = sf.read(str(wav_path))
+        actual_peak_dbfs = 20.0 * np.log10(float(np.max(np.abs(data))))
+        assert normalized == pytest.approx(actual_peak_dbfs, abs=0.05), (
+            f"normalized_dbfs={normalized} did not match measured WAV peak "
+            f"{actual_peak_dbfs:.3f} (regression of pre-#100 hardcoded -1.0)"
+        )
+        # Cross-check against the post-#78 default target (-2.0 dBFS).
+        # PreprocessingConfig clamps peak via a single global gain, so the
+        # measured peak should sit within 0.5 dB of the configured target.
+        target = -2.0
+        assert abs(normalized - target) < 0.6, (
+            f"normalized_dbfs={normalized} is more than 0.6 dB from the "
+            f"default target {target}; either target_peak_dbfs changed "
+            f"or the loudness step regressed"
+        )
 
     def test_full_generate_verbose(self, tmp_path):
         """--verbose flag exercises the vlog code path in _run_generate_pipeline."""

@@ -619,7 +619,9 @@ def _run_generate_pipeline(
         downmixed_to_mono=True,
         spectral_filtered=True,
         denoised=True,
-        normalized_dbfs=-1.0,
+        # Reflect the actual measured peak (#78 made the target configurable,
+        # so a hardcoded −1.0 here silently lied about loudness post-#78).
+        normalized_dbfs=result.peak_dbfs,
         silence_padded=True,
     )
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
