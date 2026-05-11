@@ -18,15 +18,18 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-if TYPE_CHECKING:
-    from synthbanshee.config.project_profile import ProjectProfile
-    from synthbanshee.config.scene_config import SceneConfig
-
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
+
+from synthbanshee.labels.schema import PreprocessingApplied
+
+if TYPE_CHECKING:
+    from synthbanshee.augment.preprocessing import PreprocessingResult
+    from synthbanshee.config.project_profile import ProjectProfile
+    from synthbanshee.config.scene_config import SceneConfig
 
 console = Console()
 
@@ -191,6 +194,24 @@ def _normalize_emotion(state: str) -> tuple[str, bool]:
     )
 
 
+def _build_preprocessing_metadata(result: PreprocessingResult) -> PreprocessingApplied:
+    """Construct the ``preprocessing_applied`` block from a finished preprocess run.
+
+    ``normalized_dbfs`` is the *measured* post-preprocess peak — see
+    ``PreprocessingApplied.normalized_dbfs`` and the docstring on
+    ``GenerationMetadata.loudness_target_peak_dbfs`` (which records the
+    *target* and is deliberately the separate field for that).
+    """
+    return PreprocessingApplied(
+        resampled_to_16k=True,
+        downmixed_to_mono=True,
+        spectral_filtered=True,
+        denoised=True,
+        normalized_dbfs=result.peak_dbfs,
+        silence_padded=True,
+    )
+
+
 def _run_generate_pipeline(
     config: Path,
     output_dir: Path,
@@ -223,7 +244,7 @@ def _run_generate_pipeline(
         LabelGenerator,
         ScriptEvent,
     )
-    from synthbanshee.labels.schema import PreprocessingApplied, SpeakerInfo
+    from synthbanshee.labels.schema import SpeakerInfo
     from synthbanshee.package.validator import validate_clip
     from synthbanshee.script.generator import ScriptGenerator
     from synthbanshee.tts.renderer import TTSRenderer
@@ -614,14 +635,7 @@ def _run_generate_pipeline(
         )
         for spk in speakers.values()
     ]
-    preprocessing_meta = PreprocessingApplied(
-        resampled_to_16k=True,
-        downmixed_to_mono=True,
-        spectral_filtered=True,
-        denoised=True,
-        normalized_dbfs=-1.0,
-        silence_padded=True,
-    )
+    preprocessing_meta = _build_preprocessing_metadata(result)
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []
 
     # M11: Build GenerationMetadata for pipeline provenance.
