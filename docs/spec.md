@@ -279,7 +279,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
   "sample_rate": 16000,
   "channels": 1,
   "snr_db_estimated": 19.4,
-  "scene_config": "configs/scenes/she_proves/sp_it_b_0023.yaml",
+  "scene_config": "configs/scenes/she_proves_tier_b/sp_it_b_0023.yaml",
   "random_seed": 42,
   "generation_date": "2026-04-10",
   "generator_version": "0.1.0",
