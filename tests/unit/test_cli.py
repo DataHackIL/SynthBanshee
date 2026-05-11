@@ -11,11 +11,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 import soundfile as sf
 from click.testing import CliRunner
 
 from synthbanshee.cli import (
     DiscoveredScene,
+    _build_preprocessing_metadata,
     _derive_event_type,
     _discover_scene_configs,
     _distribute_speakers,
@@ -731,36 +733,6 @@ class TestRunGeneratePipeline:
             )
         assert wav is None
         assert "bad sample rate" in errors
-
-    def test_normalized_dbfs_records_configured_target(self, tmp_path):
-        """`PreprocessingApplied.normalized_dbfs` echoes the live
-        `PreprocessingConfig.target_peak_dbfs`.  Pre-#101 the CLI wrote
-        `-1.0` regardless of the configured target, so the field silently
-        drifted from the actual normalization contract."""
-        from synthbanshee.config.preprocessing_config import PreprocessingConfig
-
-        turns = _make_dialogue_turns(n=1)
-        mixed = _make_mixed_scene(n_turns=1)
-
-        with (
-            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
-            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
-        ):
-            MockGen.return_value.generate.return_value = turns
-            MockRenderer.return_value.render_scene.return_value = mixed
-            wav, _ = _run_generate_pipeline(
-                SCENES_DIR / "test_scene_001.yaml",
-                tmp_path / "out",
-                tmp_path / "cache",
-                tmp_path / "dirty",
-                tmp_path / "scripts",
-            )
-
-        assert wav is not None
-        meta = json.loads(wav.with_suffix(".json").read_text())
-        assert meta["preprocessing_applied"]["normalized_dbfs"] == (
-            PreprocessingConfig().target_peak_dbfs
-        )
 
     def test_success_with_warnings_returns_wav_and_warnings(self, tmp_path):
         """Successful pipeline with validation warnings returns (wav_path, warnings)."""
@@ -1737,6 +1709,49 @@ class TestDeriveEventType:
     def test_unknown_typology_defaults_to_ambient(self):
         t1, t2 = _derive_event_type("UNKNOWN", 3)
         assert t1 == "NONE" and t2 == "NONE_AMBIENT"
+
+
+# ---------------------------------------------------------------------------
+# _build_preprocessing_metadata — unit tests
+# ---------------------------------------------------------------------------
+
+
+def _fake_preprocessing_result(peak_dbfs: float):
+    """Minimal PreprocessingResult for helper tests; only peak_dbfs is read."""
+    from synthbanshee.augment.preprocessing import PreprocessingResult
+
+    return PreprocessingResult(
+        output_path=Path("/tmp/unused.wav"),
+        dirty_path=None,
+        sample_rate=16000,
+        channels=1,
+        duration_seconds=4.0,
+        peak_dbfs=peak_dbfs,
+    )
+
+
+class TestBuildPreprocessingMetadata:
+    """`_build_preprocessing_metadata` must pass the *measured* peak from
+    `PreprocessingResult.peak_dbfs` into `PreprocessingApplied.normalized_dbfs`
+    — see the docstring on `GenerationMetadata.loudness_target_peak_dbfs` in
+    `synthbanshee/labels/schema.py` for why the field is measured (not target).
+    """
+
+    @pytest.mark.parametrize("peak_dbfs", [-1.0, -2.0, -2.013, -3.5, -11.97])
+    def test_passes_measured_peak_through(self, peak_dbfs):
+        """A non-default peak must flow into the JSON-bound model unchanged."""
+        meta = _build_preprocessing_metadata(_fake_preprocessing_result(peak_dbfs))
+        assert meta.normalized_dbfs == peak_dbfs
+
+    def test_preprocessing_step_flags_are_all_true(self):
+        """The block reports a fully-applied pipeline; flags must not drift to
+        False without a deliberate schema/spec change."""
+        meta = _build_preprocessing_metadata(_fake_preprocessing_result(-2.0))
+        assert meta.resampled_to_16k is True
+        assert meta.downmixed_to_mono is True
+        assert meta.spectral_filtered is True
+        assert meta.denoised is True
+        assert meta.silence_padded is True
 
 
 # ---------------------------------------------------------------------------

@@ -131,7 +131,7 @@ class TestHappyPath:
             downmixed_to_mono=True,
             spectral_filtered=True,
             denoised=True,
-            normalized_dbfs=-1.0,
+            normalized_dbfs=result.peak_dbfs,
             silence_padded=True,
         )
         metadata = self.label_gen.generate_clip_metadata(
