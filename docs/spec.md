@@ -46,6 +46,8 @@ assets/                     ← source assets (TTS outputs, SFX, IR files)
   noise/
 ```
 
+Path components are lowercase per §2.5; the `{speaker_id}` directory is `speaker_id.lower()` of the first speaker listed in the scene config — see §2.3.
+
 ### 2.2 Language Codes
 
 | Code | Language | Notes |
@@ -67,16 +69,18 @@ Examples:
 
 Role codes: `AGG` (aggressor) · `VIC` (victim) · `BYS` (bystander) · `NEU` (neutral/non-violent speaker)
 
+`speaker_id` values are uppercase wherever they appear — YAML configs, JSON / JSONL / TXT outputs, the manifest's `speaker_ids` column, runtime identifiers. The on-disk **directory name** under `data/{language}/` is the lowercase form of `scene.speakers[0].speaker_id` (the first listed speaker — for SV/IT scenes typically the aggressor; for NEU/NEG scenes whatever the YAML puts first). Concretely: a scene whose first listed speaker is `AGG_M_30-45_001` writes to `data/he/agg_m_30-45_001/`, but every metadata *value* still reads `AGG_M_30-45_001`. Code: `synthbanshee/cli.py` `_run_generate_pipeline` (`first_speaker_ref.speaker_id.lower()`).
+
 ### 2.4 Clip ID Format
 
 ```
 {project_code}_{violence_type_code}_{tier}_{scene_id:04d}_{segment:02d}
 ```
 
-Examples:
-- `SP_IT_B_0023_00` — She-Proves, Intimate Terrorism, Tier B, scene 23, full scene
-- `EL_SV_A_0105_03` — Elephant in the Room, Situational Violence, Tier A, scene 105, segment 3
-- `SP_NEG_C_0412_00` — She-Proves, Negative/Confusor, Tier C, scene 412
+Examples (on-disk form — lowercased by the CLI per §2.5; the same id appears uppercase as `scene_id:` in YAML scene configs):
+- `sp_it_b_0023_00` — She-Proves, Intimate Terrorism, Tier B, scene 23, full scene
+- `el_sv_a_0105_03` — Elephant in the Room, Situational Violence, Tier A, scene 105, segment 3
+- `sp_neg_c_0412_00` — She-Proves, Negative/Confusor, Tier C, scene 412
 
 Project codes: `SP` (She-Proves) · `EL` (Elephant in the Room)
 
@@ -247,7 +251,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
 
 ```json
 {
-  "clip_id": "SP_IT_B_0023_00",
+  "clip_id": "sp_it_b_0023_00",
   "project": "she_proves",
   "language": "he",
   "violence_typology": "IT",
@@ -256,10 +260,10 @@ Every clip has a companion `{clip_id}.json` file with this schema:
   "sample_rate": 16000,
   "channels": 1,
   "snr_db_estimated": 19.4,
-  "scene_config": "configs/scenes/SP_IT_B_0023.yaml",
+  "scene_config": "configs/scenes/she_proves/sp_it_b_0023.yaml",
   "random_seed": 42,
   "generation_date": "2026-04-10",
-  "generator_version": "avdp-synth-0.1.0",
+  "generator_version": "0.1.0",
   "is_synthetic": true,
   "tts_engine": "azure_he_IL",
   "acoustic_scene": {
@@ -276,14 +280,16 @@ Every clip has a companion `{clip_id}.json` file with this schema:
       "role": "AGG",
       "gender": "male",
       "age_range": "30-45",
-      "tts_voice_id": "he-IL-AvriNeural"
+      "tts_voice_id": "he-IL-AvriNeural",
+      "voice_family": "he-IL-AvriNeural"
     },
     {
       "speaker_id": "VIC_F_25-40_002",
       "role": "VIC",
       "gender": "female",
       "age_range": "25-40",
-      "tts_voice_id": "he-IL-HilaNeural"
+      "tts_voice_id": "he-IL-HilaNeural",
+      "voice_family": "he-IL-HilaNeural"
     }
   ],
   "weak_label": {
@@ -297,16 +303,42 @@ Every clip has a companion `{clip_id}.json` file with this schema:
     "downmixed_to_mono": true,
     "spectral_filtered": true,
     "denoised": true,
-    "normalized_dbfs": -1.0,
+    "normalized_dbfs": -2.0,
     "silence_padded": true
   },
-  "dirty_file_path": "assets/speech/he/AGG_M_30-45_001/SP_IT_B_0023_00_dirty.wav",
-  "transcript_path": "data/he/AGG_M_30-45_001/SP_IT_B_0023_00.txt",
+  "generation_metadata": {
+    "pipeline_version": "0.1.0",
+    "tts_backend": {"AGG_M_30-45_001": "azure", "VIC_F_25-40_002": "azure"},
+    "voice_family": {"AGG_M_30-45_001": "he-IL-AvriNeural", "VIC_F_25-40_002": "he-IL-HilaNeural"},
+    "mix_mode_used": "sequential",
+    "normalization_strategy": "per_turn_rms_v2_target_peak",
+    "loudness_target_peak_dbfs": -2.0,
+    "breathiness_applied": false,
+    "effective_prosody_caps": []
+  },
+  "dirty_file_path": "assets/speech/dirty/sp_it_b_0023_00_dirty.wav",
+  "transcript_path": "data/he/agg_m_30-45_001/sp_it_b_0023_00.txt",
   "quality_flags": [],
   "annotator_confidence": 1.0,
   "iaa_reviewed": false
 }
 ```
+
+**Field notes**
+
+- `preprocessing_applied.normalized_dbfs` is the configured target of step 5a (§3.1), i.e. `PreprocessingConfig.target_peak_dbfs` — same value also surfaces structurally in `generation_metadata.loudness_target_peak_dbfs`. Default `-2.0`, valid range `[-12.0, -1.5]`.
+- `generation_metadata` was wired in M11 (CLI build step). Clips produced before that commit have it as `null`; `generator_version` alone is not a reliable presence signal (the version was bumped before the field was wired). Treat absence as "unknown", not failure.
+- `speakers[].voice_family` defaults to `tts_voice_id` when the speaker YAML omits it; consumers should read whichever is non-empty.
+
+#### `weak_label.has_violence` — derivation rule
+
+Authoritative source: `LabelGenerator.build_clip_metadata` in `synthbanshee/labels/generator.py`:
+
+```python
+has_violence = any(e.tier1_category != "NONE" for e in events)
+```
+
+`NEG` (Negative / Confusor) clips are correctly `has_violence: false` even when `max_intensity ≥ 3` — by §4.1 NEG is "acoustically intense but non-violent", so every event ends up `tier1_category: "NONE"`. **External docs and downstream code must mirror this rule** — re-deriving from typology or intensity alone produces disagreement on every NEG row.
 
 **`quality_flags`** valid values: `low_snr` · `clipping` · `short_silence_pad` · `label_uncertainty` · `iaa_disagreement` · `synthetic_artifact`
 
@@ -316,8 +348,8 @@ One record per labeled event, stored **per-clip** as `{clip_id}.jsonl` in the sa
 
 ```json
 {
-  "event_id": "SP_IT_B_0023_00_EVT_007",
-  "clip_id": "SP_IT_B_0023_00",
+  "event_id": "sp_it_b_0023_00_EVT_007",
+  "clip_id": "sp_it_b_0023_00",
   "onset": 143.82,
   "offset": 146.05,
   "tier1_category": "PHYS",
@@ -540,7 +572,7 @@ The confusor set is **critical** for both projects. A model that cannot distingu
 Each `.txt` transcript file follows this format (UTF-8):
 
 ```
-[CLIP_ID: SP_IT_B_0023_00]
+[CLIP_ID: sp_it_b_0023_00]
 [SPEAKER: AGG_M_30-45_001 | ROLE: AGG | ONSET: 0.0 | OFFSET: 4.2]
 אמרתי לך לא ללכת לשם!
 [ACTION: VERB_SHOUT | INTENSITY: 4]
