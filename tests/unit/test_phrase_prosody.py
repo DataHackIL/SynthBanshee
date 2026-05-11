@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 
 from synthbanshee.tts.ssml_builder import SSMLBuilder, UtteranceSpec, _apply_phrase_prosody
 from synthbanshee.tts.ssml_types import (
+    _HINT_DEFAULTS,
     PhraseHint,
     PhraseProsody,
     _build_offset_map,
@@ -106,7 +107,10 @@ class TestResolvePhraseHints:
         )
         result = resolve_phrase_hints([hint], text, text)
         assert result[0].rate == "+15%"
-        assert result[0].volume == "+3dB"
+        # `volume` must be in `%` (#72): Azure SSML rejects `volume="+NdB"`
+        # nested inside the outer `volume="+N%"` emitted by `_volume_to_string`.
+        # Don't reintroduce `+3dB` here without also changing the outer emitter.
+        assert result[0].volume == "+3%"
         assert result[0].pitch == "+1st"
 
     def test_hint_defaults_applied_menace(self) -> None:
@@ -188,6 +192,44 @@ class TestResolvePhraseHints:
         # After clamping start=0, end=5 → valid 5-char span.
         assert len(result) == 1
         assert result[0].char_start == 0
+
+
+# ---------------------------------------------------------------------------
+# Hint defaults — Azure SSML unit invariant
+# ---------------------------------------------------------------------------
+
+
+class TestHintDefaultUnits:
+    """Azure rejects SSML when an inner `<prosody volume="+NdB">` is nested
+    inside an outer `<prosody volume="+N%">` (#72: `0x80045003 / Connection
+    was closed by the remote host`).  Since `_volume_to_string` always emits
+    the outer prosody volume in `%`, every nested phrase prosody value must
+    also be in `%`.  Reintroducing `dB` here re-breaks the corpus generation
+    for any scene that emits a `stress` hint (most violent / agitated scenes)."""
+
+    def test_no_hint_default_uses_db_for_volume(self) -> None:
+        for hint_name, defaults in _HINT_DEFAULTS.items():
+            volume = defaults.get("volume")
+            if volume is None:
+                continue
+            assert isinstance(volume, str)
+            assert not volume.endswith("dB"), (
+                f"Hint {hint_name!r} default volume {volume!r} uses dB; "
+                "must be % to match the outer prosody emitter and avoid #72 "
+                "(Azure SSML parse error 0x80045003)"
+            )
+
+    def test_hint_default_volumes_parse_as_percent(self) -> None:
+        for hint_name, defaults in _HINT_DEFAULTS.items():
+            volume = defaults.get("volume")
+            if volume is None:
+                continue
+            assert isinstance(volume, str)
+            assert volume.endswith("%"), (
+                f"Hint {hint_name!r} default volume {volume!r} must end in '%'"
+            )
+            n = volume.rstrip("%").lstrip("+")
+            int(n.lstrip("-"))  # numeric (no exception => fine)
 
 
 # ---------------------------------------------------------------------------
