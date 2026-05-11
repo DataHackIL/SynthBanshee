@@ -619,7 +619,7 @@ def _run_generate_pipeline(
         downmixed_to_mono=True,
         spectral_filtered=True,
         denoised=True,
-        normalized_dbfs=-1.0,
+        normalized_dbfs=preproc_config.target_peak_dbfs,
         silence_padded=True,
     )
     quality_flags = ["emotion_downgrade"] if emotion_downgrade_turns else []

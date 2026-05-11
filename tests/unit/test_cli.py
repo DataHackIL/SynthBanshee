@@ -732,6 +732,36 @@ class TestRunGeneratePipeline:
         assert wav is None
         assert "bad sample rate" in errors
 
+    def test_normalized_dbfs_records_configured_target(self, tmp_path):
+        """`PreprocessingApplied.normalized_dbfs` echoes the live
+        `PreprocessingConfig.target_peak_dbfs`.  Pre-#101 the CLI wrote
+        `-1.0` regardless of the configured target, so the field silently
+        drifted from the actual normalization contract."""
+        from synthbanshee.config.preprocessing_config import PreprocessingConfig
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _ = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+
+        assert wav is not None
+        meta = json.loads(wav.with_suffix(".json").read_text())
+        assert meta["preprocessing_applied"]["normalized_dbfs"] == (
+            PreprocessingConfig().target_peak_dbfs
+        )
+
     def test_success_with_warnings_returns_wav_and_warnings(self, tmp_path):
         """Successful pipeline with validation warnings returns (wav_path, warnings)."""
         turns = _make_dialogue_turns(n=1)
