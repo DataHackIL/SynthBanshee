@@ -14,6 +14,7 @@ from pathlib import Path
 import pydantic
 
 from synthbanshee.labels.schema import ClipMetadata
+from synthbanshee.package._paths import relative_to_data_root as _maybe_relative
 
 _MANIFEST_COLUMNS = [
     "clip_id",
@@ -57,6 +58,7 @@ def generate_manifest(
     *,
     splits: dict[str, str] | None = None,
     clip_ids: set[str] | None = None,
+    relative_to: Path | None = None,
 ) -> list[ManifestRow]:
     """Scan data_dir recursively for clip JSON files and write a manifest CSV.
 
@@ -73,6 +75,10 @@ def generate_manifest(
             whose clip_id is in this set are included in the manifest. Use this
             to restrict the manifest to a specific generation run when
             ``data_dir`` may contain clips from previous runs.
+        relative_to: Optional data root for path columns (#108). When
+            provided, ``wav_path`` and ``strong_labels_path`` are written
+            relative to this directory; paths outside the root fall back to
+            absolute form.
 
     Returns:
         List of ManifestRow objects that were written to output_path.
@@ -112,8 +118,10 @@ def generate_manifest(
                 max_intensity=metadata.weak_label.max_intensity,
                 quality_flags=",".join(metadata.quality_flags),
                 split=(splits or {}).get(metadata.clip_id, ""),
-                wav_path=str(json_path.with_suffix(".wav")),
-                strong_labels_path=str(jsonl_path) if jsonl_path.exists() else "",
+                wav_path=_maybe_relative(json_path.with_suffix(".wav"), relative_to),
+                strong_labels_path=(
+                    _maybe_relative(jsonl_path, relative_to) if jsonl_path.exists() else ""
+                ),
             )
         )
 

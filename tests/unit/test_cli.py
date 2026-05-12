@@ -22,12 +22,14 @@ from synthbanshee.cli import (
     _derive_event_type,
     _discover_scene_configs,
     _distribute_speakers,
+    _infer_data_root,
     _print_batch_summary,
     _print_selection_summary,
     _run_generate_pipeline,
     _select_configs_by_typology,
     cli,
 )
+from synthbanshee.package._paths import relative_to_data_root
 from synthbanshee.package.validator import ValidationResult
 
 SCENES_DIR = Path(__file__).parent.parent.parent / "configs" / "scenes"
@@ -540,6 +542,113 @@ class TestGenerateBatchCommand:
         # Manifest CSV must exist with at least a header row
         assert manifest_path.exists()
 
+    def test_full_batch_writes_relative_paths_to_manifest_and_clip_json(
+        self, tmp_path, monkeypatch
+    ):
+        """End-to-end #108 contract: with --data-root explicit, the resulting
+        manifest CSV's ``wav_path`` column and the per-clip JSON's
+        ``transcript_path`` are repo-relative — not absolute paths.
+
+        Catches the failure mode where the data_root threading was correct
+        in `_run_generate_pipeline` but forgotten in the `generate_manifest`
+        call (or vice versa). Both must be relative-anchored.
+        """
+        import csv as _csv
+
+        import yaml as _yaml
+
+        # #107: ensure none of the dir env vars leak into this CliRunner
+        # invocation. The strip fixture for that lives on the #107 PR
+        # branch (#110); this test keeps the protection local until that
+        # PR merges so the two fixes can land independently.
+        for _env in (
+            "SYNTHBANSHEE_DATA_DIR",
+            "SYNTHBANSHEE_CACHE_DIR",
+            "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
+        ):
+            monkeypatch.delenv(_env, raising=False)
+
+        # Lay out the corpus layout `<data_root>/data/he/`.
+        data_root = tmp_path / "corpus"
+        out_dir = data_root / "data" / "he"
+        out_dir.mkdir(parents=True)
+
+        scenes_dir = tmp_path / "scenes"
+        scenes_dir.mkdir()
+        scene = {
+            "scene_id": "SP_NEU_A_0000",
+            "project": "she_proves",
+            "language": "he",
+            "violence_typology": "NEU",
+            "tier": "A",
+            "random_seed": 0,
+            "speakers": [{"speaker_id": "AGG_M_30-45_001", "role": "AGG"}],
+            "script_template": "synthbanshee/script/templates/she_proves/neutral_domestic_routine.j2",
+            "script_slots": {},
+            "intensity_arc": [1, 1, 1],
+            "target_duration_minutes": 3.0,
+            "output_dir": str(out_dir),
+        }
+        (scenes_dir / "scene_000.yaml").write_text(_yaml.dump(scene), encoding="utf-8")
+
+        run_cfg_path = tmp_path / "run.yaml"
+        run_cfg_path.write_text(
+            _BATCH_RUN_CONFIG_TEMPLATE.format(
+                output_dir=str(out_dir),
+                scene_configs_dir=str(scenes_dir),
+            ),
+            encoding="utf-8",
+        )
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        manifest_path = data_root / "manifest.csv"
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            result = runner.invoke(
+                cli,
+                [
+                    "generate-batch",
+                    "--run-config",
+                    str(run_cfg_path),
+                    "--manifest-out",
+                    str(manifest_path),
+                    "--cache-dir",
+                    str(data_root / "assets" / "speech"),
+                    "--dirty-dir",
+                    str(data_root / "assets" / "speech" / "dirty"),
+                    "--script-cache-dir",
+                    str(data_root / "assets" / "scripts"),
+                    "--data-root",
+                    str(data_root),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+
+        # Manifest CSV: wav_path column must be repo-relative.
+        with manifest_path.open(encoding="utf-8") as fh:
+            rows = list(_csv.DictReader(fh))
+        assert len(rows) == 1, f"expected one row, got: {rows}"
+        wav_col = rows[0]["wav_path"]
+        assert not Path(wav_col).is_absolute(), (
+            f"manifest wav_path should be relative, got: {wav_col!r}"
+        )
+        assert wav_col.startswith("data/he/"), wav_col
+
+        # Per-clip JSON: transcript_path must also be repo-relative.
+        clip_jsons = list(out_dir.rglob("*.json"))
+        assert clip_jsons, "no clip JSON written"
+        meta = json.loads(clip_jsons[0].read_text(encoding="utf-8"))
+        assert not Path(meta["transcript_path"]).is_absolute()
+        assert meta["transcript_path"].startswith("data/he/"), meta["transcript_path"]
+
     def test_no_distribute_speakers_skips_distribution(self, tmp_path):
         """--no-distribute-speakers produces empty override maps for every scene."""
         import yaml as _yaml
@@ -973,6 +1082,96 @@ class TestRunGeneratePipeline:
             "clip_json should not exist on pre-validation failure"
         )
 
+    def test_metadata_paths_are_repo_relative(self, tmp_path):
+        """`dirty_file_path` and `transcript_path` in clip JSON are repo-relative (#108).
+
+        Models the corpus layout: ``<data_root>/data/he/<speaker>/<clip>``
+        and ``<data_root>/assets/speech/dirty/<clip>_dirty.wav``. With
+        ``data_root`` resolved to ``<data_root>``, both metadata path
+        fields must come out relative — not absolute, machine-specific
+        paths as in pre-#108 corpus snapshots.
+        """
+        data_root = tmp_path / "corpus"
+        out_dir = data_root / "data" / "he"
+        cache_dir = data_root / "assets" / "speech"
+        dirty_dir = cache_dir / "dirty"
+        script_cache_dir = data_root / "assets" / "scripts"
+        for d in (out_dir, cache_dir, dirty_dir, script_cache_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _messages = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                out_dir,
+                cache_dir,
+                dirty_dir,
+                script_cache_dir,
+                data_root=data_root,
+            )
+
+        assert wav is not None
+        meta_json = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta_json["transcript_path"].startswith("data/he/"), (
+            f"transcript_path should be repo-relative, got: {meta_json['transcript_path']}"
+        )
+        assert not Path(meta_json["transcript_path"]).is_absolute()
+        if meta_json.get("dirty_file_path"):
+            assert meta_json["dirty_file_path"].startswith("assets/speech/dirty/"), (
+                f"dirty_file_path should be repo-relative, got: {meta_json['dirty_file_path']}"
+            )
+            assert not Path(meta_json["dirty_file_path"]).is_absolute()
+
+    def test_metadata_paths_fall_back_to_absolute_when_outside_root(self, tmp_path):
+        """Paths outside *data_root* keep their absolute form (graceful fallback).
+
+        Documents the contract: ``_relative_to_data_root`` does not raise
+        when a path is outside the root — it returns ``str(path)`` so the
+        clip is still written successfully. Future runs with a correct
+        ``data_root`` produce relative paths; legacy data is not retro-
+        actively rewritten.
+        """
+        out_dir = tmp_path / "out"
+        cache_dir = tmp_path / "cache"
+        dirty_dir = tmp_path / "dirty"
+        script_cache_dir = tmp_path / "scripts"
+        for d in (out_dir, cache_dir, dirty_dir, script_cache_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        # data_root deliberately points elsewhere — neither out_dir nor
+        # dirty_dir are under it.
+        bogus_root = tmp_path / "elsewhere"
+        bogus_root.mkdir()
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _ = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                out_dir,
+                cache_dir,
+                dirty_dir,
+                script_cache_dir,
+                data_root=bogus_root,
+            )
+
+        assert wav is not None
+        meta_json = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        # Out-of-root → absolute fallback. Not great, but not a crash.
+        assert Path(meta_json["transcript_path"]).is_absolute()
+
 
 # ---------------------------------------------------------------------------
 # generate command — additional failure and warning branches
@@ -1320,6 +1519,7 @@ class TestGenerateBatchAdvanced:
             speaker_overrides=None,
             project_profile=None,
             enable_breathiness=False,
+            data_root=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -1863,6 +2063,116 @@ def _fake_preprocessing_result(peak_dbfs: float):
         duration_seconds=4.0,
         peak_dbfs=peak_dbfs,
     )
+
+
+class TestInferDataRoot:
+    """Direct unit tests for `_infer_data_root` — the helper that owns the
+    "two parents above output_dir" magic used by #108. Covers every branch
+    of the function so a future refactor can't silently regress the
+    inference contract.
+    """
+
+    def test_explicit_override_returned_resolved(self, tmp_path):
+        """An explicit override is returned (resolved, unchanged otherwise)."""
+        override = tmp_path / "explicit_root"
+        override.mkdir()
+        # output_dir is irrelevant when override is set
+        result = _infer_data_root(Path("/whatever/data/he"), override)
+        assert result == override.resolve()
+
+    def test_corpus_shape_inferred_to_two_parents_up(self, tmp_path):
+        """`<root>/data/he/` → infers `<root>` (the corpus convention)."""
+        data_he = tmp_path / "data" / "he"
+        data_he.mkdir(parents=True)
+        result = _infer_data_root(data_he, override=None)
+        assert result == tmp_path.resolve()
+
+    def test_shallow_root_returns_none(self):
+        """A path with fewer than two parents has no sensible data root."""
+        # "/" has zero parents; "/foo" has one parent ("/"). Both bail.
+        assert _infer_data_root(Path("/"), override=None) is None
+
+    def test_relative_path_resolves_against_cwd(self, tmp_path, monkeypatch):
+        """A relative output_dir resolves against cwd before inference."""
+        nested = tmp_path / "corpus" / "data" / "he"
+        nested.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path / "corpus")
+        result = _infer_data_root(Path("data/he"), override=None)
+        # Resolved path: <tmp_path>/corpus/data/he → parent.parent → <tmp_path>/corpus
+        assert result == (tmp_path / "corpus").resolve()
+
+
+class TestRelativeToDataRoot:
+    """Direct unit tests for the shared helper that owns #108's
+    repo-relative path rendering — exercised by both cli.py
+    (clip JSON) and manifest.py (manifest CSV)."""
+
+    def test_returns_posix_relative_when_under_root(self, tmp_path):
+        root = tmp_path / "corpus"
+        path = root / "data" / "he" / "clip.wav"
+        path.parent.mkdir(parents=True)
+        path.touch()
+        # POSIX separators, regardless of host OS (#108 Copilot review).
+        assert relative_to_data_root(path, root) == "data/he/clip.wav"
+
+    def test_data_root_none_returns_resolved_absolute_posix(self, tmp_path):
+        """`data_root=None` returns a *resolved* absolute POSIX string."""
+        target = tmp_path / "corpus" / "data" / "he" / "clip.wav"
+        target.parent.mkdir(parents=True)
+        target.touch()
+        result = relative_to_data_root(target, None)
+        assert Path(result).is_absolute()
+        # No backslashes — POSIX everywhere.
+        assert "\\" not in result
+
+    def test_relative_input_data_root_none_still_returns_absolute(self, tmp_path, monkeypatch):
+        """A relative input + ``data_root=None`` must resolve to absolute.
+
+        Copilot's #108 review caught the original bug: the function
+        claimed "absolute fallback" but returned ``str(path)`` verbatim,
+        which is relative if the input was relative. The fix calls
+        ``Path.resolve()`` on every code path.
+        """
+        nested = tmp_path / "corpus" / "data" / "he"
+        nested.mkdir(parents=True)
+        (nested / "clip.wav").touch()
+        monkeypatch.chdir(tmp_path / "corpus")
+        result = relative_to_data_root(Path("data/he/clip.wav"), None)
+        assert Path(result).is_absolute(), (
+            f"relative input with data_root=None must resolve to absolute, got: {result!r}"
+        )
+
+    def test_path_outside_root_falls_back_to_resolved_absolute_with_warning(self, tmp_path, caplog):
+        root = tmp_path / "corpus"
+        root.mkdir()
+        outside = tmp_path / "elsewhere" / "clip.wav"
+        outside.parent.mkdir(parents=True)
+        outside.touch()
+        with caplog.at_level("WARNING", logger="synthbanshee.package._paths"):
+            result = relative_to_data_root(outside, root)
+        assert Path(result).is_absolute()
+        # Must be resolved (no backslashes, no '..').
+        assert "\\" not in result and ".." not in result
+        # The point of the warning: misconfigured data_root must not be silent.
+        assert any("is outside data_root" in rec.message for rec in caplog.records), (
+            f"No fallback warning emitted. caplog records: {caplog.records}"
+        )
+
+    def test_relative_input_outside_root_also_resolves_to_absolute(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Combined edge case from Copilot's #108 review: relative input
+        + path outside the configured data_root must still produce an
+        absolute string (not a misleading relative one)."""
+        root = tmp_path / "corpus"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "clip.wav").touch()
+        monkeypatch.chdir(tmp_path)
+        with caplog.at_level("WARNING", logger="synthbanshee.package._paths"):
+            result = relative_to_data_root(Path("elsewhere/clip.wav"), root)
+        assert Path(result).is_absolute(), f"expected absolute fallback, got: {result!r}"
 
 
 class TestBuildPreprocessingMetadata:
