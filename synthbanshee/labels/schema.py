@@ -216,7 +216,19 @@ class ClipMetadata(BaseModel):
     weak_label: WeakLabel
     preprocessing_applied: PreprocessingApplied = Field(default_factory=PreprocessingApplied)
     dirty_file_path: str | None = None
+    """Path to the retained pre-preprocessing WAV (#108).
+
+    Written relative to the data root passed to ``synthbanshee generate``
+    via ``--data-root`` / ``SYNTHBANSHEE_DATA_ROOT`` (default: two parents
+    above ``--output-dir``). Older corpus snapshots may still carry
+    absolute paths; consumers should treat both forms as accepted but
+    only emit relative paths going forward."""
+
     transcript_path: str | None = None
+    """Path to the ``.txt`` transcript file (#108).
+
+    Written relative to the data root — see ``dirty_file_path`` for the
+    anchor convention."""
     quality_flags: list[str] = Field(default_factory=list)
     annotator_confidence: float = Field(ge=0.0, le=1.0, default=1.0)
     iaa_reviewed: bool = False

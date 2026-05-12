@@ -212,6 +212,40 @@ def _build_preprocessing_metadata(result: PreprocessingResult) -> PreprocessingA
     )
 
 
+def _relative_to_data_root(path: Path, data_root: Path | None) -> str:
+    """Render *path* as a string relative to *data_root* when possible.
+
+    #108 — clip JSON / manifest CSV must record repo-relative paths so the
+    corpus is portable. Returns ``str(path.resolve().relative_to(data_root))``
+    when *path* is genuinely under *data_root* (after resolving symlinks on
+    both sides), falling back to ``str(path)`` otherwise. *data_root* of
+    ``None`` short-circuits to the legacy absolute form.
+    """
+    if data_root is None:
+        return str(path)
+    try:
+        return str(Path(path).resolve().relative_to(Path(data_root).resolve()))
+    except ValueError:
+        return str(path)
+
+
+def _infer_data_root(output_dir: Path, override: Path | None) -> Path | None:
+    """Pick a data root for path-rewriting in clip metadata.
+
+    Returns *override* when supplied. Otherwise infers from *output_dir*:
+    the corpus convention is ``<data_root>/data/he/``, so two parents up is
+    the right anchor. Returns ``None`` only when no sensible inference is
+    possible (e.g. *output_dir* has fewer than two parents), in which case
+    callers leave paths absolute.
+    """
+    if override is not None:
+        return Path(override).resolve()
+    resolved = Path(output_dir).resolve()
+    if len(resolved.parents) < 2:
+        return None
+    return resolved.parent.parent
+
+
 def _run_generate_pipeline(
     config: Path,
     output_dir: Path,
@@ -222,6 +256,7 @@ def _run_generate_pipeline(
     speaker_overrides: dict[str, str] | None = None,
     project_profile: ProjectProfile | None = None,
     enable_breathiness: bool = False,
+    data_root: Path | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Run the full single-clip generate pipeline.
 
@@ -698,6 +733,10 @@ def _run_generate_pipeline(
         effective_prosody_caps=_cap_events,
     )
 
+    # #108: clip metadata records repo-relative paths so the corpus is
+    # portable. Anchor at *data_root*; fall back to the legacy absolute form
+    # if a path is genuinely outside the root.
+    _resolved_data_root = _infer_data_root(output_dir, data_root)
     metadata = label_gen.generate_clip_metadata(
         clip_id=f"{clip_id}_00",
         project=scene.project,
@@ -709,8 +748,12 @@ def _run_generate_pipeline(
         scene_config_path=str(config),
         random_seed=scene.random_seed,
         preprocessing=preprocessing_meta,
-        dirty_file_path=str(result.dirty_path) if result.dirty_path else None,
-        transcript_path=str(clip_txt),
+        dirty_file_path=(
+            _relative_to_data_root(result.dirty_path, _resolved_data_root)
+            if result.dirty_path
+            else None
+        ),
+        transcript_path=_relative_to_data_root(clip_txt, _resolved_data_root),
         acoustic_scene=acoustic_scene_meta,
         quality_flags=quality_flags,
         generation_metadata=gen_meta,
@@ -789,6 +832,17 @@ def cli() -> None:
     help="LLM script generation cache directory.",
 )
 @click.option(
+    "--data-root",
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar="SYNTHBANSHEE_DATA_ROOT",
+    help=(
+        "Root directory that paths in clip JSON metadata are written "
+        "relative to (corpus repo root by convention). Defaults to "
+        "two parents above --output-dir."
+    ),
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
@@ -817,6 +871,7 @@ def generate(
     cache_dir: Path,
     dirty_dir: Path,
     script_cache_dir: Path,
+    data_root: Path | None,
     dry_run: bool,
     project_profile: str | None,
     verbose: bool,
@@ -858,6 +913,7 @@ def generate(
         script_cache_dir,
         verbose=verbose,
         project_profile=profile,
+        data_root=data_root,
     )
 
     if wav_path is None:
@@ -1040,6 +1096,7 @@ def _render_one(
     speaker_overrides: dict[str, str] | None = None,
     project_profile: ProjectProfile | None = None,
     enable_breathiness: bool = False,
+    data_root: Path | None = None,
 ) -> tuple[Path | None, list[str]]:
     """Render a single clip with retries.
 
@@ -1067,6 +1124,7 @@ def _render_one(
             speaker_overrides=speaker_overrides,
             project_profile=project_profile,
             enable_breathiness=enable_breathiness,
+            data_root=data_root,
         )
         if wav_path is not None:
             return wav_path, messages
@@ -1111,6 +1169,16 @@ def _render_one(
     show_default=True,
     envvar="SYNTHBANSHEE_SCRIPT_CACHE_DIR",
     help="LLM script generation cache directory.",
+)
+@click.option(
+    "--data-root",
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar="SYNTHBANSHEE_DATA_ROOT",
+    help=(
+        "Root directory that paths in clip JSON metadata and manifest CSV "
+        "are written relative to. Defaults to two parents above --output-dir."
+    ),
 )
 @click.option(
     "--manifest-out",
@@ -1159,6 +1227,7 @@ def generate_batch(
     cache_dir: Path,
     dirty_dir: Path,
     script_cache_dir: Path,
+    data_root: Path | None,
     manifest_out: Path | None,
     dry_run: bool,
     workers: int,
@@ -1283,6 +1352,7 @@ def generate_batch(
                     speaker_overrides=speaker_override_map.get(scene_yaml),
                     project_profile=profile,
                     enable_breathiness=run_cfg.enable_breathiness,
+                    data_root=data_root,
                 )
                 progress.advance(task_id)
                 if wav_path is None:
@@ -1317,6 +1387,7 @@ def generate_batch(
                         speaker_override_map.get(scene_yaml),
                         profile,
                         run_cfg.enable_breathiness,
+                        data_root,
                     ): scene_yaml
                     for scene_yaml in selected_paths
                 }
@@ -1366,7 +1437,15 @@ def generate_batch(
     )
 
     # --- Manifest ---
-    rows = generate_manifest(out_dir, manifest_path, splits=splits, clip_ids=set(splits.keys()))
+    # #108: anchor manifest paths at the same data root used for clip JSON.
+    _manifest_data_root = _infer_data_root(out_dir, data_root)
+    rows = generate_manifest(
+        out_dir,
+        manifest_path,
+        splits=splits,
+        clip_ids=set(splits.keys()),
+        relative_to=_manifest_data_root,
+    )
     console.print(f"[bold green]Manifest written:[/bold green] {manifest_path} ({len(rows)} rows)")
 
     # --- Summary ---

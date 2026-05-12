@@ -838,6 +838,96 @@ class TestRunGeneratePipeline:
             "clip_json should not exist on pre-validation failure"
         )
 
+    def test_metadata_paths_are_repo_relative(self, tmp_path):
+        """`dirty_file_path` and `transcript_path` in clip JSON are repo-relative (#108).
+
+        Models the corpus layout: ``<data_root>/data/he/<speaker>/<clip>``
+        and ``<data_root>/assets/speech/dirty/<clip>_dirty.wav``. With
+        ``data_root`` resolved to ``<data_root>``, both metadata path
+        fields must come out relative — not absolute, machine-specific
+        paths as in pre-#108 corpus snapshots.
+        """
+        data_root = tmp_path / "corpus"
+        out_dir = data_root / "data" / "he"
+        cache_dir = data_root / "assets" / "speech"
+        dirty_dir = cache_dir / "dirty"
+        script_cache_dir = data_root / "assets" / "scripts"
+        for d in (out_dir, cache_dir, dirty_dir, script_cache_dir):
+            d.mkdir(parents=True, exist_ok=True)
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _messages = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                out_dir,
+                cache_dir,
+                dirty_dir,
+                script_cache_dir,
+                data_root=data_root,
+            )
+
+        assert wav is not None
+        meta_json = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        assert meta_json["transcript_path"].startswith("data/he/"), (
+            f"transcript_path should be repo-relative, got: {meta_json['transcript_path']}"
+        )
+        assert not Path(meta_json["transcript_path"]).is_absolute()
+        if meta_json.get("dirty_file_path"):
+            assert meta_json["dirty_file_path"].startswith("assets/speech/dirty/"), (
+                f"dirty_file_path should be repo-relative, got: {meta_json['dirty_file_path']}"
+            )
+            assert not Path(meta_json["dirty_file_path"]).is_absolute()
+
+    def test_metadata_paths_fall_back_to_absolute_when_outside_root(self, tmp_path):
+        """Paths outside *data_root* keep their absolute form (graceful fallback).
+
+        Documents the contract: ``_relative_to_data_root`` does not raise
+        when a path is outside the root — it returns ``str(path)`` so the
+        clip is still written successfully. Future runs with a correct
+        ``data_root`` produce relative paths; legacy data is not retro-
+        actively rewritten.
+        """
+        out_dir = tmp_path / "out"
+        cache_dir = tmp_path / "cache"
+        dirty_dir = tmp_path / "dirty"
+        script_cache_dir = tmp_path / "scripts"
+        for d in (out_dir, cache_dir, dirty_dir, script_cache_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        # data_root deliberately points elsewhere — neither out_dir nor
+        # dirty_dir are under it.
+        bogus_root = tmp_path / "elsewhere"
+        bogus_root.mkdir()
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _ = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                out_dir,
+                cache_dir,
+                dirty_dir,
+                script_cache_dir,
+                data_root=bogus_root,
+            )
+
+        assert wav is not None
+        meta_json = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+        # Out-of-root → absolute fallback. Not great, but not a crash.
+        assert Path(meta_json["transcript_path"]).is_absolute()
+
 
 # ---------------------------------------------------------------------------
 # generate command — additional failure and warning branches
@@ -1185,6 +1275,7 @@ class TestGenerateBatchAdvanced:
             speaker_overrides=None,
             project_profile=None,
             enable_breathiness=False,
+            data_root=None,
         ):
             call_count[0] += 1
             if call_count[0] == 1:

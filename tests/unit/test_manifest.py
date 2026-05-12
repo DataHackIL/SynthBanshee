@@ -175,6 +175,37 @@ class TestGenerateManifest:
             reader = csv.DictReader(fh)
             assert set(reader.fieldnames or []) == set(_MANIFEST_COLUMNS)
 
+    def test_relative_to_rewrites_path_columns(self, tmp_path):
+        """When ``relative_to`` is set, ``wav_path`` / ``strong_labels_path``
+        are written relative to that root (#108)."""
+        speaker_dir = tmp_path / "data" / "he" / "agg_m_30-45_001"
+        wav_path = _write_valid_clip(speaker_dir, "clip_rel_00")
+        # Also drop a .jsonl so the strong_labels_path column is populated.
+        wav_path.with_suffix(".jsonl").write_text("{}\n", encoding="utf-8")
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out, relative_to=tmp_path)
+
+        assert len(rows) == 1
+        assert rows[0].wav_path == "data/he/agg_m_30-45_001/clip_rel_00.wav"
+        assert rows[0].strong_labels_path == "data/he/agg_m_30-45_001/clip_rel_00.jsonl"
+        assert not Path(rows[0].wav_path).is_absolute()
+
+    def test_relative_to_none_keeps_absolute_paths(self, tmp_path):
+        """Default ``relative_to=None`` preserves pre-#108 absolute-path behaviour.
+
+        Documents the back-compat contract — callers that don't opt into
+        the new ``relative_to`` argument see no behaviour change.
+        """
+        speaker_dir = tmp_path / "spk_abs"
+        _write_valid_clip(speaker_dir, "clip_abs_00")
+        out = tmp_path / "manifest.csv"
+
+        rows = generate_manifest(tmp_path, out)
+
+        assert len(rows) == 1
+        assert Path(rows[0].wav_path).is_absolute()
+
     def test_dirty_files_excluded(self, tmp_path):
         """JSON files whose stems contain '_dirty' must not appear in the manifest."""
         clip_dir = tmp_path / "spk_000"
