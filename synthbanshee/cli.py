@@ -1702,8 +1702,8 @@ def qa_report(
             else str(rs.backend_count)
         )
         t_run.add_row("TTS backends", be_label)
-        for engine, count in sorted(rs.clips_by_tts_engine.items()):
-            t_run.add_row(f"  {engine}", str(count))
+        for backend, count in sorted(rs.clips_by_tts_backend.items()):
+            t_run.add_row(f"  {backend}", str(count))
 
         # Overlap and emotion-downgrade ratios
         ovr_label = (
@@ -1806,7 +1806,7 @@ def qa_report(
                 ],
                 "voices_by_gender": rs.voices_by_gender,
                 "backend_count": rs.backend_count,
-                "clips_by_tts_engine": rs.clips_by_tts_engine,
+                "clips_by_tts_backend": rs.clips_by_tts_backend,
                 "overlap_ratio": rs.overlap_ratio,
                 "clips_with_i4_plus": rs.clips_with_i4_plus,
                 "emotion_downgrade_ratio": rs.emotion_downgrade_ratio,

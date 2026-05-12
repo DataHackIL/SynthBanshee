@@ -27,7 +27,7 @@ docs/ tests/unit/ tests/integration/
 - **Filenames:** strictly lowercase `[a-z0-9_-]`
 - **JSON string fields validated by `ClipMetadata`:** no characters above U+00A1
 - Hebrew text goes in `.j2` templates or `.txt` transcripts only
-- `ClipMetadata` enforces the string-field rule via `@field_validator` on `clip_id`, `project`, `tts_engine`, `violence_typology`, `generator_version`
+- `ClipMetadata` enforces the string-field rule via `@field_validator` on `clip_id`, `project`, `violence_typology`, `generator_version`
 
 ## Audio format (hard constraints)
 

@@ -58,7 +58,6 @@ def _write_valid_clip(
         "generation_date": datetime.date.today().isoformat(),
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": "azure_he_IL",
         "acoustic_scene": {},
         "speakers": [
             {
@@ -360,7 +359,6 @@ class TestGenerateManifest:
                     "generation_date": datetime.date.today().isoformat(),
                     "generator_version": "0.1.0",
                     "is_synthetic": True,
-                    "tts_engine": "azure_he_IL",
                     "acoustic_scene": {},
                     "speakers": [
                         {

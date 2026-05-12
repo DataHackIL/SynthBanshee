@@ -25,7 +25,6 @@ def _minimal_clip_metadata(**overrides) -> dict:
         "generation_date": "2026-05-01",
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": "azure_he_IL",
         "weak_label": {
             "has_violence": False,
             "violence_categories": [],

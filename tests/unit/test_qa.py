@@ -89,12 +89,17 @@ def _write_valid_clip(
     duration: float = 4.0,
     speaker_id: str = "AGG_M_30-45_001",
     quality_flags: list[str] | None = None,
-    tts_engine: str = "azure_he_IL",
+    tts_backend: dict[str, str] | None = None,
     tts_voice_id: str = "he-IL-AvriNeural",
     gender: str = "male",
     prosody_cap_events: list[dict] | None = None,
 ) -> Path:
-    """Write a minimal valid WAV + TXT + JSON triplet and return the WAV path."""
+    """Write a minimal valid WAV + TXT + JSON triplet and return the WAV path.
+
+    *tts_backend* populates ``generation_metadata.tts_backend`` per-speaker
+    (#109 replaced the old flat ``tts_engine`` field). Defaults to a
+    single-speaker azure map keyed on *speaker_id*.
+    """
     parent.mkdir(parents=True, exist_ok=True)
     wav_path = parent / f"{clip_id}.wav"
     txt_path = parent / f"{clip_id}.txt"
@@ -124,7 +129,6 @@ def _write_valid_clip(
         "generation_date": datetime.date.today().isoformat(),
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": tts_engine,
         "acoustic_scene": {},
         "speakers": [
             {
@@ -146,11 +150,15 @@ def _write_valid_clip(
         "annotator_confidence": 1.0,
         "iaa_reviewed": False,
     }
+    # #109: every clip carries generation_metadata so qa-report's
+    # backend-diversity derivation has a per-speaker source of truth.
+    gen_meta: dict[str, object] = {
+        "pipeline_version": "0.1.0",
+        "tts_backend": tts_backend if tts_backend is not None else {speaker_id: "azure"},
+    }
     if prosody_cap_events is not None:
-        metadata["generation_metadata"] = {
-            "pipeline_version": "0.1.0",
-            "effective_prosody_caps": prosody_cap_events,
-        }
+        gen_meta["effective_prosody_caps"] = prosody_cap_events
+    metadata["generation_metadata"] = gen_meta
     json_path.write_text(json.dumps(metadata), encoding="utf-8")
     return wav_path
 
@@ -1012,9 +1020,40 @@ class TestRunQARunSummary:
         report = run_qa(tmp_path, run_summary=True)
         rs = report.run_summary
         assert rs is not None
-        # Both clips use azure_he_IL by default
+        # Both clips default to azure backend (single-speaker)
         assert rs.backend_count == 1
-        assert rs.clips_by_tts_engine.get("azure_he_IL") == 2
+        assert rs.clips_by_tts_backend.get("azure") == 2
+
+    def test_run_summary_backend_diversity_mixed_azure_google(self, tmp_path):
+        """Two clips on different backends → ``backend_count`` is 2 and
+        ``single_backend`` is NOT in run_warnings (#109)."""
+        _write_valid_clip(
+            tmp_path / "spk_a", "clip_001_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        _write_valid_clip(
+            tmp_path / "spk_b", "clip_002_00", tts_backend={"AGG_M_30-45_001": "google"}
+        )
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        assert rs.backend_count == 2
+        assert rs.clips_by_tts_backend.get("azure") == 1
+        assert rs.clips_by_tts_backend.get("google") == 1
+        assert "single_backend" not in rs.run_warnings
+
+    def test_run_summary_backend_diversity_all_azure_fires_warning(self, tmp_path):
+        """Two clips both on azure → ``single_backend`` IS in run_warnings (#109)."""
+        _write_valid_clip(
+            tmp_path / "spk_a", "clip_001_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        _write_valid_clip(
+            tmp_path / "spk_b", "clip_002_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        assert rs.backend_count == 1
+        assert "single_backend" in rs.run_warnings
 
     def test_run_summary_voice_diversity(self, tmp_path):
         _write_valid_clip(tmp_path / "spk_a", "clip_001_00", speaker_id="SPK_A")

@@ -121,7 +121,6 @@ def _write_valid_clip(tmp_path: Path, clip_id: str = "test_clip_01") -> Path:
         "generation_date": datetime.date.today().isoformat(),
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": "azure_he_IL",
         "acoustic_scene": {},
         "speakers": [],
         "weak_label": {

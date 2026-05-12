@@ -284,7 +284,6 @@ Every clip has a companion `{clip_id}.json` file with this schema:
   "generation_date": "2026-04-10",
   "generator_version": "0.1.0",
   "is_synthetic": true,
-  "tts_engine": "azure_he_IL",
   "acoustic_scene": {
     "room_type": "apartment_kitchen",
     "device": "phone_in_pocket",
@@ -345,6 +344,7 @@ Every clip has a companion `{clip_id}.json` file with this schema:
 **Field notes**
 
 - `preprocessing_applied.normalized_dbfs` is the **measured** post-preprocess peak (pair with `generation_metadata.loudness_target_peak_dbfs` to compute drift from target — see `labels/schema.py` for the docstring that pins this split).
+- `tts_engine` was **removed in #109**. The TTS provider is now recorded per-speaker in `generation_metadata.tts_backend` (e.g. `{"AGG_M_30-45_001": "azure", "VIC_F_25-40_002": "google"}`); read backend diversity from the structured map. Pre-#109 corpus snapshots still carry the field — consumers should tolerate but ignore it.
 - `generation_metadata` is **optional**: a JSON object when the generator recorded pipeline provenance, `null` otherwise. Treat absence as "unknown", not as failure. `generator_version` alone is not a reliable presence signal.
 - `speakers[].voice_family` is **optional**: a stable family handle (e.g. `"Avri"`) when the speaker YAML overrides it, omitted otherwise. Consumers should fall back to `tts_voice_id`.
 - `weak_label.has_violence` is **derived**, not asserted: `any(e.tier1_category != "NONE" for e in events)` — see `synthbanshee/labels/generator.py`. Corollaries: empty `events` → `False`; `NEG` typology clips are `False` (every event lands `tier1_category: "NONE"` by §4.1); `violence_typology` and `has_violence` may disagree (e.g. `SV` with `False` if no violent tier1 fired). The events are the ground truth; the flag is convenience. **External docs and downstream code must mirror this rule** — re-deriving from typology or intensity alone produces disagreement on every NEG row.
