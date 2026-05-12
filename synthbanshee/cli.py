@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from synthbanshee.config.scene_config import SceneConfig
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 class DiscoveredScene(NamedTuple):
@@ -210,23 +211,6 @@ def _build_preprocessing_metadata(result: PreprocessingResult) -> PreprocessingA
         normalized_dbfs=result.peak_dbfs,
         silence_padded=True,
     )
-
-
-def _relative_to_data_root(path: Path, data_root: Path | None) -> str:
-    """Render *path* as a string relative to *data_root* when possible.
-
-    #108 — clip JSON / manifest CSV must record repo-relative paths so the
-    corpus is portable. Returns ``str(path.resolve().relative_to(data_root))``
-    when *path* is genuinely under *data_root* (after resolving symlinks on
-    both sides), falling back to ``str(path)`` otherwise. *data_root* of
-    ``None`` short-circuits to the legacy absolute form.
-    """
-    if data_root is None:
-        return str(path)
-    try:
-        return str(Path(path).resolve().relative_to(Path(data_root).resolve()))
-    except ValueError:
-        return str(path)
 
 
 def _infer_data_root(output_dir: Path, override: Path | None) -> Path | None:
@@ -735,7 +719,9 @@ def _run_generate_pipeline(
 
     # #108: clip metadata records repo-relative paths so the corpus is
     # portable. Anchor at *data_root*; fall back to the legacy absolute form
-    # if a path is genuinely outside the root.
+    # if a path is genuinely outside the root (with a warning logged).
+    from synthbanshee.package._paths import relative_to_data_root
+
     _resolved_data_root = _infer_data_root(output_dir, data_root)
     metadata = label_gen.generate_clip_metadata(
         clip_id=f"{clip_id}_00",
@@ -749,11 +735,11 @@ def _run_generate_pipeline(
         random_seed=scene.random_seed,
         preprocessing=preprocessing_meta,
         dirty_file_path=(
-            _relative_to_data_root(result.dirty_path, _resolved_data_root)
+            relative_to_data_root(result.dirty_path, _resolved_data_root)
             if result.dirty_path
             else None
         ),
-        transcript_path=_relative_to_data_root(clip_txt, _resolved_data_root),
+        transcript_path=relative_to_data_root(clip_txt, _resolved_data_root),
         acoustic_scene=acoustic_scene_meta,
         quality_flags=quality_flags,
         generation_metadata=gen_meta,
@@ -1004,12 +990,9 @@ def _distribute_speakers(
     Scenes whose speakers already match the assigned variant get an empty
     override dict (no-op).
     """
-    import logging
     import random
 
     from synthbanshee.config.speaker_config import SpeakerConfig
-
-    logger = logging.getLogger(__name__)
 
     # 1. Discover all available speakers.
     all_speakers: dict[str, SpeakerConfig] = {}
@@ -1383,11 +1366,11 @@ def generate_batch(
                         script_cache_dir,
                         run_cfg.max_retries,
                         stop_event,
-                        verbose,
-                        speaker_override_map.get(scene_yaml),
-                        profile,
-                        run_cfg.enable_breathiness,
-                        data_root,
+                        verbose=verbose,
+                        speaker_overrides=speaker_override_map.get(scene_yaml),
+                        project_profile=profile,
+                        enable_breathiness=run_cfg.enable_breathiness,
+                        data_root=data_root,
                     ): scene_yaml
                     for scene_yaml in selected_paths
                 }

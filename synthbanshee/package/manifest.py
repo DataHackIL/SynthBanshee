@@ -14,6 +14,7 @@ from pathlib import Path
 import pydantic
 
 from synthbanshee.labels.schema import ClipMetadata
+from synthbanshee.package._paths import relative_to_data_root as _maybe_relative
 
 _MANIFEST_COLUMNS = [
     "clip_id",
@@ -49,22 +50,6 @@ class ManifestRow:
     split: str  # "train" | "val" | "test" | "" (empty if unassigned)
     wav_path: str
     strong_labels_path: str  # path to .jsonl, empty string if absent
-
-
-def _maybe_relative(path: Path, root: Path | None) -> str:
-    """Render *path* as repo-relative when *root* is provided and contains it.
-
-    Mirrors ``synthbanshee.cli._relative_to_data_root`` so the manifest CSV
-    and per-clip JSON agree on path shape. Falls back to the absolute form
-    when *path* is genuinely outside *root* (after resolving symlinks on
-    both sides) or when *root* is ``None``.
-    """
-    if root is None:
-        return str(path)
-    try:
-        return str(path.resolve().relative_to(root.resolve()))
-    except ValueError:
-        return str(path)
 
 
 def generate_manifest(
