@@ -130,7 +130,13 @@ class RunSummary:
     # #109: histogram of (clip, distinct backend used) pairs, derived from
     # generation_metadata.tts_backend.values() rather than the old hardcoded
     # ClipMetadata.tts_engine field. A clip with two speakers on different
-    # providers contributes one count to each backend.
+    # providers contributes one count to each backend, so
+    # ``sum(clips_by_tts_backend.values()) >= total_clips`` — the pre-#109
+    # sum invariant no longer holds. Pre-#109 corpus clips (which lack
+    # ``generation_metadata`` entirely) are bucketed under the
+    # ``"unknown"`` backend key so they still appear in the histogram and
+    # in ``backend_count``; otherwise they would silently vanish from
+    # diversity metrics whenever an old + new corpus is mixed.
     clips_by_tts_backend: dict[str, int] = field(default_factory=dict)
 
     # Overlap and emotion-downgrade ratios
@@ -427,13 +433,20 @@ def run_qa(
 
         # M10b: track voice and backend diversity (#109 — derive backend
         # from generation_metadata.tts_backend per-speaker map, not the
-        # removed flat tts_engine field).
+        # removed flat tts_engine field). Clips that lack
+        # generation_metadata (pre-#109 corpus snapshots) bucket under
+        # "unknown" so they remain visible in the histogram rather than
+        # silently vanishing.
         if run_summary:
-            if metadata.generation_metadata is not None:
+            if metadata.generation_metadata is not None and (
+                metadata.generation_metadata.tts_backend
+            ):
                 clip_backends = set(metadata.generation_metadata.tts_backend.values())
-                _tts_backends.update(clip_backends)
-                for backend in clip_backends:
-                    _clips_by_backend[backend] += 1
+            else:
+                clip_backends = {"unknown"}
+            _tts_backends.update(clip_backends)
+            for backend in clip_backends:
+                _clips_by_backend[backend] += 1
             for spk in metadata.speakers:
                 _voices_by_gender[spk.gender].add(spk.tts_voice_id)
 
