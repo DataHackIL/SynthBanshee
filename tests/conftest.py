@@ -17,30 +17,6 @@ from __future__ import annotations
 
 import pytest
 
-# Env vars consumed by `synthbanshee/cli.py` Click options as defaults.
-# If these leak into a `CliRunner`-backed test, generated artifacts land
-# in the developer's corpus tree instead of `tmp_path`. See #107.
-_SYNTHBANSHEE_DIR_ENV_VARS = (
-    "SYNTHBANSHEE_DATA_DIR",
-    "SYNTHBANSHEE_CACHE_DIR",
-    "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
-)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_synthbanshee_env_vars(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Strip ``SYNTHBANSHEE_*`` dir env vars for the duration of every test.
-
-    Click options in ``synthbanshee/cli.py`` read these as ``envvar=``
-    defaults. Without this fixture, sourcing the repo's ``.envrc`` before
-    running ``pytest`` causes ``CliRunner``-backed tests to write
-    generated clips into the developer's corpus tree.
-    """
-    for name in _SYNTHBANSHEE_DIR_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(

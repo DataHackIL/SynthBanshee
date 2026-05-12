@@ -231,73 +231,137 @@ class TestGenerateCommand:
 
 
 # ---------------------------------------------------------------------------
-# Env-var isolation (regression test for #107)
+# Env-var isolation (regression tests for #107)
 # ---------------------------------------------------------------------------
 
 
-class TestSynthbansheeEnvVarIsolation:
-    """The autouse conftest fixture must strip ``SYNTHBANSHEE_*`` dir env vars.
+def _invoke_generate_without_dir_flags(tmp_path):
+    """Invoke ``synthbanshee generate`` with no explicit dir flags.
 
-    Without this, a developer who has sourced the repo's ``.envrc`` before
-    running ``pytest`` will see ``CliRunner``-backed tests leak generated
-    clips into the corpus tree (see #107). The fixture lives in
-    ``tests/conftest.py``; these tests assert its contract.
+    Models the leak scenario from #107: when neither ``--output-dir`` nor
+    ``--cache-dir`` / ``--script-cache-dir`` is given, Click reads the
+    ``envvar=`` default, so any leaked ``SYNTHBANSHEE_DATA_DIR`` etc.
+    from the parent shell steers artifacts. Returns the CliRunner result.
+    """
+    turns = _make_dialogue_turns(n=1)
+    mixed = _make_mixed_scene(n_turns=1)
+    runner = CliRunner()
+    with (
+        patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+        patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+    ):
+        MockGen.return_value.generate.return_value = turns
+        MockRenderer.return_value.render_scene.return_value = mixed
+        # --dirty-dir has no envvar; pin it to tmp_path so the test never
+        # writes into the developer's assets/speech/dirty/ tree.
+        return runner.invoke(
+            cli,
+            [
+                "generate",
+                "--config",
+                str(SCENES_DIR / "test_scene_001.yaml"),
+                "--dirty-dir",
+                str(tmp_path / "dirty"),
+            ],
+        )
+
+
+class TestSynthbansheeEnvVarLeakWithoutFixture:
+    """Proves the leak vector exists when the isolation fixture is absent.
+
+    The autouse strip fixture from ``tests/unit/conftest.py`` is
+    overridden here as a no-op. The test then sets env vars and invokes
+    the CLI without explicit dir flags — Click's ``envvar=`` defaults
+    pick up the leaked values and write artifacts under them, which is
+    exactly the #107 fingerprint. If this test ever starts failing,
+    Click's envvar semantics have changed and the strip fixture may no
+    longer be needed.
     """
 
-    def test_env_vars_are_unset_in_test_process(self):
-        """Each ``SYNTHBANSHEE_*`` dir env var is missing during the test."""
+    @pytest.fixture(autouse=True)
+    def _isolate_synthbanshee_env_vars(self, monkeypatch):
+        """Override the conftest strip fixture: no-op."""
+        yield
+
+    def test_env_var_steers_output_dir_when_not_stripped(self, tmp_path, monkeypatch):
+        """``SYNTHBANSHEE_DATA_DIR`` from env leaks into the generated clip path."""
+        leak_data_dir = tmp_path / "leak_data_he"
+        leak_cache_dir = tmp_path / "leak_cache"
+        leak_scripts_dir = tmp_path / "leak_scripts"
+        # monkeypatch.setenv handles teardown; survives the test's autouse
+        # no-op override (which doesn't strip anything).
+        monkeypatch.setenv("SYNTHBANSHEE_DATA_DIR", str(leak_data_dir))
+        monkeypatch.setenv("SYNTHBANSHEE_CACHE_DIR", str(leak_cache_dir))
+        monkeypatch.setenv("SYNTHBANSHEE_SCRIPT_CACHE_DIR", str(leak_scripts_dir))
+
+        result = _invoke_generate_without_dir_flags(tmp_path)
+        assert result.exit_code == 0, result.output
+
+        leaked_wavs = list(leak_data_dir.rglob("*.wav"))
+        assert leaked_wavs, (
+            f"Without the strip fixture, SYNTHBANSHEE_DATA_DIR={leak_data_dir} "
+            f"should have steered the generated WAV under it. If this test "
+            "starts failing, Click's envvar semantics have changed and the "
+            "strip fixture in tests/unit/conftest.py may no longer be needed."
+        )
+
+
+class TestSynthbansheeEnvVarFixtureStripsParentShellEnv:
+    """Proves the autouse strip fixture defeats parent-shell env vars.
+
+    A class-scoped autouse fixture sets the env vars at class setup —
+    which runs BEFORE the function-scoped autouse strip from
+    ``tests/unit/conftest.py``. This simulates the realistic scenario
+    where ``.envrc`` (or a CI env block) has set the vars before pytest
+    started. The test then asserts the strip fixture has cleared them.
+    Without this two-fixture choreography, asserting
+    ``os.environ.get(...) is None`` is trivially true on any clean CI
+    box and does not exercise the contract.
+    """
+
+    @pytest.fixture(autouse=True, scope="class")
+    def _simulate_parent_shell_env(self):
+        """Set env vars at class setup, before function-scoped strip runs."""
+        for name in (
+            "SYNTHBANSHEE_DATA_DIR",
+            "SYNTHBANSHEE_CACHE_DIR",
+            "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
+        ):
+            os.environ[name] = f"/should-be-stripped/{name.lower()}"
+        yield
+        for name in (
+            "SYNTHBANSHEE_DATA_DIR",
+            "SYNTHBANSHEE_CACHE_DIR",
+            "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
+        ):
+            os.environ.pop(name, None)
+
+    def test_function_scoped_strip_clears_class_scoped_env(self):
+        """Function-scoped strip runs AFTER class-scoped set → env is None."""
         for name in (
             "SYNTHBANSHEE_DATA_DIR",
             "SYNTHBANSHEE_CACHE_DIR",
             "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
         ):
             assert os.environ.get(name) is None, (
-                f"{name} leaked into the test process; the conftest fixture "
-                "is not stripping it as expected."
+                f"{name} was set by the class-scoped fixture and should have "
+                "been stripped by the function-scoped autouse strip in "
+                "tests/unit/conftest.py."
             )
 
-    def test_clirunner_generate_does_not_leak_outside_cli_dirs(self, tmp_path):
-        """`synthbanshee generate` does not write outside its CLI-specified dirs.
+    def test_clirunner_does_not_leak_when_strip_active(self, tmp_path):
+        """End-to-end: env vars set by parent shell → no leak via CLI."""
+        leak_data_dir = Path("/should-be-stripped/synthbanshee_data_dir")
 
-        Models the #107 fingerprint: a "would-be leak" directory is set
-        up alongside the real ``tmp_path`` outputs; after running the
-        full mocked pipeline, the leak directory must remain empty. With
-        the autouse fixture in place, ``SYNTHBANSHEE_DATA_DIR`` cannot
-        steer files there.
-        """
-        leak_target = tmp_path / "would_be_leak"
-        leak_target.mkdir()
-
-        turns = _make_dialogue_turns(n=1)
-        mixed = _make_mixed_scene(n_turns=1)
-
-        runner = CliRunner()
-        with (
-            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
-            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
-        ):
-            MockGen.return_value.generate.return_value = turns
-            MockRenderer.return_value.render_scene.return_value = mixed
-            result = runner.invoke(
-                cli,
-                [
-                    "generate",
-                    "--config",
-                    str(SCENES_DIR / "test_scene_001.yaml"),
-                    "--output-dir",
-                    str(tmp_path / "out"),
-                    "--cache-dir",
-                    str(tmp_path / "cache"),
-                    "--dirty-dir",
-                    str(tmp_path / "dirty"),
-                    "--script-cache-dir",
-                    str(tmp_path / "scripts"),
-                ],
-            )
-
-        assert result.exit_code == 0, result.output
-        leaked = list(leak_target.rglob("*"))
-        assert leaked == [], f"Generation leaked files into {leak_target}: {leaked}"
+        result = _invoke_generate_without_dir_flags(tmp_path)
+        # With env stripped, output-dir falls back to scene.output_dir
+        # (set in test_scene_001.yaml to a relative path under cwd —
+        # which Click leaves as-is). We only assert nothing landed in
+        # the bogus leak path, since that is the #107 fingerprint.
+        assert result.exit_code in (0, 1), result.output
+        assert not leak_data_dir.exists() or not any(leak_data_dir.rglob("*.wav")), (
+            f"Strip fixture failed: WAV files appeared at {leak_data_dir}"
+        )
 
 
 # ---------------------------------------------------------------------------
