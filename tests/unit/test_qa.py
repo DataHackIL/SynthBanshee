@@ -89,12 +89,22 @@ def _write_valid_clip(
     duration: float = 4.0,
     speaker_id: str = "AGG_M_30-45_001",
     quality_flags: list[str] | None = None,
-    tts_engine: str = "azure_he_IL",
+    tts_backend: dict[str, str] | None = None,
     tts_voice_id: str = "he-IL-AvriNeural",
     gender: str = "male",
     prosody_cap_events: list[dict] | None = None,
+    omit_generation_metadata: bool = False,
 ) -> Path:
-    """Write a minimal valid WAV + TXT + JSON triplet and return the WAV path."""
+    """Write a minimal valid WAV + TXT + JSON triplet and return the WAV path.
+
+    *tts_backend* populates ``generation_metadata.tts_backend`` per-speaker
+    (#109 replaced the old flat ``tts_engine`` field). Defaults to a
+    single-speaker azure map keyed on *speaker_id*.
+
+    *omit_generation_metadata* writes the JSON with no ``generation_metadata``
+    block at all — models the pre-#109 corpus snapshot shape, used by
+    tests that exercise the "unknown" backend bucket.
+    """
     parent.mkdir(parents=True, exist_ok=True)
     wav_path = parent / f"{clip_id}.wav"
     txt_path = parent / f"{clip_id}.txt"
@@ -124,7 +134,6 @@ def _write_valid_clip(
         "generation_date": datetime.date.today().isoformat(),
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": tts_engine,
         "acoustic_scene": {},
         "speakers": [
             {
@@ -146,11 +155,17 @@ def _write_valid_clip(
         "annotator_confidence": 1.0,
         "iaa_reviewed": False,
     }
-    if prosody_cap_events is not None:
-        metadata["generation_metadata"] = {
+    # #109: every clip carries generation_metadata so qa-report's
+    # backend-diversity derivation has a per-speaker source of truth.
+    # ``omit_generation_metadata=True`` models a pre-#109 corpus snapshot.
+    if not omit_generation_metadata:
+        gen_meta: dict[str, object] = {
             "pipeline_version": "0.1.0",
-            "effective_prosody_caps": prosody_cap_events,
+            "tts_backend": tts_backend if tts_backend is not None else {speaker_id: "azure"},
         }
+        if prosody_cap_events is not None:
+            gen_meta["effective_prosody_caps"] = prosody_cap_events
+        metadata["generation_metadata"] = gen_meta
     json_path.write_text(json.dumps(metadata), encoding="utf-8")
     return wav_path
 
@@ -1012,9 +1027,75 @@ class TestRunQARunSummary:
         report = run_qa(tmp_path, run_summary=True)
         rs = report.run_summary
         assert rs is not None
-        # Both clips use azure_he_IL by default
+        # Both clips default to azure backend (single-speaker)
         assert rs.backend_count == 1
-        assert rs.clips_by_tts_engine.get("azure_he_IL") == 2
+        assert rs.clips_by_tts_backend.get("azure") == 2
+
+    def test_run_summary_backend_diversity_mixed_azure_google(self, tmp_path):
+        """Two clips on different backends → ``backend_count`` is 2 and
+        ``single_backend`` is NOT in run_warnings (#109)."""
+        _write_valid_clip(
+            tmp_path / "spk_a", "clip_001_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        _write_valid_clip(
+            tmp_path / "spk_b", "clip_002_00", tts_backend={"AGG_M_30-45_001": "google"}
+        )
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        assert rs.backend_count == 2
+        assert rs.clips_by_tts_backend.get("azure") == 1
+        assert rs.clips_by_tts_backend.get("google") == 1
+        assert "single_backend" not in rs.run_warnings
+
+    def test_run_summary_backend_diversity_all_azure_fires_warning(self, tmp_path):
+        """Two clips both on azure → ``single_backend`` IS in run_warnings (#109)."""
+        _write_valid_clip(
+            tmp_path / "spk_a", "clip_001_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        _write_valid_clip(
+            tmp_path / "spk_b", "clip_002_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        assert rs.backend_count == 1
+        assert "single_backend" in rs.run_warnings
+
+    def test_run_summary_clips_without_generation_metadata_bucket_as_unknown(self, tmp_path):
+        """Pre-#109 clips (no ``generation_metadata``) bucket under "unknown".
+
+        Without this bucketing, an old corpus mixed with new clips would
+        silently lose those old clips from the histogram and from
+        ``backend_count`` — making backend diversity misleadingly low or
+        flipping ``single_backend`` the wrong way. The "unknown" key
+        keeps them visible.
+        """
+        _write_valid_clip(tmp_path / "spk_a", "clip_legacy_00", omit_generation_metadata=True)
+        _write_valid_clip(
+            tmp_path / "spk_b", "clip_new_00", tts_backend={"AGG_M_30-45_001": "azure"}
+        )
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        # Two distinct backends total: "azure" (new) + "unknown" (legacy).
+        assert rs.backend_count == 2
+        assert rs.clips_by_tts_backend.get("azure") == 1
+        assert rs.clips_by_tts_backend.get("unknown") == 1
+        # And consequently: no single_backend false-fire.
+        assert "single_backend" not in rs.run_warnings
+
+    def test_run_summary_all_legacy_clips_fire_single_backend(self, tmp_path):
+        """A corpus where every clip lacks ``generation_metadata`` → all
+        bucket under "unknown" → still flagged as ``single_backend``."""
+        _write_valid_clip(tmp_path / "spk_a", "clip_legacy_00", omit_generation_metadata=True)
+        _write_valid_clip(tmp_path / "spk_b", "clip_legacy_01", omit_generation_metadata=True)
+        report = run_qa(tmp_path, run_summary=True)
+        rs = report.run_summary
+        assert rs is not None
+        assert rs.backend_count == 1
+        assert rs.clips_by_tts_backend.get("unknown") == 2
+        assert "single_backend" in rs.run_warnings
 
     def test_run_summary_voice_diversity(self, tmp_path):
         _write_valid_clip(tmp_path / "spk_a", "clip_001_00", speaker_id="SPK_A")

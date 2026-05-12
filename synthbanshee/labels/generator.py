@@ -261,7 +261,8 @@ class LabelGenerator:
             generation_date=datetime.date.today().isoformat(),
             generator_version=self.generator_version,
             is_synthetic=True,
-            tts_engine="azure_he_IL",
+            # #109: tts_engine removed; provider is recorded per-speaker in
+            # generation_metadata.tts_backend.
             acoustic_scene=acoustic_scene or ClipAcousticScene(),
             speakers=speakers or [],
             weak_label=WeakLabel(

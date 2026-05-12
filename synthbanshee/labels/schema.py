@@ -210,7 +210,12 @@ class ClipMetadata(BaseModel):
     generation_date: str
     generator_version: str
     is_synthetic: Literal[True] = True
-    tts_engine: str = "azure_he_IL"
+    # #109: tts_engine removed — it was a per-clip flat string hardcoded to
+    # "azure_he_IL" regardless of the actual provider, which mis-labeled
+    # google-rendered clips and made qa-report's single_backend warning a
+    # false positive. The structured per-speaker source of truth is
+    # ``generation_metadata.tts_backend``; downstream tools read backend
+    # diversity from there.
     acoustic_scene: ClipAcousticScene = Field(default_factory=ClipAcousticScene)
     speakers: list[SpeakerInfo] = Field(default_factory=list)
     weak_label: WeakLabel
@@ -252,7 +257,7 @@ class ClipMetadata(BaseModel):
             raise ValueError(f"Unknown quality_flags: {bad}. Valid: {sorted(_QUALITY_FLAGS)}")
         return v
 
-    @field_validator("clip_id", "project", "tts_engine", "violence_typology", "generator_version")
+    @field_validator("clip_id", "project", "violence_typology", "generator_version")
     @classmethod
     def ascii_safe_string(cls, v: str, info) -> str:
         return _assert_ascii_safe(v, info.field_name)

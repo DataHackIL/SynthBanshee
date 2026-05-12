@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -168,6 +170,36 @@ class TestClipMetadata:
         # Hebrew characters in clip_id should be rejected
         with pytest.raises(ValidationError):
             _make_metadata(clip_id="\u05e9\u05dc\u05d5\u05dd")
+
+    def test_tts_engine_field_removed(self):
+        """#109: the hardcoded ``tts_engine`` field was dropped \u2014 the
+        per-speaker ``generation_metadata.tts_backend`` is the source of
+        truth. Old corpus JSON carrying the field still parses (Pydantic
+        ignores unknown fields by default); the attribute is no longer
+        exposed on the model.
+
+        This test pins the **breaking-change** half of the contract:
+        downstream code that touches ``meta.tts_engine`` must be
+        updated, and an ``AttributeError`` is what they will hit. The
+        test would silently pass even if Pydantic re-introduced the
+        field with ``extra="allow"`` semantics \u2014 we exercise the
+        attribute access explicitly to catch that drift.
+        """
+        m = _make_metadata()
+        assert not hasattr(m, "tts_engine")
+        # Touching the attribute must raise AttributeError \u2014 this is
+        # the silent break a senior reviewer asked be made explicit.
+        with pytest.raises(AttributeError):
+            _ = m.tts_engine  # type: ignore[attr-defined]
+
+        # Old clip JSON with the legacy field still parses cleanly
+        # (Pydantic v2's default extra="ignore" drops the unknown field).
+        legacy_json = json.loads(m.model_dump_json())
+        legacy_json["tts_engine"] = "azure_he_IL"
+        m2 = ClipMetadata.model_validate_json(json.dumps(legacy_json))
+        assert m2.clip_id == m.clip_id
+        with pytest.raises(AttributeError):
+            _ = m2.tts_engine  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------

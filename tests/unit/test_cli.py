@@ -121,7 +121,6 @@ def _write_valid_clip(tmp_path: Path, clip_id: str = "test_clip_01") -> Path:
         "generation_date": datetime.date.today().isoformat(),
         "generator_version": "0.1.0",
         "is_synthetic": True,
-        "tts_engine": "azure_he_IL",
         "acoustic_scene": {},
         "speakers": [],
         "weak_label": {
@@ -1171,6 +1170,46 @@ class TestRunGeneratePipeline:
         meta_json = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
         # Out-of-root → absolute fallback. Not great, but not a crash.
         assert Path(meta_json["transcript_path"]).is_absolute()
+
+    def test_pipeline_output_feeds_qa_backend_derivation(self, tmp_path):
+        """End-to-end #109 contract: a clip produced by ``_run_generate_pipeline``
+        carries ``generation_metadata.tts_backend`` whose values land in
+        ``RunSummary.clips_by_tts_backend`` when fed to ``run_qa``.
+
+        Catches the regression where the generator's ``_backends_map``
+        shape diverges from qa.py's expectation — both unit-tested
+        components could pass in isolation while the integration breaks.
+        """
+        from synthbanshee.package.qa import run_qa
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            wav, _ = _run_generate_pipeline(
+                SCENES_DIR / "test_scene_001.yaml",
+                tmp_path / "out",
+                tmp_path / "cache",
+                tmp_path / "dirty",
+                tmp_path / "scripts",
+            )
+
+        assert wav is not None
+        report = run_qa(tmp_path / "out", run_summary=True)
+        rs = report.run_summary
+        assert rs is not None, "run_summary should be populated when flag is set"
+        # The example speaker (AGG_M_30-45_001) is azure-backed in the
+        # example YAML; the generator writes that into tts_backend, and
+        # qa derives the histogram from there.
+        assert "azure" in rs.clips_by_tts_backend, f"expected 'azure' in {rs.clips_by_tts_backend}"
+        assert "unknown" not in rs.clips_by_tts_backend, (
+            "fresh clips should not bucket as 'unknown' — the generator "
+            "must write generation_metadata.tts_backend per #109"
+        )
 
 
 # ---------------------------------------------------------------------------

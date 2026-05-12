@@ -127,7 +127,17 @@ class RunSummary:
     # Voice and backend diversity
     voices_by_gender: dict[str, int] = field(default_factory=dict)
     backend_count: int = 0
-    clips_by_tts_engine: dict[str, int] = field(default_factory=dict)
+    # #109: histogram of (clip, distinct backend used) pairs, derived from
+    # generation_metadata.tts_backend.values() rather than the old hardcoded
+    # ClipMetadata.tts_engine field. A clip with two speakers on different
+    # providers contributes one count to each backend, so
+    # ``sum(clips_by_tts_backend.values()) >= total_clips`` — the pre-#109
+    # sum invariant no longer holds. Pre-#109 corpus clips (which lack
+    # ``generation_metadata`` entirely) are bucketed under the
+    # ``"unknown"`` backend key so they still appear in the histogram and
+    # in ``backend_count``; otherwise they would silently vanish from
+    # diversity metrics whenever an old + new corpus is mixed.
+    clips_by_tts_backend: dict[str, int] = field(default_factory=dict)
 
     # Overlap and emotion-downgrade ratios
     overlap_ratio: float = 0.0
@@ -366,8 +376,8 @@ def run_qa(
     # M10b accumulators
     _all_turns: list[TurnMetrics] = []
     _voices_by_gender: dict[str, set[str]] = defaultdict(set)
-    _tts_engines: set[str] = set()
-    _clips_by_engine: dict[str, int] = defaultdict(int)
+    _tts_backends: set[str] = set()
+    _clips_by_backend: dict[str, int] = defaultdict(int)
     _clips_with_overlap: int = 0
     _clips_with_emotion_downgrade: int = 0
     _clips_with_i4_plus: int = 0  # denominator for overlap ratio
@@ -421,10 +431,22 @@ def run_qa(
         if any("Strong labels JSONL missing" in w for w in validation.warnings):
             stats.clips_missing_strong_labels += 1
 
-        # M10b: track voice and backend diversity
+        # M10b: track voice and backend diversity (#109 — derive backend
+        # from generation_metadata.tts_backend per-speaker map, not the
+        # removed flat tts_engine field). Clips that lack
+        # generation_metadata (pre-#109 corpus snapshots) bucket under
+        # "unknown" so they remain visible in the histogram rather than
+        # silently vanishing.
         if run_summary:
-            _tts_engines.add(metadata.tts_engine)
-            _clips_by_engine[metadata.tts_engine] += 1
+            if metadata.generation_metadata is not None and (
+                metadata.generation_metadata.tts_backend
+            ):
+                clip_backends = set(metadata.generation_metadata.tts_backend.values())
+            else:
+                clip_backends = {"unknown"}
+            _tts_backends.update(clip_backends)
+            for backend in clip_backends:
+                _clips_by_backend[backend] += 1
             for spk in metadata.speakers:
                 _voices_by_gender[spk.gender].add(spk.tts_voice_id)
 
@@ -520,8 +542,8 @@ def run_qa(
         summary = RunSummary(
             role_intensity_stats=ri_stats,
             voices_by_gender={g: len(v) for g, v in _voices_by_gender.items()},
-            backend_count=len(_tts_engines),
-            clips_by_tts_engine=dict(_clips_by_engine),
+            backend_count=len(_tts_backends),
+            clips_by_tts_backend=dict(_clips_by_backend),
             overlap_ratio=(
                 _clips_with_overlap / _clips_with_i4_plus if _clips_with_i4_plus > 0 else 0.0
             ),
