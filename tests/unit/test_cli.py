@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import textwrap
 import wave
@@ -227,6 +228,76 @@ class TestGenerateCommand:
 
         assert result.exit_code == 0, result.output
         assert "Stage" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Env-var isolation (regression test for #107)
+# ---------------------------------------------------------------------------
+
+
+class TestSynthbansheeEnvVarIsolation:
+    """The autouse conftest fixture must strip ``SYNTHBANSHEE_*`` dir env vars.
+
+    Without this, a developer who has sourced the repo's ``.envrc`` before
+    running ``pytest`` will see ``CliRunner``-backed tests leak generated
+    clips into the corpus tree (see #107). The fixture lives in
+    ``tests/conftest.py``; these tests assert its contract.
+    """
+
+    def test_env_vars_are_unset_in_test_process(self):
+        """Each ``SYNTHBANSHEE_*`` dir env var is missing during the test."""
+        for name in (
+            "SYNTHBANSHEE_DATA_DIR",
+            "SYNTHBANSHEE_CACHE_DIR",
+            "SYNTHBANSHEE_SCRIPT_CACHE_DIR",
+        ):
+            assert os.environ.get(name) is None, (
+                f"{name} leaked into the test process; the conftest fixture "
+                "is not stripping it as expected."
+            )
+
+    def test_clirunner_generate_does_not_leak_outside_cli_dirs(self, tmp_path):
+        """`synthbanshee generate` does not write outside its CLI-specified dirs.
+
+        Models the #107 fingerprint: a "would-be leak" directory is set
+        up alongside the real ``tmp_path`` outputs; after running the
+        full mocked pipeline, the leak directory must remain empty. With
+        the autouse fixture in place, ``SYNTHBANSHEE_DATA_DIR`` cannot
+        steer files there.
+        """
+        leak_target = tmp_path / "would_be_leak"
+        leak_target.mkdir()
+
+        turns = _make_dialogue_turns(n=1)
+        mixed = _make_mixed_scene(n_turns=1)
+
+        runner = CliRunner()
+        with (
+            patch("synthbanshee.script.generator.ScriptGenerator") as MockGen,
+            patch("synthbanshee.tts.renderer.TTSRenderer") as MockRenderer,
+        ):
+            MockGen.return_value.generate.return_value = turns
+            MockRenderer.return_value.render_scene.return_value = mixed
+            result = runner.invoke(
+                cli,
+                [
+                    "generate",
+                    "--config",
+                    str(SCENES_DIR / "test_scene_001.yaml"),
+                    "--output-dir",
+                    str(tmp_path / "out"),
+                    "--cache-dir",
+                    str(tmp_path / "cache"),
+                    "--dirty-dir",
+                    str(tmp_path / "dirty"),
+                    "--script-cache-dir",
+                    str(tmp_path / "scripts"),
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        leaked = list(leak_target.rglob("*"))
+        assert leaked == [], f"Generation leaked files into {leak_target}: {leaked}"
 
 
 # ---------------------------------------------------------------------------
