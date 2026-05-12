@@ -1972,18 +1972,42 @@ class TestRelativeToDataRoot:
     repo-relative path rendering — exercised by both cli.py
     (clip JSON) and manifest.py (manifest CSV)."""
 
-    def test_returns_relative_when_under_root(self, tmp_path):
+    def test_returns_posix_relative_when_under_root(self, tmp_path):
         root = tmp_path / "corpus"
         path = root / "data" / "he" / "clip.wav"
         path.parent.mkdir(parents=True)
         path.touch()
+        # POSIX separators, regardless of host OS (#108 Copilot review).
         assert relative_to_data_root(path, root) == "data/he/clip.wav"
 
-    def test_data_root_none_returns_absolute_unchanged(self):
-        p = Path("/Users/whatever/corpus/data/he/clip.wav")
-        assert relative_to_data_root(p, None) == str(p)
+    def test_data_root_none_returns_resolved_absolute_posix(self, tmp_path):
+        """`data_root=None` returns a *resolved* absolute POSIX string."""
+        target = tmp_path / "corpus" / "data" / "he" / "clip.wav"
+        target.parent.mkdir(parents=True)
+        target.touch()
+        result = relative_to_data_root(target, None)
+        assert Path(result).is_absolute()
+        # No backslashes — POSIX everywhere.
+        assert "\\" not in result
 
-    def test_path_outside_root_falls_back_to_absolute_with_warning(self, tmp_path, caplog):
+    def test_relative_input_data_root_none_still_returns_absolute(self, tmp_path, monkeypatch):
+        """A relative input + ``data_root=None`` must resolve to absolute.
+
+        Copilot's #108 review caught the original bug: the function
+        claimed "absolute fallback" but returned ``str(path)`` verbatim,
+        which is relative if the input was relative. The fix calls
+        ``Path.resolve()`` on every code path.
+        """
+        nested = tmp_path / "corpus" / "data" / "he"
+        nested.mkdir(parents=True)
+        (nested / "clip.wav").touch()
+        monkeypatch.chdir(tmp_path / "corpus")
+        result = relative_to_data_root(Path("data/he/clip.wav"), None)
+        assert Path(result).is_absolute(), (
+            f"relative input with data_root=None must resolve to absolute, got: {result!r}"
+        )
+
+    def test_path_outside_root_falls_back_to_resolved_absolute_with_warning(self, tmp_path, caplog):
         root = tmp_path / "corpus"
         root.mkdir()
         outside = tmp_path / "elsewhere" / "clip.wav"
@@ -1992,10 +2016,28 @@ class TestRelativeToDataRoot:
         with caplog.at_level("WARNING", logger="synthbanshee.package._paths"):
             result = relative_to_data_root(outside, root)
         assert Path(result).is_absolute()
+        # Must be resolved (no backslashes, no '..').
+        assert "\\" not in result and ".." not in result
         # The point of the warning: misconfigured data_root must not be silent.
         assert any("is outside data_root" in rec.message for rec in caplog.records), (
             f"No fallback warning emitted. caplog records: {caplog.records}"
         )
+
+    def test_relative_input_outside_root_also_resolves_to_absolute(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """Combined edge case from Copilot's #108 review: relative input
+        + path outside the configured data_root must still produce an
+        absolute string (not a misleading relative one)."""
+        root = tmp_path / "corpus"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "clip.wav").touch()
+        monkeypatch.chdir(tmp_path)
+        with caplog.at_level("WARNING", logger="synthbanshee.package._paths"):
+            result = relative_to_data_root(Path("elsewhere/clip.wav"), root)
+        assert Path(result).is_absolute(), f"expected absolute fallback, got: {result!r}"
 
 
 class TestBuildPreprocessingMetadata:
