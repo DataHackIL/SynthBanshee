@@ -6,13 +6,18 @@ Implements the Phase C acceptance experiment from
   - Send a 6-clip set (4 corpus typology spans + 2 degraded variants of one
     corpus clip) to two multimodal LLMs (Gemini 2.5 Pro audio, GPT-4o audio).
   - Score each (clip, model) twice, on a fixed structured-output schema.
-  - Compute four gate outcomes per model:
-      • Refusal:        ≥ 5/6 clips scored without refusal under the DV-research framing.
-      • Discrimination: mean overall_quality on known-good corpus clips
-                        − mean on −10 dB SNR degraded clip ≥ 0.5.
-      • Reproducibility:per-dimension std across the two reruns of each clip ≤ 0.5.
-      • Shay-correlation: Spearman ρ ≥ 0.3 between model `overall_quality` and
-                        Shay's encoded expected ranking on the 4 corpus clips.
+  - Compute four gate outcomes per model (overall_pass = refusal AND discrimination):
+      • Refusal:        ≥ 5/6 clips scored; only content_refusal counts against
+                        this — api_error / json_parse_error are infra failures.
+      • Discrimination: two independent arms, at least one must clear:
+                        (1) noise_corruption: corpus mean − wn_snr_-10db ≥ 0.5
+                            (kept for Phase A E2/UTMOS comparability)
+                        (2) synth_failure: corpus mean − synth_rate_slow_0.7x ≥ 0.5
+                            (the real target: can the model hear synthesis defects?)
+      • Variance (advisory): per-dim std across N reruns ≤ 0.5.
+                        Trivially PASS at TEMPERATURE=0 — use only with T>0, N≥4.
+      • Shay-correlation (advisory): Spearman ρ ≥ 0.3 vs encoded expected ranking.
+                        n=4 is not statistically significant; read as directional only.
 
 Mirrors the Phase A spike protocol (``scripts/m17_phase_a_validation.py``).
 This is a one-shot spike: no production module is created. Raw outputs go to
