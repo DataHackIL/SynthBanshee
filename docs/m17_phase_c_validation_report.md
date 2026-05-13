@@ -11,20 +11,21 @@ E5 evaluator module skeleton lands. Mirrors the Phase A spike protocol that
 produced `docs/m17_phase_a_validation_report.md`.
 
 Generated: TBD. Raw data: `state/spikes/m17_phase_c/results.json` (gitignored).
-Auto-tables: `state/spikes/m17_phase_c/report_auto.md`. Cached audio (for
-degraded variants only) under `state/spikes/m17_phase_c/*.wav`.
+Auto-tables: `state/spikes/m17_phase_c/report_auto.md`. Degraded audio cached
+under `state/spikes/m17_phase_c/*.wav`.
 
 ## TL;DR
 
-| Evaluator (model) | Refusal | Discrimination | Reproducibility | Shay correlation | Phase C |
-|---|---|---|---|---|---|
-| **E5a — `gemini-2.5-pro`** | TBD | TBD | TBD | TBD | TBD |
-| **E5b — `gpt-4o-audio-preview`** | TBD | TBD | TBD | TBD | TBD |
+<!-- report_auto.md §"Gate outcomes" table goes here after the run. -->
 
-**Phase C status: TBD.** Per the design doc's per-evaluator gate semantics, each
-model is graded independently; one model passing is sufficient to advance E5
-to MVP. A model that clears all four of its gates is the recommended primary
-backend; the runner-up becomes the refusal-fallback.
+| Evaluator (model) | Refusal | Disc (noise) | Disc (synth) | Phase C |
+|---|---|---|---|---|
+| **E5a — `gemini-2.5-pro`** | TBD | TBD | TBD | TBD |
+| **E5b — `gpt-4o-audio-preview`** | TBD | TBD | TBD | TBD |
+
+**Phase C status: TBD.** `overall_pass = refusal AND discrimination`. Variance
+and Shay-correlation gates are advisory (see Gate definitions below). One model
+passing is sufficient to advance E5 to MVP.
 
 ## Reproduce
 
@@ -41,11 +42,18 @@ export SYNTHBANSHEE_LLM_SPIKE_BUDGET_USD=5.0   # hard cap
 
 # Full run.
 .venv/bin/python scripts/m17_phase_c_validation.py
+
+# With metadata-bias probe (adds ~4 no-arc calls per model, ~$0.10–0.40 extra).
+.venv/bin/python scripts/m17_phase_c_validation.py --probe-metadata-bias
+
+# Resume a partial run after a failure or budget-cap abort.
+.venv/bin/python scripts/m17_phase_c_validation.py --resume
 ```
 
 The script prepares 6 clip records (4 corpus typology spans + 2 degraded
-variants of `sp_sv_a_0001_00`), sends each to each model twice, parses
-structured JSON responses against a Pydantic schema, and writes gate
+variants of `sp_sv_a_0001_00`), sends each to each model twice under the
+`with_metadata` prompt variant, parses structured JSON responses, writes partial
+results to `results_partial.jsonl` after each call, and writes final gate
 outcomes to `results.json` + an auto-generated markdown summary.
 
 ## Clip set
@@ -60,10 +68,10 @@ batch — same source set as the Phase A spike). Override via
 | `sp_it_a_0001_00` | sp_it_a_0001_00 | corpus | IT | The IT scene whose I3–I5 distress absence drove issue #97 |
 | `sp_neg_a_0001_00` | sp_neg_a_0001_00 | corpus | NEG | Hard-negative class — intense but `has_violence: false` |
 | `sp_neu_a_0001_00` | sp_neu_a_0001_00 | corpus | NEU | Neutral baseline; expected highest perceived quality |
-| `sp_sv_a_0001_00__wn_snr_+10db` | sp_sv_a_0001_00 + mild white noise | degraded | SV | RMS-matched to clean; mid-anchor |
-| `sp_sv_a_0001_00__wn_snr_-10db` | sp_sv_a_0001_00 + severe white noise | degraded | SV | RMS-matched to clean; the discrimination gate's negative anchor |
+| `sp_sv_a_0001_00__synth_rate_slow_0.7x` | sp_sv_a_0001_00 resampled to 0.7× speed, trimmed | degraded | SV | **Synthesis-failure anchor.** Simulates over-slow TTS: unnatural tempo, pitch-shifted down, scene cut off mid-escalation. Tests whether the model can hear synthesis defects, not just noise. |
+| `sp_sv_a_0001_00__wn_snr_-10db` | sp_sv_a_0001_00 + severe white noise | degraded | SV | **Signal-corruption anchor.** RMS-matched to clean. Kept for comparability with Phase A E2/UTMOS. If a model passes this but fails the synth anchor, it can detect noise but not synthesis defects. |
 
-Shay-correlation gate uses `expected_quality_rank` per clip (encoded in
+Shay-correlation check uses `expected_quality_rank` per clip (encoded in
 `CLIP_SOURCES`), grounded in:
 - The May-3 listening test memo (M12 breathiness failed gate; systemic
   TTS naturalness issues).
@@ -77,88 +85,91 @@ and re-run.
 
 ## Gate definitions
 
-All four gates are computed **per model**. A model is "Phase C PASS" iff it
-clears all four.
+Gates are computed **per model**. `overall_pass = refusal AND discrimination`.
 
-| Gate | Criterion | Why |
-|------|-----------|-----|
-| **Refusal** | ≥ 5/6 clips scored successfully under the DV-research framing | A model that refuses on DV content under research framing can't be a production E5 backend. Mitigation in design doc §E5: BLOCK_NONE on Gemini, multi-model fallback. |
-| **Discrimination** | `mean(corpus overall_quality) − mean(–10dB severe-degraded overall_quality) ≥ 0.5` | Same bar as Phase A E2/UTMOS. If the model can't tell clean from heavily noised audio, it can't tell good TTS from broken TTS. |
-| **Reproducibility** | Per-dimension std across 2 reruns of the same clip ≤ 0.5 | Without reproducibility, score deltas can't be attributed to pipeline changes — regression detection breaks. |
-| **Shay correlation** | Spearman ρ ≥ 0.3 between model `overall_quality` and Shay's encoded expected rank on the 4 corpus clips | n=4 is small; ρ is directional, not statistically significant. A negative ρ here is a hard fail signal (model disagrees with the only human listener available). |
+| Gate | Criterion | Included in `overall_pass`? | Why |
+|------|-----------|:---:|-----|
+| **Refusal** | ≥ 5/6 clips score successfully under the DV-research framing; only `content_refusal` failures count against this gate (`api_error` and `json_parse_error` are retryable infrastructure failures) | ✅ | A model that refuses on DV content under research framing can't be a production E5 backend. |
+| **Discrimination** | At least one anchor arm clears: `mean(corpus) − mean(severe degraded) ≥ 0.5`. Two arms: (1) noise-corruption (`wn_snr_-10db`), (2) synthesis-failure (`synth_rate_slow_0.7x`). A model that passes only the noise arm cannot detect synthesis defects. | ✅ | The actual failure modes we need to catch are synthesis defects, not SNR. |
+| **Variance** _(advisory)_ | Per-dimension std across 2 reruns ≤ 0.5 | ❌ | At `TEMPERATURE=0.0`, greedy decoding is deterministic → std=0 trivially. Re-run with `TEMPERATURE=0.1` and `N_RERUNS=4` for a meaningful estimate. |
+| **Shay correlation** _(advisory)_ | Spearman ρ ≥ 0.3 between model `overall_quality` and Shay's encoded rank on the 4 corpus clips | ❌ | n=4 is not statistically significant (need n≥7 for p<0.05). Treat as a directional red-flag check only — a strongly negative ρ is a hard warning signal. |
 
-## Per-model results (TBD)
+## Per-clip mean overall_quality (TBD)
 
-### `gemini-2.5-pro`
+<!-- report_auto.md §"Per-clip mean overall_quality" table goes here. -->
 
-| Clip | Run 0 overall | Run 1 overall | Mean | Pronunciation | Prosody | Emotion | Speaker diff. | Dialogue | Escalation | Coherence | Artifacts | Refusal? |
-|------|--------------:|--------------:|----:|--------------:|--------:|--------:|--------------:|--------:|-----------:|----------:|:---------:|:--------:|
-| sp_sv_a_0001_00 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| sp_it_a_0001_00 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| sp_neg_a_0001_00 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| sp_neu_a_0001_00 | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| sp_sv_a_0001_00__wn_snr_+10db | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
-| sp_sv_a_0001_00__wn_snr_-10db | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD | TBD |
+## Metadata-bias probe (TBD)
 
-### `gpt-4o-audio-preview`
+Run with `--probe-metadata-bias`. The probe sends the 4 corpus clips under a
+`no_arc` prompt variant that omits the `intended intensity arc` and
+`typology_long` metadata. The delta on `emotional_expression` and
+`escalation_arc` between `with_metadata` and `no_arc` measures how much of the
+score is read from the label vs. from the audio.
 
-Same table shape — fill from `results.json`.
+<!-- report_auto.md §"Metadata-bias probe" table goes here. -->
+
+A delta > 0.5 on either dimension is a warning that the model is inflating
+those scores based on the label. If the delta is large, the discrimination gate
+result on those dimensions should be treated as unreliable.
 
 ## Failure-mode notes (TBD post-run)
 
-- **Refusal posture under DV-research framing:** TBD — record any refusals
-  here, with the verbatim refusal text and the clip that triggered it. If
-  Gemini's BLOCK_NONE setting still refuses, the design doc's content-
-  sensitivity mitigation list (alternative framings, GPT-4o fallback)
-  becomes the recommended path.
+- **Refusal posture under DV-research framing:** TBD — record any
+  `content_refusal` failures here, with the verbatim refusal text and the clip
+  that triggered it. Distinguish from `api_error` / `json_parse_error`. If
+  Gemini's BLOCK_NONE setting still produces content refusals, the design doc's
+  mitigation list (alternative framings, GPT-4o fallback) becomes the
+  recommended path.
+- **Noise-only discriminator:** TBD — if a model passes the noise arm but fails
+  the synth arm, record it here. This model can detect SNR changes but not
+  synthesis quality — it cannot serve as E5 backend.
 - **Score collapse / no-variance:** TBD — does any model give the same score
   on every dimension across all 6 clips? If so the model isn't actually
   listening to the audio.
-- **Length-driven scoring:** TBD — does the model rate longer clips
-  systematically higher/lower regardless of content?
-- **Anchor recommendation for MVP:** TBD — given the discrimination
-  separation and the variance pattern, recommend whether the MVP needs
-  in-prompt calibration anchors (the Phase 2b anchor protocol from the
-  near-term plan) or can rely on absolute scoring alone.
+- **Metadata-bias:** TBD — compare `emotional_expression` and `escalation_arc`
+  deltas from the metadata-bias probe. If delta > 0.5, note which model and
+  which clips are affected.
+- **Anchor recommendation for MVP:** TBD — given the discrimination separation
+  pattern (noise vs synth), recommend whether the MVP needs in-prompt
+  calibration anchors (Phase 2b anchor protocol) or can rely on absolute
+  scoring alone.
 
 ## Recommendation (TBD)
 
 | Outcome | Next action |
 |---------|-------------|
-| Both models PASS all gates | Ship E5 MVP behind Gemini primary, GPT-4o fallback. Open follow-up issue for anchor-set protocol + regression CI workflow. |
-| One model PASSes, the other fails on a single gate | Ship MVP with the passing model as primary; treat the other as deferred (open a follow-up issue with the specific failure mode). |
-| Both models PASS refusal + reproducibility but FAIL discrimination | E5 cannot gate. Use it only as informational scoring. Re-spike with explicit in-prompt anchors (Phase 2b protocol surfaced earlier in the implementation path). |
-| Either model fails REFUSAL | Try alternative framings before declaring failure; record framing experiments in this report. |
-| Both models FAIL discrimination | Phase C is a NO-GO. Pivot the eval roadmap away from LLM listening; either commit to paid linguistic raters / crowd evaluation, or wait for the next-generation multimodal audio models. |
+| Both models pass refusal + **both** discrimination arms | Ship E5 MVP behind Gemini primary, GPT-4o fallback. Open follow-up issue for anchor-set protocol + regression CI workflow. |
+| Both models pass refusal + noise arm only | E5 can detect gross signal corruption but not synthesis defects. Defer MVP; re-spike with synthesis-failure anchors as calibration points in the prompt. |
+| One model passes refusal + synthesis discrimination arm | Ship MVP with that model as primary. Document the other model's failure mode in a follow-up issue. |
+| Either model fails REFUSAL on content_refusal | Try alternative framings before declaring failure; record framing experiments in this report. |
+| Both models FAIL synthesis discrimination | Phase C is a NO-GO for synthesis-quality gating. Pivot the eval roadmap: either commit to paid linguistic raters / crowd evaluation, or wait for next-generation multimodal audio models. |
 
 ## Limitations
 
-- **n=4 corpus clips for the Shay-correlation gate.** Spearman ρ at n=4 is
-  directional, not statistically significant. A future MVP-phase
-  calibration step should use ≥ 20 clips spanning the full corpus once
-  more listening-test ground truth is available.
-- **n=2 reruns for the reproducibility gate.** A single std estimate from
-  2 samples is high-variance; the gate is meant as a sanity check, not a
-  precision measurement. If reproducibility looks marginal (std ~ 0.5),
-  rerun a subset with more samples before drawing conclusions.
-- **One degradation type.** The severe negative anchor is white noise at
-  −10 dB SNR. Real TTS failure modes (over-smoothed prosody, wrong gender
-  forms, robotic timbre) are perceptually distinct from white-noise
-  contamination; a model that discriminates white-noise but not synthesis
-  defects would pass this gate while still being useless for our actual
-  failure modes. The MVP-phase anchor set must include synthesis-failure
-  anchors, not just signal-domain ones.
+- **n=4 corpus clips for the Shay-correlation check.** Spearman ρ at n=4 is
+  directional, not statistically significant. A future MVP-phase calibration
+  step should use ≥ 20 clips spanning the full corpus once more listening-test
+  ground truth is available.
+- **n=2 reruns at TEMPERATURE=0.** The variance gate trivially passes under
+  greedy decoding. To get a real reproducibility estimate, re-run with
+  `TEMPERATURE=0.1` and `N_RERUNS_PER_CLIP=4`.
+- **Synthesis-failure proxy via resampling.** The `synth_rate_slow_0.7x`
+  degradation changes both tempo and pitch simultaneously (a naive resampling
+  artifact), which is not exactly how TTS synthesis defects manifest. It is a
+  better proxy than white noise but still not identical to over-smoothed
+  prosody, wrong gender forms, or robotic timbre. The MVP-phase anchor set
+  should include real defective TTS renders, not just signal-domain proxies.
 - **English-trained models on Hebrew audio.** Both Gemini and GPT-4o have
-  unknown Hebrew-audio comprehension depth at the time of writing
-  (January 2026 knowledge cutoff). If discrimination passes for both, that's
-  reassuring; if only one passes, the Hebrew-specific failure mode is
-  worth documenting.
-- **Prompt v1.** Iterating the prompt is cheap — `PROMPT_VERSION` is
-  bumped in the script and the version is recorded in every result row,
-  so an A/B between prompt v1 and v2 is straightforward without losing
-  the v1 baseline.
+  unknown Hebrew-audio comprehension depth. If discrimination passes for both,
+  that's reassuring; if only one passes, document the Hebrew-specific failure
+  mode.
+- **Prompt v1.** Iterating the prompt is cheap — `PROMPT_VERSION` is bumped in
+  the script and recorded in every result row, so an A/B between prompt
+  versions is straightforward without losing the v1 baseline.
 
 ## Cost report (TBD)
+
+<!-- report_auto.md §"Spend" block goes here. -->
 
 | Model | Audio min sent | Estimated $ | Actual $ |
 |-------|---------------:|------------:|---------:|

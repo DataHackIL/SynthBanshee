@@ -64,11 +64,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CLIP_DIR = REPO_ROOT / "data" / "m2a_wettest" / "agg_m_30-45_001"
 SPIKE_DIR = REPO_ROOT / "state" / "spikes" / "m17_phase_c"
 RESULTS_PATH = SPIKE_DIR / "results.json"
+RESULTS_PARTIAL_PATH = SPIKE_DIR / "results_partial.jsonl"
 AUTO_REPORT_PATH = SPIKE_DIR / "report_auto.md"
 
 PROMPT_VERSION = "v1"
 RNG_SEED = 42
 N_RERUNS_PER_CLIP = 2
+
+# Temperature for both models. Keep at 0.0 for structured-output stability with
+# greedy decoding. IMPORTANT: at T=0 the variance gate is trivially PASS (std=0
+# for any deterministic run). If reproducibility is genuinely uncertain, re-run
+# with TEMPERATURE=0.1 and N_RERUNS_PER_CLIP=4. See gate notes below.
+TEMPERATURE = 0.0
 
 # --- Gate thresholds ---------------------------------------------------------
 # Mirror the structure of Phase A's per-evaluator gates. Each model is graded
@@ -105,13 +112,23 @@ CLIP_SOURCES: list[dict] = [
         "clip_id": "sp_sv_a_0001_00",
         "typology": "SV",
         "kind": "degraded",
-        "degradation": "wn_snr_+10db",
+        # Synthesis-failure anchor: resampled to 70% speed then trimmed to original
+        # length. This simulates over-slow TTS (rate=0.7) with pitch-shift artefacts
+        # and an abruptly cut-off scene. Perceptually: unnatural tempo, wrong pitch,
+        # incomplete escalation arc — the failure modes we actually care about.
+        # Replaces the former wn_snr_+10db mild-noise anchor which only measured
+        # whether the model can hear noise, not whether it can judge synthesis quality.
+        "degradation": "synth_rate_slow_0.7x",
         "expected_quality_rank": 1,
     },
     {
         "clip_id": "sp_sv_a_0001_00",
         "typology": "SV",
         "kind": "degraded",
+        # Signal-corruption anchor (white noise −10 dB SNR): kept for comparability
+        # with the Phase A E2/UTMOS discrimination gate. Any model that passes this
+        # but fails the synth_rate_slow anchor is detecting signal corruption, not
+        # synthesis quality — record that finding explicitly in the report.
         "degradation": "wn_snr_-10db",
         "expected_quality_rank": 0,
     },
@@ -170,6 +187,41 @@ Clip metadata:
 - backend: {backend}
 {degradation_note}
 
+Score this clip on the following dimensions. For each, give an integer 1–5.
+
+Dimensions:
+- pronunciation_clarity    : Are Hebrew words clearly pronounced and intelligible?
+- prosody_naturalness      : Does intonation sound natural for spoken Hebrew?
+- emotional_expression     : Does each turn's emotional tone match its intended intensity?
+- speaker_differentiation  : Do the speakers sound like distinct people?
+- dialogue_flow            : Does the conversation flow naturally between turns?
+- escalation_arc           : Does tension build perceptibly across the scene?
+- scene_coherence          : Does this sound like a plausible real conversation?
+- overall_quality          : Holistic production quality.
+
+Also return:
+- artifacts_detected   : true/false — any audible glitches, clicks, robotic timbre, dropouts?
+- artifact_notes       : if artifacts_detected, a short description with approximate timestamp(s); else "".
+- confidence_in_assessment : your own confidence 1–5 in the scores you just gave.
+- summary              : 2–3 sentences describing what you heard and why you scored as you did.
+
+Return a single JSON object. Do not include any prose outside the JSON.
+"""
+
+# Metadata-bias probe: same template as CLIP_PROMPT_TEMPLATE but without the
+# "intended intensity arc" line and without the typology_long description.
+# This lets us check whether emotional_expression / escalation_arc scores are
+# driven by what the model *hears* or by the label metadata it was *told*.
+# A large score gap (with_metadata >> no_arc on those two dimensions) is a
+# strong signal that the model is reading the label, not the audio.
+CLIP_PROMPT_NO_ARC_TEMPLATE = """\
+Clip metadata:
+- clip_id: {clip_id}
+- typology: {typology}
+- duration_seconds: {duration_s:.1f}
+- speakers: {speakers_summary}
+- backend: {backend}
+{degradation_note}
 Score this clip on the following dimensions. For each, give an integer 1–5.
 
 Dimensions:
@@ -253,6 +305,22 @@ def apply_white_noise(wav: np.ndarray, snr_db: float, rng: np.random.Generator) 
     return (wav + noise).astype(np.float32)
 
 
+def apply_rate_slow_trimmed(wav: np.ndarray, rate_factor: float) -> np.ndarray:
+    """Simulate over-slow TTS synthesis via resampling + trimming.
+
+    Resamples `wav` so it plays at `rate_factor` speed (< 1.0 = slower), then
+    trims back to the original length.  The output sounds like TTS rendered at
+    the wrong rate: unnatural tempo, pitch shifted downward, scene cut off
+    before the end.  This is a better proxy for TTS synthesis failure than
+    white-noise contamination.
+    """
+    from scipy.signal import resample as sp_resample
+
+    n_out = int(round(len(wav) / rate_factor))
+    slowed = sp_resample(wav, n_out).astype(np.float32)
+    return slowed[: len(wav)]
+
+
 def rms_normalize_to_match(degraded: np.ndarray, clean: np.ndarray) -> np.ndarray:
     """Same helper as Phase A — keep loudness constant so the LLM is judging
     the spectral / noise content, not just amplitude.
@@ -294,14 +362,31 @@ def prepare_clips(clip_dir: Path) -> list[Clip]:
             wav_path = src_wav_path
             degradation = None
         elif src["kind"] == "degraded":
-            spec = src["degradation"]  # e.g. "wn_snr_+10db"
-            snr_db = float(spec.replace("wn_snr_", "").replace("db", "").replace("+", ""))
-            degraded = apply_white_noise(wav, snr_db, rng)
-            normalised = rms_normalize_to_match(degraded, wav)
+            spec = src["degradation"]
             label = f"{cid}__{spec}"
             wav_path = SPIKE_DIR / f"{label}.wav"
             wav_path.parent.mkdir(parents=True, exist_ok=True)
-            sf.write(wav_path, normalised, 16000, subtype="PCM_16")
+
+            # Only regenerate if the file doesn't already exist; existing files
+            # are kept so a --resume run doesn't change the audio that was sent
+            # to the API in a partial run.
+            if not wav_path.exists():
+                if spec.startswith("wn_snr_"):
+                    snr_db = float(spec.replace("wn_snr_", "").replace("db", "").replace("+", ""))
+                    degraded_wav = apply_white_noise(wav, snr_db, rng)
+                elif spec.startswith("synth_rate_slow_"):
+                    rate_factor = float(spec.replace("synth_rate_slow_", "").rstrip("x"))
+                    degraded_wav = apply_rate_slow_trimmed(wav, rate_factor)
+                else:
+                    raise ValueError(f"Unknown degradation spec: {spec!r}")
+                normalised = rms_normalize_to_match(degraded_wav, wav)
+                sf.write(wav_path, normalised, 16000, subtype="PCM_16")
+            else:
+                # Advance the RNG to keep the sequence consistent even when skipping.
+                if spec.startswith("wn_snr_"):
+                    snr_db = float(spec.replace("wn_snr_", "").replace("db", "").replace("+", ""))
+                    _ = rng.standard_normal(len(wav))  # consume the same RNG draw
+
             degradation = spec
         else:
             raise ValueError(f"Unknown kind: {src['kind']}")
@@ -367,26 +452,69 @@ def estimate_cost(clips: list[Clip], n_reruns: int, models: list[str]) -> dict:
 # --- Model adapters ----------------------------------------------------------
 @dataclass
 class JudgeResult:
-    """One (clip, model, run) outcome."""
+    """One (clip, model, run, prompt_variant) outcome."""
 
     clip_label: str
     model: str
     run_idx: int
-    refused: bool
+    # failure_reason is the authoritative failure classifier:
+    #   "ok"               — scored successfully
+    #   "content_refusal"  — safety filter blocked the response
+    #   "json_parse_error" — response returned but was not valid JSON
+    #   "api_error"        — network / rate-limit / auth failure
+    # `refused` is kept for backwards-compat with Phase A tooling; it is True
+    # for all non-"ok" reasons.  Only "content_refusal" counts against the
+    # refusal gate; the others are infrastructure failures.
+    failure_reason: str  # "ok" | "content_refusal" | "json_parse_error" | "api_error"
+    refused: bool  # True iff failure_reason != "ok"
     raw_response: str
     parsed: dict | None
+    # prompt_variant distinguishes full-metadata from the metadata-bias probe:
+    #   "with_metadata"  — includes intensity arc + typology description (default)
+    #   "no_arc"         — omits arc + typology_long; used to test whether
+    #                      emotional_expression/escalation_arc are read from the
+    #                      audio or inferred from the metadata label
+    prompt_variant: str = "with_metadata"
     error: str | None = None
     latency_s: float | None = None
     usd_cost: float | None = None
     extras: dict = field(default_factory=dict)
 
 
-def build_clip_prompt(clip: Clip) -> str:
-    deg_note = ""
-    if clip.degradation:
-        deg_note = (
+def _degradation_note(clip: Clip) -> str:
+    if not clip.degradation:
+        return ""
+    if clip.degradation.startswith("wn_snr_"):
+        return (
             f"- degradation applied (for evaluation only): {clip.degradation} "
             f"(white noise mixed in, RMS-matched to clean)\n"
+        )
+    if clip.degradation.startswith("synth_rate_slow_"):
+        rate = clip.degradation.replace("synth_rate_slow_", "").rstrip("x")
+        return (
+            f"- degradation applied (for evaluation only): {clip.degradation} "
+            f"(audio resampled to {rate}× speed then trimmed to original length — "
+            f"simulates over-slow TTS synthesis)\n"
+        )
+    return f"- degradation applied (for evaluation only): {clip.degradation}\n"
+
+
+def build_clip_prompt(clip: Clip, prompt_variant: str = "with_metadata") -> str:
+    """Build the per-clip user prompt.
+
+    prompt_variant:
+      "with_metadata" — full context including intensity arc (default)
+      "no_arc"        — omits arc + typology description (metadata-bias probe)
+    """
+    deg_note = _degradation_note(clip)
+    if prompt_variant == "no_arc":
+        return CLIP_PROMPT_NO_ARC_TEMPLATE.format(
+            clip_id=clip.label,
+            typology=clip.typology,
+            duration_s=clip.duration_s,
+            speakers_summary=clip.speakers_summary,
+            backend=clip.backend,
+            degradation_note=deg_note,
         )
     return CLIP_PROMPT_TEMPLATE.format(
         clip_id=clip.label,
@@ -399,7 +527,9 @@ def build_clip_prompt(clip: Clip) -> str:
     )
 
 
-def call_gemini(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
+def call_gemini(
+    clip: Clip, run_idx: int, schema: dict, prompt_variant: str = "with_metadata"
+) -> JudgeResult:
     """Send one (clip, run) to Gemini 2.5 Pro audio. Lazy-imports `google.genai`.
 
     Configures safety settings to BLOCK_NONE for the DV-content categories per
@@ -411,10 +541,8 @@ def call_gemini(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     audio_bytes = clip.wav_path.read_bytes()
-    prompt = build_clip_prompt(clip)
+    prompt = build_clip_prompt(clip, prompt_variant=prompt_variant)
 
-    # Safety: research framing requires permissive settings for DV-content
-    # categories to avoid refusals on the violence-scenario metadata.
     safety_settings = [
         types.SafetySetting(category=c, threshold=types.HarmBlockThreshold.BLOCK_NONE)
         for c in (
@@ -435,37 +563,49 @@ def call_gemini(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
                 prompt,
             ],
             config=types.GenerateContentConfig(
-                temperature=0.0,
+                temperature=TEMPERATURE,
                 response_mime_type="application/json",
                 response_schema=schema,
                 safety_settings=safety_settings,
             ),
         )
-    except Exception as e:  # noqa: BLE001 — capture refusal / API error uniformly
+    except Exception as e:  # noqa: BLE001
         return JudgeResult(
             clip_label=clip.label,
             model="gemini-2.5-pro",
             run_idx=run_idx,
+            failure_reason="api_error",
             refused=True,
             raw_response="",
             parsed=None,
+            prompt_variant=prompt_variant,
             error=repr(e),
             latency_s=time.time() - t0,
         )
     latency = time.time() - t0
 
+    # Detect content refusal: safety block or empty response despite no exception.
+    candidates = getattr(resp, "candidates", None) or []
+    finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+    is_safety_block = (
+        str(finish_reason).upper() in {"SAFETY", "RECITATION"} or not (resp.text or "").strip()
+    )
+
     raw = resp.text or ""
-    try:
-        parsed = json.loads(raw)
-        refused = False
-    except json.JSONDecodeError:
+    if is_safety_block:
+        failure_reason = "content_refusal"
         parsed = None
-        refused = True
+    else:
+        try:
+            parsed = json.loads(raw)
+            failure_reason = "ok"
+        except json.JSONDecodeError:
+            parsed = None
+            failure_reason = "json_parse_error"
 
     usage = getattr(resp, "usage_metadata", None)
     in_tok = getattr(usage, "prompt_token_count", None) or 0
     out_tok = getattr(usage, "candidates_token_count", None) or 0
-    # Audio is billed by duration on Gemini, not tokens — record both.
     cost = (clip.duration_s / 60.0) * GEMINI_AUDIO_USD_PER_MIN + (
         out_tok / 1000.0
     ) * GEMINI_OUTPUT_USD_PER_KTOK
@@ -474,16 +614,20 @@ def call_gemini(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
         clip_label=clip.label,
         model="gemini-2.5-pro",
         run_idx=run_idx,
-        refused=refused,
+        failure_reason=failure_reason,
+        refused=failure_reason != "ok",
         raw_response=raw,
         parsed=parsed,
+        prompt_variant=prompt_variant,
         latency_s=latency,
         usd_cost=round(cost, 4),
         extras={"in_tok": in_tok, "out_tok": out_tok},
     )
 
 
-def call_openai(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
+def call_openai(
+    clip: Clip, run_idx: int, schema: dict, prompt_variant: str = "with_metadata"
+) -> JudgeResult:
     """Send one (clip, run) to gpt-4o-audio-preview. Lazy-imports `openai`."""
     import base64
 
@@ -491,14 +635,14 @@ def call_openai(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
 
     client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     audio_b64 = base64.b64encode(clip.wav_path.read_bytes()).decode("ascii")
-    prompt = build_clip_prompt(clip)
+    prompt = build_clip_prompt(clip, prompt_variant=prompt_variant)
 
     t0 = time.time()
     try:
         resp = client.chat.completions.create(
             model="gpt-4o-audio-preview",
             modalities=["text"],
-            temperature=0.0,
+            temperature=TEMPERATURE,
             messages=[
                 {"role": "system", "content": SYSTEM_PREAMBLE},
                 {
@@ -526,21 +670,30 @@ def call_openai(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
             clip_label=clip.label,
             model="gpt-4o-audio-preview",
             run_idx=run_idx,
+            failure_reason="api_error",
             refused=True,
             raw_response="",
             parsed=None,
+            prompt_variant=prompt_variant,
             error=repr(e),
             latency_s=time.time() - t0,
         )
     latency = time.time() - t0
 
-    raw = resp.choices[0].message.content or ""
-    try:
-        parsed = json.loads(raw)
-        refused = False
-    except json.JSONDecodeError:
+    choice = resp.choices[0]
+    finish_reason = getattr(choice, "finish_reason", "") or ""
+    raw = choice.message.content or ""
+
+    if finish_reason == "content_filter" or not raw.strip():
+        failure_reason = "content_refusal"
         parsed = None
-        refused = True
+    else:
+        try:
+            parsed = json.loads(raw)
+            failure_reason = "ok"
+        except json.JSONDecodeError:
+            parsed = None
+            failure_reason = "json_parse_error"
 
     usage = resp.usage
     in_tok = getattr(usage, "prompt_tokens", 0) or 0
@@ -553,9 +706,11 @@ def call_openai(clip: Clip, run_idx: int, schema: dict) -> JudgeResult:
         clip_label=clip.label,
         model="gpt-4o-audio-preview",
         run_idx=run_idx,
-        refused=refused,
+        failure_reason=failure_reason,
+        refused=failure_reason != "ok",
         raw_response=raw,
         parsed=parsed,
+        prompt_variant=prompt_variant,
         latency_s=latency,
         usd_cost=round(cost, 4),
         extras={"in_tok": in_tok, "out_tok": out_tok},
@@ -595,99 +750,175 @@ def spearman(xs: list[float], ys: list[float]) -> float:
 
 
 def evaluate_gates(clips: list[Clip], results: list[JudgeResult]) -> dict:
-    """Compute per-model gate outcomes."""
+    """Compute per-model gate outcomes.
+
+    Gates are evaluated on `prompt_variant == "with_metadata"` runs only.
+    The metadata-bias probe (no_arc runs) is tabulated separately.
+
+    overall_pass = refusal AND discrimination (the two gates testing real
+    capability).  variance and shay_correlation are reported but NOT included
+    in overall_pass:
+      - variance: trivially PASS at TEMPERATURE=0.0 — meaningful only if the
+        script is rerun with TEMPERATURE > 0 and N_RERUNS >= 4.
+      - shay_correlation: n=4 corpus clips gives a directional signal but not
+        a statistically significant one (need n≥7 for p<0.05).  Treat as a
+        red-flag check, not a hard gate.
+    """
     by_model: dict[str, list[JudgeResult]] = {}
     for r in results:
         by_model.setdefault(r.model, []).append(r)
 
     out: dict[str, dict] = {}
-    for model, runs in by_model.items():
-        # Refusal gate: count unique clips with at least one non-refused run.
-        scored_clips = {r.clip_label for r in runs if not r.refused}
+    for model, all_runs in by_model.items():
+        # Gate evaluation uses only the primary (with_metadata) runs.
+        runs = [r for r in all_runs if r.prompt_variant == "with_metadata"]
+
+        # --- Refusal gate -------------------------------------------------------
+        # Only "content_refusal" counts against this gate; api_error and
+        # json_parse_error are infrastructure failures, not content decisions.
+        scored_clips = {
+            r.clip_label for r in runs if r.failure_reason not in ("content_refusal",) and r.parsed
+        }
+        content_refusals = [r for r in runs if r.failure_reason == "content_refusal"]
         refusal_pass = len(scored_clips) >= REFUSAL_GATE_MIN_SCORED
 
-        # Mean overall_quality per clip across reruns (skip refusals).
+        # --- Mean overall_quality per clip across reruns -----------------------
         per_clip_overall: dict[str, float] = {}
         for c in clips:
             scores = [
-                r.parsed["overall_quality"]
-                for r in runs
-                if r.clip_label == c.label and not r.refused and r.parsed
+                r.parsed["overall_quality"] for r in runs if r.clip_label == c.label and r.parsed
             ]
             if scores:
                 per_clip_overall[c.label] = float(np.mean(scores))
 
-        # Discrimination gate: mean(corpus clips, n=4) − mean(−10dB severe deg, n=1).
-        # We use the severe degradation only; the +10 dB SNR clip is a milder
-        # mid-anchor and shouldn't fail the gate if discrimination is real.
+        # --- Discrimination gate -----------------------------------------------
+        # Two discrimination arms are tested independently:
+        #   1. signal_corruption: corpus mean − wn_snr_-10db (Phase A comparability)
+        #   2. synth_failure: corpus mean − synth_rate_slow (synthesis-defect test)
+        # A model must clear at least one arm to pass.  A model that clears only
+        # arm 1 can hear noise but not synthesis defects — note that in the report.
         corpus_labels = [c.label for c in clips if c.kind == "corpus"]
-        severe_label = next((c.label for c in clips if c.degradation == "wn_snr_-10db"), None)
-        if (
-            severe_label is not None
-            and severe_label in per_clip_overall
-            and all(lbl in per_clip_overall for lbl in corpus_labels)
-        ):
-            corpus_mean = float(np.mean([per_clip_overall[lbl] for lbl in corpus_labels]))
-            severe_score = per_clip_overall[severe_label]
-            discrimination = corpus_mean - severe_score
-            discrimination_pass = discrimination >= DISCRIMINATION_GATE
-        else:
-            corpus_mean = severe_score = discrimination = float("nan")
-            discrimination_pass = False
+        corpus_scores = [per_clip_overall[lbl] for lbl in corpus_labels if lbl in per_clip_overall]
+        corpus_mean = float(np.mean(corpus_scores)) if corpus_scores else float("nan")
 
-        # Reproducibility gate: per-clip per-dimension std across reruns ≤ 0.5.
+        noise_label = next((c.label for c in clips if c.degradation == "wn_snr_-10db"), None)
+        synth_label = next(
+            (c.label for c in clips if (c.degradation or "").startswith("synth_rate_slow_")),
+            None,
+        )
+
+        noise_sep = (
+            corpus_mean - per_clip_overall[noise_label]
+            if noise_label is not None and noise_label in per_clip_overall
+            else float("nan")
+        )
+        synth_sep = (
+            corpus_mean - per_clip_overall[synth_label]
+            if synth_label is not None and synth_label in per_clip_overall
+            else float("nan")
+        )
+        noise_disc_pass = (noise_sep == noise_sep) and noise_sep >= DISCRIMINATION_GATE
+        synth_disc_pass = (synth_sep == synth_sep) and synth_sep >= DISCRIMINATION_GATE
+        discrimination_pass = noise_disc_pass or synth_disc_pass
+
+        # --- Variance gate (informational at TEMPERATURE=0) -------------------
+        # At TEMPERATURE=0 with structured output, greedy decoding is deterministic
+        # so std will be 0 across reruns.  This gate is included for completeness
+        # but should not be treated as evidence of robustness unless the run used
+        # TEMPERATURE > 0 with N_RERUNS >= 4.
         max_std = 0.0
         for c in clips:
             for d in DIMENSIONS:
-                vals = [
-                    r.parsed[d]
-                    for r in runs
-                    if r.clip_label == c.label and not r.refused and r.parsed
-                ]
+                vals = [r.parsed[d] for r in runs if r.clip_label == c.label and r.parsed]
                 if len(vals) >= 2:
                     max_std = max(max_std, float(np.std(vals, ddof=0)))
         variance_pass = max_std <= VARIANCE_GATE
 
-        # Shay-correlation gate: Spearman ρ between expected_rank (corpus only)
-        # and model overall_quality (corpus only). 4 data points — n is small,
-        # we accept that and read ρ as directional rather than statistically
-        # significant.
+        # --- Shay-correlation check (informational) ---------------------------
+        # n=4 corpus clips → Spearman ρ is directional only, not statistically
+        # significant.  A negative ρ is a hard red flag; ρ near zero is
+        # inconclusive.  This is excluded from overall_pass — it should not gate
+        # a go/no-go decision at n=4.
         xs, ys = [], []
         for c in clips:
             if c.kind == "corpus" and c.label in per_clip_overall:
                 xs.append(float(c.expected_rank))
                 ys.append(per_clip_overall[c.label])
         shay_rho = spearman(xs, ys) if len(xs) >= 2 else float("nan")
-        # NaN check: (shay_rho == shay_rho) is False iff NaN; ruff prefers this idiom.
         shay_pass = (shay_rho == shay_rho) and shay_rho >= SHAY_CORRELATION_GATE
+
+        # --- Metadata-bias probe (no_arc vs with_metadata) --------------------
+        no_arc_runs = [r for r in all_runs if r.prompt_variant == "no_arc"]
+        bias_probe: dict[str, dict] = {}
+        for c in clips:
+            if c.kind != "corpus":
+                continue
+            for dim in ("emotional_expression", "escalation_arc"):
+                with_scores = [r.parsed[dim] for r in runs if r.clip_label == c.label and r.parsed]
+                no_arc_scores = [
+                    r.parsed[dim] for r in no_arc_runs if r.clip_label == c.label and r.parsed
+                ]
+                if with_scores and no_arc_scores:
+                    key = f"{c.label}__{dim}"
+                    bias_probe[key] = {
+                        "with_metadata_mean": round(float(np.mean(with_scores)), 2),
+                        "no_arc_mean": round(float(np.mean(no_arc_scores)), 2),
+                        "delta": round(
+                            float(np.mean(with_scores)) - float(np.mean(no_arc_scores)), 2
+                        ),
+                    }
 
         out[model] = {
             "refusal_gate": {
                 "pass": bool(refusal_pass),
                 "scored_clips": len(scored_clips),
+                "content_refusals": len(content_refusals),
                 "min_required": REFUSAL_GATE_MIN_SCORED,
             },
             "discrimination_gate": {
                 "pass": bool(discrimination_pass),
-                "corpus_mean": corpus_mean,
-                "severe_degraded_overall": severe_score,
-                "separation": discrimination,
+                "corpus_mean": round(corpus_mean, 3) if corpus_mean == corpus_mean else None,
+                "noise_corruption": {
+                    "label": noise_label,
+                    "score": round(per_clip_overall[noise_label], 3)
+                    if noise_label and noise_label in per_clip_overall
+                    else None,
+                    "separation": round(noise_sep, 3) if noise_sep == noise_sep else None,
+                    "pass": bool(noise_disc_pass),
+                },
+                "synth_failure": {
+                    "label": synth_label,
+                    "score": round(per_clip_overall[synth_label], 3)
+                    if synth_label and synth_label in per_clip_overall
+                    else None,
+                    "separation": round(synth_sep, 3) if synth_sep == synth_sep else None,
+                    "pass": bool(synth_disc_pass),
+                },
                 "threshold": DISCRIMINATION_GATE,
             },
             "variance_gate": {
                 "pass": bool(variance_pass),
                 "max_per_dim_std": round(max_std, 3),
                 "threshold": VARIANCE_GATE,
+                "note": (
+                    "TEMPERATURE=0.0 makes this gate trivially PASS via greedy determinism. "
+                    "Re-run with TEMPERATURE=0.1 and N_RERUNS=4 for a meaningful estimate."
+                    if TEMPERATURE == 0.0
+                    else f"TEMPERATURE={TEMPERATURE}"
+                ),
             },
-            "shay_correlation_gate": {
+            "shay_correlation_check": {
+                "informational_only": True,
                 "pass": bool(shay_pass),
                 "spearman_rho": (None if shay_rho != shay_rho else round(shay_rho, 3)),
                 "n_corpus_clips": len(xs),
                 "threshold": SHAY_CORRELATION_GATE,
+                "note": "n=4 is not statistically significant; treat as directional red-flag check only.",
             },
-            "overall_pass": bool(
-                refusal_pass and discrimination_pass and variance_pass and shay_pass
-            ),
+            "metadata_bias_probe": bias_probe,
+            # overall_pass = refusal AND discrimination only.
+            # variance and shay_correlation are advisory; see gate notes above.
+            "overall_pass": bool(refusal_pass and discrimination_pass),
             "per_clip_overall": per_clip_overall,
         }
     return out
@@ -715,35 +946,64 @@ def write_auto_report(payload: dict) -> None:
 
     md.append("## Gate outcomes")
     md.append("")
-    md.append("| Model | Refusal | Discrimination | Variance | Shay ρ | Overall |")
-    md.append("|---|---|---|---|---|---|")
+    md.append("| Model | Refusal | Disc (noise) | Disc (synth) | Variance† | Shay ρ† | Overall |")
+    md.append("|---|---|---|---|---|---|---|")
     for model, g in payload["gates"].items():
         ref = f"{g['refusal_gate']['scored_clips']}/{g['refusal_gate']['min_required']}"
-        disc = (
-            "n/a"
-            if g["discrimination_gate"]["separation"] != g["discrimination_gate"]["separation"]
-            else f"{g['discrimination_gate']['separation']:+.2f}"
-        )
+
+        def _disc_cell(arm: dict) -> str:
+            sep = arm.get("separation")
+            if sep is None:
+                return "n/a"
+            return f"{sep:+.2f} {'✅' if arm['pass'] else '❌'}"
+
+        disc_noise = _disc_cell(g["discrimination_gate"]["noise_corruption"])
+        disc_synth = _disc_cell(g["discrimination_gate"]["synth_failure"])
         var = f"{g['variance_gate']['max_per_dim_std']:.2f}"
-        rho = (
-            "n/a"
-            if g["shay_correlation_gate"]["spearman_rho"] is None
-            else f"{g['shay_correlation_gate']['spearman_rho']:+.2f}"
-        )
+        rho_val = g["shay_correlation_check"]["spearman_rho"]
+        rho = "n/a" if rho_val is None else f"{rho_val:+.2f}"
         md.append(
             f"| `{model}` | {ref} {'✅' if g['refusal_gate']['pass'] else '❌'} | "
-            f"{disc} {'✅' if g['discrimination_gate']['pass'] else '❌'} | "
+            f"{disc_noise} | {disc_synth} | "
             f"{var} {'✅' if g['variance_gate']['pass'] else '❌'} | "
-            f"{rho} {'✅' if g['shay_correlation_gate']['pass'] else '❌'} | "
+            f"{rho} {'✅' if g['shay_correlation_check']['pass'] else '❌'} | "
             f"{'PASS' if g['overall_pass'] else 'FAIL'} |"
         )
     md.append("")
     md.append(
-        "Thresholds — refusal: ≥ "
-        f"{REFUSAL_GATE_MIN_SCORED}/6 clips scored · discrimination: ≥ {DISCRIMINATION_GATE} · "
-        f"variance: per-dim std ≤ {VARIANCE_GATE} · Shay ρ: ≥ {SHAY_CORRELATION_GATE}"
+        f"Thresholds — refusal: ≥ {REFUSAL_GATE_MIN_SCORED}/6 scored · "
+        f"discrimination: separation ≥ {DISCRIMINATION_GATE} · "
+        f"variance: per-dim std ≤ {VARIANCE_GATE} · Shay ρ: ≥ {SHAY_CORRELATION_GATE}  "
+    )
+    md.append(
+        "† _variance_ and _Shay ρ_ are advisory — not included in overall_pass. "
+        "See gate notes in `evaluate_gates()`."
     )
     md.append("")
+
+    # Metadata-bias probe table (only emitted when no_arc runs are present).
+    any_bias = any(bool(g.get("metadata_bias_probe")) for g in payload["gates"].values())
+    if any_bias:
+        md.append("## Metadata-bias probe (no_arc vs with_metadata)")
+        md.append("")
+        md.append(
+            "Delta = with_metadata_mean − no_arc_mean on `emotional_expression` and "
+            "`escalation_arc`. Large positive delta → model is reading the label, not the audio."
+        )
+        md.append("")
+        models_with_bias = [m for m, g in payload["gates"].items() if g.get("metadata_bias_probe")]
+        md.append("| Clip × Dim | " + " | ".join(f"`{m}` Δ" for m in models_with_bias) + " |")
+        md.append("|---" + "|---" * len(models_with_bias) + "|")
+        all_keys = sorted(
+            {k for g in payload["gates"].values() for k in g.get("metadata_bias_probe", {})}
+        )
+        for key in all_keys:
+            cells = [f"`{key}`"]
+            for m in models_with_bias:
+                probe = payload["gates"][m].get("metadata_bias_probe", {}).get(key)
+                cells.append("—" if probe is None else f"{probe['delta']:+.2f}")
+            md.append("| " + " | ".join(cells) + " |")
+        md.append("")
 
     md.append("## Per-clip mean overall_quality")
     md.append("")
@@ -787,6 +1047,24 @@ def main() -> None:
         choices=["gemini", "openai"],
         default=["gemini", "openai"],
         help="Which LLM(s) to evaluate. Omit one to run a partial spike.",
+    )
+    parser.add_argument(
+        "--probe-metadata-bias",
+        action="store_true",
+        help=(
+            "Run an additional no-arc prompt variant on corpus clips (run_idx=0 only) "
+            "to measure whether emotional_expression / escalation_arc scores are driven "
+            "by the intensity-arc metadata label or by what the model actually hears. "
+            "Adds ~4 calls per model (~$0.10–0.40 extra)."
+        ),
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume a partial run. Loads completed (clip_label, model, run_idx, "
+            "prompt_variant) tuples from results_partial.jsonl and skips them."
+        ),
     )
     args = parser.parse_args()
 
@@ -835,33 +1113,79 @@ def main() -> None:
     if "openai" in args.models and not os.environ.get("OPENAI_API_KEY"):
         sys.exit("Missing OPENAI_API_KEY (or pass --models gemini to skip OpenAI).")
 
-    # --- Run -----------------------------------------------------------------
+    # --- Resume: load prior partial results ----------------------------------
+    completed: set[tuple[str, str, int, str]] = set()
     results: list[JudgeResult] = []
     cumulative_usd = 0.0
+    if args.resume and RESULTS_PARTIAL_PATH.exists():
+        for line in RESULTS_PARTIAL_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            d = json.loads(line)
+            r = JudgeResult(**{k: v for k, v in d.items() if k in JudgeResult.__dataclass_fields__})
+            results.append(r)
+            cumulative_usd += r.usd_cost or 0.0
+            completed.add((r.clip_label, r.model, r.run_idx, r.prompt_variant))
+        print(
+            f"resumed: loaded {len(results)} prior results (${cumulative_usd:.4f} spent)",
+            flush=True,
+        )
+
+    # --- Build call plan -----------------------------------------------------
+    # Each entry: (clip, model_name, run_idx, prompt_variant)
+    call_plan: list[tuple[Clip, str, int, str]] = []
+    model_name_map = {"gemini": "gemini-2.5-pro", "openai": "gpt-4o-audio-preview"}
     for model in args.models:
-        print(f"\n=== Model: {model} ===", flush=True)
         for clip in clips:
             for run_idx in range(N_RERUNS_PER_CLIP):
-                if cumulative_usd >= budget_cap:
-                    print(
-                        f"ABORT: cumulative ${cumulative_usd:.2f} ≥ budget ${budget_cap:.2f}. "
-                        "Partial results will still be written.",
-                        flush=True,
-                    )
-                    break
-                if model == "gemini":
-                    r = call_gemini(clip, run_idx, schema)
-                else:
-                    r = call_openai(clip, run_idx, schema)
-                results.append(r)
-                cumulative_usd += r.usd_cost or 0.0
-                tag = "REFUSED" if r.refused else "ok"
-                overall = (r.parsed or {}).get("overall_quality", "—")
+                call_plan.append((clip, model, run_idx, "with_metadata"))
+            if args.probe_metadata_bias and clip.kind == "corpus":
+                call_plan.append((clip, model, 0, "no_arc"))
+
+    # Filter out already-completed calls.
+    pending = [
+        (clip, model, run_idx, variant)
+        for clip, model, run_idx, variant in call_plan
+        if (clip.label, model_name_map[model], run_idx, variant) not in completed
+    ]
+    print(f"call plan: {len(call_plan)} total, {len(pending)} pending", flush=True)
+
+    # --- Run -----------------------------------------------------------------
+    partial_f = RESULTS_PARTIAL_PATH.open("a", encoding="utf-8") if not args.dry_run else None
+    try:
+        current_model = None
+        for clip, model, run_idx, prompt_variant in pending:
+            if model != current_model:
+                current_model = model
+                print(f"\n=== Model: {model} ===", flush=True)
+            if cumulative_usd >= budget_cap:
                 print(
-                    f"  {clip.label} run{run_idx}  {tag}  overall={overall}  "
-                    f"latency={r.latency_s:.1f}s  cost=${(r.usd_cost or 0.0):.4f}",
+                    f"ABORT: cumulative ${cumulative_usd:.2f} ≥ budget ${budget_cap:.2f}. "
+                    "Partial results written to results_partial.jsonl — rerun with --resume.",
                     flush=True,
                 )
+                break
+            if model == "gemini":
+                r = call_gemini(clip, run_idx, schema, prompt_variant=prompt_variant)
+            else:
+                r = call_openai(clip, run_idx, schema, prompt_variant=prompt_variant)
+            results.append(r)
+            if partial_f is not None:
+                partial_f.write(json.dumps(asdict(r), ensure_ascii=False) + "\n")
+                partial_f.flush()
+            cumulative_usd += r.usd_cost or 0.0
+            tag = r.failure_reason if r.refused else "ok"
+            overall = (r.parsed or {}).get("overall_quality", "—")
+            variant_tag = f" [{prompt_variant}]" if prompt_variant != "with_metadata" else ""
+            print(
+                f"  {clip.label} run{run_idx}{variant_tag}  {tag}  overall={overall}  "
+                f"latency={r.latency_s:.1f}s  cost=${(r.usd_cost or 0.0):.4f}",
+                flush=True,
+            )
+    finally:
+        if partial_f is not None:
+            partial_f.close()
 
     gates = evaluate_gates(clips, results)
     payload = {
@@ -898,27 +1222,33 @@ def main() -> None:
     print("\n=== GATE SUMMARY ===", flush=True)
     for model, g in gates.items():
         print(f"  {model}: overall {'PASS' if g['overall_pass'] else 'FAIL'}", flush=True)
+        ref = g["refusal_gate"]
         print(
-            f"    refusal:        {g['refusal_gate']['scored_clips']}/{g['refusal_gate']['min_required']} "
-            f"{'PASS' if g['refusal_gate']['pass'] else 'FAIL'}",
+            f"    refusal:            {ref['scored_clips']}/{ref['min_required']} scored  "
+            f"(content refusals: {ref['content_refusals']})  "
+            f"{'PASS' if ref['pass'] else 'FAIL'}",
             flush=True,
         )
         d = g["discrimination_gate"]
+        noise = d["noise_corruption"]
+        synth = d["synth_failure"]
+        noise_sep_s = f"{noise['separation']:+.2f}" if noise["separation"] is not None else "n/a"
+        synth_sep_s = f"{synth['separation']:+.2f}" if synth["separation"] is not None else "n/a"
         print(
-            f"    discrimination: separation {d['separation']:+.2f} (≥ {d['threshold']}) "
-            f"{'PASS' if d['pass'] else 'FAIL'}",
+            f"    discrimination:     noise {noise_sep_s}  synth {synth_sep_s}  "
+            f"(threshold ≥ {d['threshold']})  {'PASS' if d['pass'] else 'FAIL'}",
             flush=True,
         )
         v = g["variance_gate"]
         print(
-            f"    variance:       max per-dim std {v['max_per_dim_std']:.2f} (≤ {v['threshold']}) "
-            f"{'PASS' if v['pass'] else 'FAIL'}",
+            f"    variance (advisory):max per-dim std {v['max_per_dim_std']:.2f} (≤ {v['threshold']})  "
+            f"{'PASS' if v['pass'] else 'FAIL'}  [{v['note'][:50]}…]",
             flush=True,
         )
-        s = g["shay_correlation_gate"]
+        s = g["shay_correlation_check"]
         print(
-            f"    Shay ρ:         {s['spearman_rho']} (≥ {s['threshold']}) "
-            f"{'PASS' if s['pass'] else 'FAIL'}",
+            f"    Shay ρ (advisory):  {s['spearman_rho']} (≥ {s['threshold']}, n={s['n_corpus_clips']})  "
+            f"{'PASS' if s['pass'] else 'FAIL'}  [informational only]",
             flush=True,
         )
     print(f"  cumulative spend: ${cumulative_usd:.4f} / ${budget_cap:.2f}", flush=True)
