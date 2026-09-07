@@ -141,8 +141,8 @@ Approach (three layers, applied in order):
 **Schema change — `DialogueTurn` gains two new fields:**
 
 ```python
-text_original: str          # canonical LLM output, never modified
-text_spoken: str            # text actually sent to TTS after all normalization
+text_original: str  # canonical LLM output, never modified
+text_spoken: str  # text actually sent to TTS after all normalization
 normalization_rules_triggered: list[str]  # rule IDs that fired, empty if none
 ```
 
@@ -189,17 +189,18 @@ New data types:
 ```python
 @dataclass
 class PhraseHint:
-    phrase_id: str          # unique within the turn, e.g. "t3_p1"
+    phrase_id: str  # unique within the turn, e.g. "t3_p1"
     hint: Literal["stress", "slow", "break_before", "break_after", "menace"]
-    char_start_original: int   # offset in text_original
+    char_start_original: int  # offset in text_original
     char_end_original: int
+
 
 @dataclass
 class PhraseProsody:
     phrase_id: str
-    rate: str | None        # SSML rate, e.g. "+15%" or "slow"
-    pitch: str | None       # e.g. "+3st"
-    volume: str | None      # e.g. "+6dB"
+    rate: str | None  # SSML rate, e.g. "+15%" or "slow"
+    pitch: str | None  # e.g. "+3st"
+    volume: str | None  # e.g. "+6dB"
     break_before_ms: int = 0
     break_after_ms: int = 0
 ```
@@ -233,10 +234,9 @@ class SpeakerState:
     rate_offset: float = 1.0
     pitch_offset_st: float = 0.0
     volume_offset_db: float = 0.0
-    breathiness_level: float = 0.0   # 0.0 = modal; 1.0 = maximum
+    breathiness_level: float = 0.0  # 0.0 = modal; 1.0 = maximum
 
-    def update(self, new_intensity: int, speaker_role: str) -> None:
-        ...
+    def update(self, new_intensity: int, speaker_role: str) -> None: ...
 
     def to_metadata_dict(self) -> dict[str, float]:
         # Serialized into per-turn metadata for reproducibility
@@ -310,9 +310,9 @@ Values are seeded-RNG draws for reproducibility. The `TurnGapController` is inst
 
 ```python
 class MixMode(Enum):
-    SEQUENTIAL = "sequential"   # current behavior
-    OVERLAP = "overlap"         # next starts before prev ends; both play through
-    BARGE_IN = "barge_in"       # prev plays through its speech end then is cut with a 60 ms fade
+    SEQUENTIAL = "sequential"  # current behavior
+    OVERLAP = "overlap"  # next starts before prev ends; both play through
+    BARGE_IN = "barge_in"  # prev plays through its speech end then is cut with a 60 ms fade
 ```
 
 **Speech-end anchoring (#66).** TTS engines pad each utterance with 100–300 ms of trailing near-silence. Anchoring overlap onset against the WAV's *file end* therefore puts the overlap inside the silence — listeners hear the previous speaker stop, then a gap, then the new speaker start, sounding like polite turn-taking instead of an interruption.
@@ -384,10 +384,10 @@ Add a `PreprocessingConfig` dataclass controlling which steps are applied:
 ```python
 @dataclass
 class PreprocessingConfig:
-    resample: bool = True           # always True in practice
-    downmix_mono: bool = True       # always True
-    lowpass_hz: float | None = 7500 # None to skip; 7500 Hz is correct for 16 kHz output
-    wiener_denoise: bool = True     # configurable; default off for Tier A
+    resample: bool = True  # always True in practice
+    downmix_mono: bool = True  # always True
+    lowpass_hz: float | None = 7500  # None to skip; 7500 Hz is correct for 16 kHz output
+    wiener_denoise: bool = True  # configurable; default off for Tier A
     normalization: NormalizationMode = NormalizationMode.PER_TURN_RMS
     silence_pad_s: float = 0.5
 ```
@@ -447,9 +447,9 @@ The `AzureProvider` / `TTSProvider` ABC must be extended with a `ProviderCapabil
 @dataclass
 class ProviderCapabilities:
     supports_ssml: bool
-    supports_style_tags: bool          # <mstts:express-as>
-    supports_phoneme_tags: bool        # <phoneme alphabet="ipa">
-    supports_api_emotion_sliders: bool # ElevenLabs stability / style_exaggeration
+    supports_style_tags: bool  # <mstts:express-as>
+    supports_phoneme_tags: bool  # <phoneme alphabet="ipa">
+    supports_api_emotion_sliders: bool  # ElevenLabs stability / style_exaggeration
     max_volume_delta_db: float | None  # None = unlimited
 ```
 
@@ -471,14 +471,14 @@ This does not require a new pipeline stage. It is a refactor of `SSMLBuilder` an
 ```python
 @dataclass
 class GenerationMetadata:
-    pipeline_version: str          # e.g. "v3.0"
-    tts_backend: str               # e.g. "azure", "google"
-    voice_family: str              # e.g. "he-IL-AvriNeural"
+    pipeline_version: str  # e.g. "v3.0"
+    tts_backend: str  # e.g. "azure", "google"
+    voice_family: str  # e.g. "he-IL-AvriNeural"
     text_normalization_version: str  # version of the disambiguation lexicon
     prosody_controller_version: str
     timing_controller_version: str
-    mix_mode_used: str             # dominant MixMode for the scene
-    normalization_strategy: str    # e.g. "per_turn_rms_v1"
+    mix_mode_used: str  # dominant MixMode for the scene
+    normalization_strategy: str  # e.g. "per_turn_rms_v1"
     breathiness_applied: bool
     speaker_state_serialized: dict  # final SpeakerState for each speaker
 ```
