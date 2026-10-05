@@ -772,7 +772,7 @@ def mix_at_snr(clean, noise, snr_db, rng=np.random.default_rng()):
         noise = np.tile(noise, reps)
 
     start = rng.integers(0, len(noise) - len(clean) + 1)
-    noise = noise[start:start + len(clean)]
+    noise = noise[start : start + len(clean)]
 
     noise = noise - np.mean(noise)
     target_noise_rms = rms(clean) / (10 ** (snr_db / 20))
@@ -1068,6 +1068,7 @@ def add_subtle_f0_microvariation(x, sr, amount_semitones=0.08, corr_frames=5, se
     y = y / (np.max(np.abs(y)) + 1e-9) * 0.98
     return y.astype(np.float32)
 
+
 x, sr = sf.read("tts_turn.wav")
 y = add_subtle_f0_microvariation(x, sr, amount_semitones=0.06)
 sf.write("tts_turn_micro.wav", y, sr, subtype="PCM_16")
@@ -1181,7 +1182,7 @@ def analyze_turn(path, speaker_profile=None):
 
     duration = len(y) / sr
     peak = np.max(np.abs(y)) + 1e-12
-    rms = np.sqrt(np.mean(y ** 2) + 1e-12)
+    rms = np.sqrt(np.mean(y**2) + 1e-12)
 
     # Click proxy: large first differences relative to RMS.
     dy = np.diff(y)
@@ -1197,8 +1198,8 @@ def analyze_turn(path, speaker_profile=None):
     # F0 using pyin. Tune fmin/fmax per speaker if known.
     f0, voiced_flag, voiced_prob = librosa.pyin(
         y,
-        fmin=librosa.note_to_hz("C2"),   # ~65 Hz
-        fmax=librosa.note_to_hz("C6"),   # ~1047 Hz, broad guard
+        fmin=librosa.note_to_hz("C2"),  # ~65 Hz
+        fmax=librosa.note_to_hz("C6"),  # ~1047 Hz, broad guard
         sr=sr,
         frame_length=1024,
         hop_length=160,
@@ -1306,7 +1307,7 @@ anchor_emb = mean_embedding(neutral_anchor_turns)
 turn_emb = speaker_embedding(candidate_turn)
 cosine = np.dot(anchor_emb, turn_emb) / (np.linalg.norm(anchor_emb) * np.linalg.norm(turn_emb))
 
-if cosine < 0.72:   # calibrate per embedding model and TTS engine
+if cosine < 0.72:  # calibrate per embedding model and TTS engine
     reject("speaker_identity_shift")
 ```
 
@@ -1726,23 +1727,31 @@ TTS dry turn
 #### Example audiomentations chain
 
 ```python
-from audiomentations import Compose, AddBackgroundNoise, ApplyImpulseResponse, Gain, ClippingDistortion
+from audiomentations import (
+    Compose,
+    AddBackgroundNoise,
+    ApplyImpulseResponse,
+    Gain,
+    ClippingDistortion,
+)
 
-augment = Compose([
-    ApplyImpulseResponse(
-        ir_path="rir_database/",
-        p=0.7,
-        leave_length_unchanged=False,
-    ),
-    AddBackgroundNoise(
-        sounds_path="noise_database/",
-        min_snr_db=12,
-        max_snr_db=30,
-        p=0.9,
-    ),
-    Gain(min_gain_db=-3, max_gain_db=3, p=0.5),
-    ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=3, p=0.08),
-])
+augment = Compose(
+    [
+        ApplyImpulseResponse(
+            ir_path="rir_database/",
+            p=0.7,
+            leave_length_unchanged=False,
+        ),
+        AddBackgroundNoise(
+            sounds_path="noise_database/",
+            min_snr_db=12,
+            max_snr_db=30,
+            p=0.9,
+        ),
+        Gain(min_gain_db=-3, max_gain_db=3, p=0.5),
+        ClippingDistortion(min_percentile_threshold=0, max_percentile_threshold=3, p=0.08),
+    ]
+)
 
 y_aug = augment(samples=y, sample_rate=16000)
 ```
