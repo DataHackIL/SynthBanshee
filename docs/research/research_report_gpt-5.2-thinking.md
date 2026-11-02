@@ -679,6 +679,7 @@ In Python (numpy):
 ```python
 import numpy as np
 
+
 def crossfade(a, b, n=160):  # 10ms at 16kHz
     fade = np.linspace(0, 1, n, dtype=np.float32)
     a_tail = a[-n:] * (1 - fade)
@@ -959,15 +960,16 @@ from scipy.signal import butter, lfilter
 
 x, sr = sf.read("wet.wav")
 assert sr == 16000
-if x.ndim > 1: x = x[:,0]
+if x.ndim > 1:
+    x = x[:, 0]
 
 delay_ms = np.random.uniform(0.6, 1.2)
 d = int(sr * delay_ms / 1000.0)
 a = 10 ** (-np.random.uniform(6, 10) / 20.0)  # -6 to -10 dB
 
 # LPF for reflection
-b, c = butter(2, 5000/(sr/2), btype="low")
-ref = lfilter(b, c, np.pad(x, (d,0))[:-d])
+b, c = butter(2, 5000 / (sr / 2), btype="low")
+ref = lfilter(b, c, np.pad(x, (d, 0))[:-d])
 
 y = x + a * ref
 y = np.clip(y, -1.0, 1.0)
