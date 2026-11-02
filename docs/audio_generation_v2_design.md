@@ -111,10 +111,10 @@ Where it sits in the pipeline: called inside `ScriptGenerator._post_process_turn
 ```python
 @dataclass
 class PhraseProsody:
-    text_span: str          # exact substring to match in text
-    rate: str | None        # SSML rate value, e.g. "+15%" or "fast"
-    pitch: str | None       # e.g. "+5st"
-    volume: str | None      # e.g. "+6dB"
+    text_span: str  # exact substring to match in text
+    rate: str | None  # SSML rate value, e.g. "+15%" or "fast"
+    pitch: str | None  # e.g. "+5st"
+    volume: str | None  # e.g. "+6dB"
     break_before_ms: int = 0
     break_after_ms: int = 0
 ```
@@ -145,10 +145,9 @@ class SpeakerState:
     rate_offset: float = 1.0
     pitch_offset_st: float = 0.0
     volume_offset_db: float = 0.0
-    breathiness_level: float = 0.0   # 0.0 = modal; 1.0 = maximum breathiness
+    breathiness_level: float = 0.0  # 0.0 = modal; 1.0 = maximum breathiness
 
-    def update(self, new_intensity: int, speaker_role: str) -> None:
-        ...
+    def update(self, new_intensity: int, speaker_role: str) -> None: ...
 ```
 
 The state's outputs feed into `render_utterance()` as additional offsets that stack on top of the SSML parameters derived from `style_map`.
@@ -206,8 +205,7 @@ class TurnGapController:
         current_turn: DialogueTurn,
         prev_turn: DialogueTurn | None,
         rng: random.Random,
-    ) -> float:
-        ...
+    ) -> float: ...
 ```
 
 ---
@@ -225,9 +223,9 @@ class TurnGapController:
 A new `MixMode` enum in `SceneMixer`:
 ```python
 class MixMode(Enum):
-    SEQUENTIAL = "sequential"    # current behavior
-    OVERLAP = "overlap"          # next starts before prev ends
-    BARGE_IN = "barge_in"        # prev is cut off; next starts over
+    SEQUENTIAL = "sequential"  # current behavior
+    OVERLAP = "overlap"  # next starts before prev ends
+    BARGE_IN = "barge_in"  # prev is cut off; next starts over
 ```
 
 `TurnGapController` returns both a gap value and a `MixMode`. High-intensity transitions use `BARGE_IN` probabilistically (e.g., 30% of AGG→VIC transitions at I4+, 50% at I5).
